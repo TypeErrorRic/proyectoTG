@@ -4,7 +4,7 @@
 import os, csv, cv2, numpy as np
 
 # === Ruta base ===
-BASE  = r"D:\datasetPrueba\nyu_subset_tum-20250926T224949Z-1-001\nyu_subset_tum"
+BASE  = r"."
 ASSOC = os.path.join(BASE, "associations.txt")
 CSV_PATH = os.path.join(BASE, "meta", "labels_map.csv")  # creado en el paso A
 

@@ -1,3 +1,3 @@
-# Desarrollo de Trabajo de Grado.
+# Desarrollo de Trabajo de Grado
 
 Lista de Requirimientos.

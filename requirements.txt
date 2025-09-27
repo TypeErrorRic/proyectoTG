@@ -26,8 +26,18 @@ torchmetrics>=1.0.0
 # ===== Depth / 3D =====
 open3d>=0.17.0
 pyntcloud>=0.3.1
-h5py>=3.9.0   # para cargar datasets .mat (ej. NYU Depth V2)
+h5py>=3.9.0           # para cargar datasets .mat (ej. NYU Depth V2)
+trimesh>=4.0.0        # manejo adicional de mallas 3D
+pyvista>=0.42.0       # visualización de nubes/mallas 3D
+laspy>=2.5.1          # soporte para archivos .las/.laz
 
 # ===== Utils =====
 tensorboard>=2.13
 pyyaml>=6.0
+jupyter>=1.0.0        # para notebooks
+notebook>=7.0.0
+ipywidgets>=8.0.0     # controles interactivos
+
+# ===== Extra (para datasets/anotaciones) =====
+json5>=0.9.11         # para anotaciones JSON más flexibles
+pyqt5>=5.15
