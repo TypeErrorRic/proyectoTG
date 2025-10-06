@@ -162,6 +162,13 @@ case "${1:-}" in
   deps)
     ensure_requirements
     ;;
+  visual)
+    conda activate "$ENV_NAME"
+    export PYTHONUTF8=1
+    export PYTHONIOENCODING=utf-8
+    cd src/data
+    python visualizador.py    # secuencial siempre
+    ;;
   check)
     check_imports
     ;;
