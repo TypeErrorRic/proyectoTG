@@ -200,8 +200,6 @@ PY
   fi
 }
 
-}
-
 
 # ============== Instalar requirements ===================
 ensure_requirements() {
