@@ -1,43 +1,68 @@
-# ===== Base =====
-numpy>=1.24
-scipy>=1.10
-pandas>=2.0
-matplotlib>=3.7
+# ========= Base =========
+numpy>=1.24 ; python_version >= "3.9"
+numpy>=1.21,<2.0 ; python_version < "3.9"
+
+scipy>=1.10 ; python_version >= "3.9"
+scipy==1.7.3 ; python_version < "3.9"
+
+pandas>=2.0 ; python_version >= "3.9"
+pandas==1.3.5 ; python_version < "3.9"
+
+matplotlib>=3.7 ; python_version >= "3.9"
+matplotlib==3.5.3 ; python_version < "3.9"
+
 seaborn>=0.12
 tqdm>=4.65
 Pillow>=9.5
 
-# ===== PyTorch eco (se instalará con pip, CPU por defecto; 
-# si quieres GPU CUDA es mejor instalar PyTorch aparte con conda) =====
-torch>=2.0.0
-torchvision>=0.15.0
-torchaudio>=2.0.0
+# ========= PyTorch =========
+# En PC instala PyTorch por pip (2.x). En Jetson evita pip y usa wheel propio (ver comandos).
+torch>=2.0.0 ; platform_machine != "aarch64"
+torchvision>=0.15.0 ; platform_machine != "aarch64"
+torchaudio>=2.0.0 ; platform_machine != "aarch64"
 
-# ===== Computer Vision & ML =====
-opencv-python>=4.8
-scikit-image>=0.21
-scikit-learn>=1.3
+# ========= CV & ML =========
+opencv-python>=4.8 ; platform_machine != "aarch64"   # En Jetson usa APT: python3-opencv
+scikit-image>=0.21 ; python_version >= "3.9"
+scikit-image==0.19.3 ; python_version < "3.9"
+
+scikit-learn>=1.3 ; python_version >= "3.9"
+scikit-learn==1.0.2 ; python_version < "3.9"
+
 albumentations>=1.3.0
 
-# ===== Semantic Segmentation =====
-segmentation-models-pytorch>=0.3.3
-torchmetrics>=1.0.0
+# ========= Semantic Segmentation =========
+segmentation-models-pytorch==0.3.3
+torchmetrics>=1.0.0 ; platform_machine != "aarch64"
+torchmetrics==0.11.4 ; platform_machine == "aarch64"  # compatible con Torch 1.10.x
 
-# ===== Depth / 3D =====
-open3d>=0.17.0
-pyntcloud>=0.3.1
-h5py>=3.9.0           # para cargar datasets .mat (ej. NYU Depth V2)
-trimesh>=4.0.0        # manejo adicional de mallas 3D
-pyvista>=0.42.0       # visualización de nubes/mallas 3D
-laspy>=2.5.1          # soporte para archivos .las/.laz
+# ========= Depth / 3D =========
+open3d>=0.17.0 ; platform_machine != "aarch64"        # En Jetson compilar es pesado: se omite
+pyntcloud==0.3.1
+h5py>=3.9.0 ; python_version >= "3.9"
+h5py>=3.8,<3.9 ; python_version < "3.9"
 
-# ===== Utils =====
-tensorboard>=2.13
+trimesh>=4.0.0 ; platform_machine != "aarch64"
+trimesh>=3.23,<4.1 ; platform_machine == "aarch64"
+
+pyvista>=0.42.0 ; platform_machine != "aarch64"
+pyvista==0.42.3 ; platform_machine == "aarch64"
+
+laspy>=2.5.1
+
+# ========= Utils =========
+tensorboard>=2.13 ; platform_machine != "aarch64"
+tensorboard==2.12.3 ; platform_machine == "aarch64"
+
 pyyaml>=6.0
-jupyter>=1.0.0        # para notebooks
-notebook>=7.0.0
-ipywidgets>=8.0.0     # controles interactivos
+jupyter==1.0.0
+notebook>=7.0.0 ; platform_machine != "aarch64"
+notebook==6.5.7 ; platform_machine == "aarch64"
 
-# ===== Extra (para datasets/anotaciones) =====
-json5>=0.9.11         # para anotaciones JSON más flexibles
-pyqt5>=5.15
+ipywidgets>=8.0.0
+
+# ========= Extra =========
+json5>=0.9.11
+
+# ========= GUI / Qt =========
+pyqt5>=5.15 ; platform_machine != "aarch64"           # En Jetson usa APT: python3-pyqt5
