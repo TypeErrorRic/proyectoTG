@@ -4,7 +4,7 @@ set -euo pipefail
 # ================== Config por defecto ==================
 ENV_NAME="${ENV_NAME:-TG}"
 
-# PC moderno -> 3.10; Jetson JP4.x -> 3.8 (se fuerza más abajo si detectamos Jetson)
+# PC moderno -> 3.10; en Jetson (JP4.x) se ignorará y usaremos python3 del sistema
 PYTHON_VER="${PYTHON_VER:-3.10}"
 
 # Puedes apuntar a índices de PyTorch si quieres CUDA en PC:
@@ -14,16 +14,9 @@ TORCH_EXTRA_INDEX_URL="${TORCH_EXTRA_INDEX_URL:-}"
 # ========================================================
 # Detectores de plataforma
 is_cmd() { command -v "$1" >/dev/null 2>&1; }
-
 is_aarch64() { [[ "$(uname -m)" == "aarch64" ]]; }
 is_jetson_board() {
-  # Señales típicas de Jetson/JetPack
   [[ -f /etc/nv_tegra_release ]] && return 0
-  if is_cmd nvidia-smi; then
-    # (algunos Jetson no traen nvidia-smi)
-    return 0
-  fi
-  # Tegra en el árbol de dispositivos
   [[ -d /proc/device-tree/tegra-fuse || -d /proc/device-tree/chosen/nvidia,tegra-udrm ]] && return 0
   return 1
 }
@@ -31,11 +24,6 @@ is_jetson_board() {
 IS_JETSON=0
 if is_aarch64 && is_jetson_board; then
   IS_JETSON=1
-fi
-
-# Jetson típico (JetPack 4.x) usa mejor Python 3.6
-if [[ "$IS_JETSON" -eq 1 && "${PYTHON_VER}" == "3.10" ]]; then
-  PYTHON_VER="3.6"
 fi
 
 # ================== Pausa inteligente ===================
@@ -61,7 +49,7 @@ pause_if_needed() {
 }
 trap pause_if_needed EXIT
 
-# ============== Cargar conda / micromamba ===============
+# ==================== Modo PC (Conda) ===================
 load_conda_like() {
   if is_cmd conda; then
     eval "$("$(command -v conda)" shell.bash hook)"
@@ -76,13 +64,8 @@ load_conda_like() {
     "$HOME/anaconda3/etc/profile.d/conda.sh" \
     "/opt/conda/etc/profile.d/conda.sh"
   do
-    if [[ -f "$CAND" ]]; then
-      # shellcheck disable=SC1090
-      source "$CAND"
-      return 0
-    fi
+    [[ -f "$CAND" ]] && { source "$CAND"; return 0; }
   done
-  # Intento con micromamba si existe
   if is_cmd micromamba; then
     eval "$(micromamba shell hook -s bash)"
     return 0
@@ -90,28 +73,21 @@ load_conda_like() {
   return 1
 }
 
-if ! load_conda_like; then
-  echo "ERROR: No se encontró conda/micromamba. Instala Miniconda o Micromamba e inténtalo de nuevo."
-  exit 2
-fi
-
-# ============ Crear entorno si no existe =================
-create_env_if_needed() {
-  # Ya no usamos --system-site-packages con conda/micromamba (no es válido)
+create_env_if_needed_pc() {
   if is_cmd conda; then
     if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-      echo "Creando entorno $ENV_NAME con Python $PYTHON_VER..."
+      echo "Creando entorno $ENV_NAME (Conda) con Python $PYTHON_VER..."
       conda create -y -n "$ENV_NAME" python="$PYTHON_VER"
     fi
   else
     if ! micromamba env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-      echo "Creando entorno (micromamba) $ENV_NAME con Python $PYTHON_VER..."
+      echo "Creando entorno $ENV_NAME (Micromamba) con Python $PYTHON_VER..."
       micromamba create -y -n "$ENV_NAME" python="$PYTHON_VER"
     fi
   fi
 }
 
-run_in_env() {
+run_in_env_pc() {
   if is_cmd conda; then
     conda run --no-capture-output -n "$ENV_NAME" "$@"
   else
@@ -119,253 +95,288 @@ run_in_env() {
   fi
 }
 
-# ============== Prerrequisitos Jetson (APT) =============
+# =================== Modo Jetson (sin Conda) ===================
+# En Jetson usamos python3/pip3 del sistema (JP4.x → Python 3.6)
+py_jetson() { python3 "$@"; }
+pip_jetson() { python3 -m pip "$@"; }
+
 install_jetson_system_prereqs() {
   [[ "$IS_JETSON" -eq 1 ]] || return 0
   echo "Detectado Jetson (aarch64). Instalando prerrequisitos del sistema..."
   sudo apt-get update
-  # OpenCV y PyQt5 del sistema (evita compilar y problemas de wheels)
-  sudo apt-get install -y python3-opencv python3-pyqt5
-  # BLAS/Atlas, útiles para NumPy/Scipy
+  sudo apt-get install -y python3-pip python3-opencv python3-pyqt5
   sudo apt-get install -y libopenblas-base libatlas-base-dev || true
+  # Asegurar pip moderno suficiente para wheel local
+  python3 -m pip install --upgrade pip setuptools wheel
 }
 
-# ============== Torch según plataforma (Jetson Nano 4GB JP4.x) ==================
-ensure_torch() {
-  if [[ "$IS_JETSON" -eq 1 ]]; then
-    if ! run_in_env python - <<'PY'
-import sys
+ensure_torch_jetson() {
+  # Instala SOLO torch (wheel NVIDIA). torchvision/torchaudio son opcionales/complicados en JP4.
+  if py_jetson - <<'PY'
 try:
-    import torch, torchvision, torchaudio
-    ok = torch.__version__.startswith("1.10.") and \
-         torchvision.__version__.startswith("0.11.") and \
-         torchaudio.__version__.startswith("0.10.")
+    import torch
+    import sys
+    ok = torch.__version__.startswith(("1.10.","1.11"))
     sys.exit(0 if ok else 1)
 except Exception:
     sys.exit(1)
 PY
-    then
-      echo "Instalando PyTorch (Jetson Nano JP4.x, wheels NVIDIA)…"
-
-      # Asegura 3.6 o 3.8; si 3.8 falla, tendrás que ir a 3.6
-      JPY=$(run_in_env python - <<'PY'
-import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")
-PY
-)
-      case "$JPY" in
-        3.6|3.8) : ;;
-        *) echo "[Torch] JP4.x requiere Python 3.6 o 3.8 (actual: $JPY)"; return 1;;
-      esac
-
-      PYTAG=$(run_in_env python - <<'PY'
-import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")
-PY
-)
-      ABITAG=$(run_in_env python - <<'PY'
-import sys
-v=f"cp{sys.version_info.major}{sys.version_info.minor}"
-print(v+"m" if v in ("cp36","cp37") else v)
-PY
-)
-
-      BASE="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch"
-      # '+nv22.02' debe ir como %2B
-      for SUF in "%2Bnv22.02" "%2Bnv22.01"; do
-        TORCH_WHL="torch-1.10.0${SUF}-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-        TV_WHL="torchvision-0.11.1${SUF}-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-        TA_WHL="torchaudio-0.10.0${SUF}-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-        if run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TORCH_WHL}" \
-           && run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TV_WHL}" \
-           && run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TA_WHL}"; then
-          break
-        fi
-      done
-
-      # Verificación
-      run_in_env python - <<'PY'
-import torch, torchvision, torchaudio
-print("torch:", torch.__version__)
-print("torchvision:", torchvision.__version__)
-print("torchaudio:", torchaudio.__version__)
-PY
-    else
-      echo "PyTorch (Jetson) ya está en versión compatible."
-    fi
-  else
-    if [[ -n "$TORCH_EXTRA_INDEX_URL" ]]; then
-      export PIP_EXTRA_INDEX_URL="$TORCH_EXTRA_INDEX_URL"
-    fi
-  fi
-}
-
-
-
-# ============== Instalar requirements ===================
-ensure_requirements() {
-  if [[ ! -f requirements.txt ]]; then
-    echo "ADVERTENCIA: no se encontró requirements.txt en $(pwd). Omitiendo instalación."
+  then
+    echo "PyTorch (Jetson) ya instalado: $(python3 -c 'import torch; print(torch.__version__)')"
     return 0
   fi
 
-  echo "Instalando/verificando dependencias de requirements.txt en '$ENV_NAME'..."
-  # 1) Torch primero (según plataforma) para evitar que el resolver se trabe
-  ensure_torch
+  echo "Instalando PyTorch (Jetson JP4.x, wheel NVIDIA)…"
+  # Wheel estable publicado para JP4.6.x (Python 3.6 ABI cp36m)
+  local WHEEL_URL="https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl"
+  pip_jetson install --no-cache-dir --no-deps "$WHEEL_URL"
 
-  # 2) Instalar el resto. Evitamos que intente reinstalar Torch/torchaudio/torchvision.
-  #    NOTA: esto asume que tu requirements usa marcadores PEP-508 como te propuse.
-  local pip_args=( -v --no-cache-dir -r requirements.txt )
-  # No-deps parcial: usamos --no-deps y luego resolvemos dependencias faltantes si fuese necesario.
-  # En la práctica, con marcadores correctos, no suele hacer falta. Dejamos normal:
-  if ! run_in_env python -m pip install "${pip_args[@]}"; then
-    echo "Primer intento falló. Reintentando con más tiempo y reintentos..."
-    PIP_DISABLE_PIP_VERSION_CHECK=1 run_in_env python -m pip install --retries 5 --timeout 180 "${pip_args[@]}"
-  fi
-
-  # 3) pip check para verificar consistencia (ignoramos si falla por extras no críticos)
-  if run_in_env python -m pip --help >/dev/null 2>&1; then
-    if run_in_env python -m pip check >/dev/null 2>&1; then
-      echo "Dependencias consistentes (pip check OK)."
-    else
-      echo "NOTA: pip check reportó conflictos; puedes compartir el log si necesitas que los fijemos."
-    fi
-  fi
+  echo "Verificando PyTorch…"
+  py_jetson - <<'PY'
+import torch, sys
+print("torch:", torch.__version__)
+print("cuda :", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("gpu  :", torch.cuda.get_device_name(0))
+PY
 }
 
-# ============== Info de entorno =========================
-print_env_info() {
-  echo "================ ENV INFO ================"
+# ================== Requirements ======================
+install_requirements_pc() {
+  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (PC)."; return 0; }
+
+  # Permite pasar índice CUDA para PC
+  if [[ -n "$TORCH_EXTRA_INDEX_URL" ]]; then
+    export PIP_EXTRA_INDEX_URL="$TORCH_EXTRA_INDEX_URL"
+  fi
+
+  echo "Instalando dependencias (PC, conda/micromamba)…"
+  run_in_env_pc python -m pip install --upgrade pip
+  run_in_env_pc python -m pip install -r requirements.txt
+}
+
+install_requirements_jetson() {
+  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (Jetson)."; return 0; }
+
+  echo "Instalando dependencias (Jetson, pip3 del sistema)…"
+  # Filtra torch/torchaudio/torchvision para no pisar el wheel de NVIDIA
+  # Nota: mantenemos otras libs tal cual.
+  TMP_REQ="$(mktemp)"
+  grep -Ev '^[[:space:]]*(torch|torchaudio|torchvision)($|[=<>!~])' requirements.txt > "$TMP_REQ" || true
+  pip_jetson install --no-cache-dir -r "$TMP_REQ" || {
+    echo "Reintentando dependencias (Jetson)…"
+    PIP_DISABLE_PIP_VERSION_CHECK=1 pip_jetson install --retries 5 --timeout 180 --no-cache-dir -r "$TMP_REQ"
+  }
+  rm -f "$TMP_REQ"
+}
+
+# ================== Info de entorno ===================
+print_env_info_pc() {
+  echo "================ ENV INFO (PC) ================"
   echo "Entorno : $ENV_NAME"
-  echo "Plataf. : $(uname -m)  (Jetson=$IS_JETSON)"
-  echo "Python  : $(run_in_env python -V 2>&1)"
-  echo "Ruta py : $(run_in_env python -c 'import sys;print(sys.executable)')"
-  echo "PIP     : $(run_in_env python -c 'import pip;print(pip.__version__)')"
-  run_in_env python - <<'PY'
+  echo "Plataf. : $(uname -m)"
+  echo "Python  : $(run_in_env_pc python -V 2>&1)"
+  echo "Ruta py : $(run_in_env_pc python -c 'import sys;print(sys.executable)')"
+  echo "PIP     : $(run_in_env_pc python -c 'import pip;print(pip.__version__)')"
+  run_in_env_pc python - <<'PY'
 try:
     import torch
     print(f"PyTorch : {torch.__version__}")
-    if torch.cuda.is_available():
-        print("CUDA    : disponible")
-        try:
-            print(f"GPU     : {torch.cuda.get_device_name(0)}")
-        except Exception:
-            pass
-        import torch as _t
-        print(f"CUDA ver: {getattr(_t.version, 'cuda', 'desconocida')}")
-    else:
-        print("CUDA    : NO disponible")
+    import torch as _t
+    print("CUDA    :", _t.cuda.is_available())
 except Exception:
     print("PyTorch : no instalado")
 PY
-  echo "=========================================="
-}
-
-# ============== Listar paquetes =========================
-print_pkg_lists() {
-  echo "============= PIP LIST ($ENV_NAME) ============="
-  run_in_env python -m pip list
-  echo "============= CONDA LIST ($ENV_NAME) ==========="
-  if is_cmd conda; then
-    conda list -n "$ENV_NAME" || true
-  else
-    micromamba list -n "$ENV_NAME" || true
-  fi
   echo "==============================================="
 }
 
-# ============== Autotest de imports =====================
-check_imports() {
-  run_in_env python - <<'PY'
+print_env_info_jetson() {
+  echo "================ ENV INFO (Jetson) ================"
+  echo "Plataf. : $(uname -m)  (Jetson=1)"
+  echo "Python  : $(python3 -V 2>&1)"
+  echo "Ruta py : $(python3 - <<'PY'
+import sys; print(sys.executable)
+PY
+)"
+  echo "PIP     : $(python3 -m pip -V 2>&1)"
+  python3 - <<'PY'
+try:
+    import torch
+    print(f"PyTorch : {torch.__version__}")
+    print("CUDA    :", torch.cuda.is_available())
+    if torch.cuda.is_available():
+        print("GPU     :", torch.cuda.get_device_name(0))
+        import torch as _t
+        print("CUDA ver:", getattr(_t.version, "cuda", "desconocida"))
+except Exception:
+    print("PyTorch : no instalado")
+PY
+  echo "==================================================="
+}
+
+# ================== Autotest de imports ===============
+check_imports_pc() {
+  run_in_env_pc python - <<'PY'
 mods = {
   "torch": "import torch; print('torch', torch.__version__)",
-  "torchvision": "import torchvision; print('torchvision', torchvision.__version__)",
-  "torchaudio": "import torchaudio; print('torchaudio', torchaudio.__version__)",
   "cv2": "import cv2; print('opencv', cv2.__version__)",
   "open3d": "import open3d as o3d; print('open3d', o3d.__version__)",
-  "h5py": "import h5py; print('h5py', h5py.__version__)",
-  "sklearn": "import sklearn; print('sklearn', sklearn.__version__)",
-  "albumentations": "import albumentations as A; import importlib.metadata as im; print('albumentations', im.version('albumentations'))",
-  "torchmetrics": "import torchmetrics as tm; print('torchmetrics', tm.__version__)",
-  "segmentation_models_pytorch": "import importlib.metadata as im; print('segmentation-models-pytorch', im.version('segmentation-models-pytorch'))",
 }
-print("============= CHECK IMPORTS =============")
+print("============= CHECK IMPORTS (PC) =============")
 for name, code in mods.items():
   try:
     exec(code)
   except Exception as e:
     print(f"{name}  !! ERROR -> {e}")
-print("=========================================")
+print("=============================================")
+PY
+}
+
+check_imports_jetson() {
+  python3 - <<'PY'
+mods = {
+  "torch": "import torch; print('torch', torch.__version__)",
+  "cv2": "import cv2; print('opencv', cv2.__version__)",
+  "open3d": "import open3d as o3d; print('open3d', o3d.__version__)",
+}
+print("=========== CHECK IMPORTS (Jetson) ===========")
+for name, code in mods.items():
+  try:
+    exec(code)
+  except Exception as e:
+    print(f"{name}  !! ERROR -> {e}")
+print("=============================================")
 PY
 }
 
 # ===================== MAIN =============================
-create_env_if_needed
-install_jetson_system_prereqs
-
 case "${1:-}" in
   env)
-    ensure_requirements
-    print_env_info
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      install_jetson_system_prereqs
+      ensure_torch_jetson
+      install_requirements_jetson
+      print_env_info_jetson
+    else
+      if ! load_conda_like; then
+        echo "ERROR: No se encontró conda/micromamba en PC."
+        exit 2
+      fi
+      create_env_if_needed_pc
+      install_requirements_pc
+      print_env_info_pc
+    fi
     if [[ "${2:-}" == "full" ]]; then
-      print_pkg_lists
+      if [[ "$IS_JETSON" -eq 1 ]]; then
+        echo "============= PIP LIST (Jetson) ============="
+        python3 -m pip list
+        echo "============================================="
+      else
+        echo "============= PIP LIST ($ENV_NAME) =========="
+        run_in_env_pc python -m pip list
+        echo "============= CONDA LIST ($ENV_NAME) ========"
+        if is_cmd conda; then conda list -n "$ENV_NAME" || true; else micromamba list -n "$ENV_NAME" || true; fi
+        echo "============================================="
+      fi
     fi
     ;;
   deps)
-    ensure_requirements
-    ;;
-  visual)
-    # Ejecuta un visualizador de ejemplo
-    if is_cmd conda; then eval "$("$(command -v conda)" shell.bash hook)"; fi
-    conda activate "$ENV_NAME" 2>/dev/null || true
-    export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-    cd src/data
-    python visualizador.py
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      install_jetson_system_prereqs
+      ensure_torch_jetson
+      install_requirements_jetson
+    else
+      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      create_env_if_needed_pc
+      install_requirements_pc
+    fi
     ;;
   check)
-    check_imports
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      check_imports_jetson
+    else
+      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      check_imports_pc
+    fi
     ;;
   shell)
-    echo "Abriendo subshell con entorno '$ENV_NAME' activado..."
-    if is_cmd conda; then eval "$("$(command -v conda)" shell.bash hook)"; fi
-    conda activate "$ENV_NAME" 2>/dev/null || true
-    bash --noprofile --norc -i <<'BASH'
-if command -v conda >/dev/null 2>&1; then
-  eval "$("$(command -v conda)" shell.bash hook)"
-  conda activate "$ENV_NAME" 2>/dev/null || true
-fi
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      echo "Abriendo subshell (Jetson, sin conda)… Usa 'exit' para salir."
+      bash --noprofile --norc -i
+    else
+      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      echo "Abriendo subshell con entorno '$ENV_NAME' (PC)…"
+      if is_cmd conda; then
+        conda activate "$ENV_NAME" 2>/dev/null || true
+      else
+        micromamba activate "$ENV_NAME" 2>/dev/null || true
+      fi
+      bash --noprofile --norc -i <<'BASH'
 echo "($ENV_NAME) listo. Escribe 'exit' para volver."
 export PS1="($ENV_NAME) $PS1"
 BASH
+    fi
     ;;
   train)
     echo "Entrenando modelo..."
-    ensure_requirements
-    run_in_env python src/train.py --config configs/unet_baseline.yaml
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      install_jetson_system_prereqs
+      ensure_torch_jetson
+      install_requirements_jetson
+      python3 src/train.py --config configs/unet_baseline.yaml
+    else
+      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      create_env_if_needed_pc
+      install_requirements_pc
+      run_in_env_pc python src/train.py --config configs/unet_baseline.yaml
+    fi
     ;;
   infer)
     echo "Ejecutando inferencia..."
-    ensure_requirements
     INP="${2:-}"; OUT="${3:-}"
     if [[ -z "$INP" || -z "$OUT" ]]; then
       echo "Uso: $0 infer <input_depth.png> <output_mask.png>"
       exit 1
     fi
-    run_in_env python src/infer.py --input "$INP" --output "$OUT"
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      install_jetson_system_prereqs
+      ensure_torch_jetson
+      install_requirements_jetson
+      python3 src/infer.py --input "$INP" --output "$OUT"
+    else
+      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      create_env_if_needed_pc
+      install_requirements_pc
+      run_in_env_pc python src/infer.py --input "$INP" --output "$OUT"
+    fi
+    ;;
+  visual)
+    echo "Ejecutando visualizador..."
+    cd src/data
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+      python3 visualizador.py
+    else
+      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      run_in_env_pc python visualizador.py
+    fi
     ;;
   *)
     cat <<EOF
-Uso: $0 {env|env full|deps|check|shell|train|infer} [args]
-  env               Crea/verifica entorno, instala requirements y muestra info.
-  env full          Además lista paquetes (pip/conda).
-  deps              (Re)instala/verifica dependencias de requirements.txt.
-  check             Autotest de imports y versiones clave.
-  shell             Subshell con el entorno activado.
+Uso: $0 {env|env full|deps|check|shell|train|infer|visual} [args]
+  env               Prepara entorno (PC: conda | Jetson: sistema), instala requirements y muestra info.
+  env full          Además lista paquetes.
+  deps              (Re)instala dependencias.
+  check             Autotest de imports.
+  shell             Subshell (PC: conda activado | Jetson: shell normal).
   train             Entrena (usa configs/unet_baseline.yaml).
   infer <in> <out>  Ejecuta inferencia.
+  visual            Lanza visualizador de ejemplo (src/data/visualizador.py).
 Variables útiles:
-  ENV_NAME=...           (por defecto: TG)
-  PYTHON_VER=...         (PC: 3.10 | Jetson: 3.8 por defecto)
-  KEEP_OPEN=1            Pausa al terminar (útil en Git Bash/Windows).
-  TORCH_EXTRA_INDEX_URL  Índice extra de PyTorch (p.ej. CUDA en PC).
+  ENV_NAME=...           (PC: nombre del entorno conda; defecto: TG)
+  PYTHON_VER=...         (PC: 3.10; Jetson ignora y usa python3 del sistema)
+  KEEP_OPEN=1            Pausa al terminar (útil en Git Bash/Windows)
+  TORCH_EXTRA_INDEX_URL  Índice extra de PyTorch (p.ej. CUDA en PC)
 EOF
     exit 1
     ;;
