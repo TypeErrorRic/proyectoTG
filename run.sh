@@ -33,9 +33,9 @@ if is_aarch64 && is_jetson_board; then
   IS_JETSON=1
 fi
 
-# Jetson típico (JetPack 4.x) usa mejor Python 3.8
+# Jetson típico (JetPack 4.x) usa mejor Python 3.6
 if [[ "$IS_JETSON" -eq 1 && "${PYTHON_VER}" == "3.10" ]]; then
-  PYTHON_VER="3.8"
+  PYTHON_VER="3.6"
 fi
 
 # ================== Pausa inteligente ===================
@@ -133,7 +133,6 @@ install_jetson_system_prereqs() {
 # ============== Torch según plataforma (Jetson Nano 4GB JP4.x) ==================
 ensure_torch() {
   if [[ "$IS_JETSON" -eq 1 ]]; then
-    # Verifica que estén las versiones compatibles de NVIDIA para JP 4.x
     if ! run_in_env python - <<'PY'
 import sys
 try:
@@ -146,30 +145,41 @@ except Exception:
     sys.exit(1)
 PY
     then
-      echo "Instalando PyTorch (Jetson Nano JP4.x, wheels oficiales NVIDIA)…"
+      echo "Instalando PyTorch (Jetson Nano JP4.x, wheels NVIDIA)…"
 
-      # Validar que el entorno usa Python 3.8 (JP4.x)
+      # Asegura 3.6 o 3.8; si 3.8 falla, tendrás que ir a 3.6
       JPY=$(run_in_env python - <<'PY'
-import sys
-print(f"{sys.version_info.major}.{sys.version_info.minor}")
+import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")
 PY
 )
-      if [[ "$JPY" != "3.8" ]]; then
-        echo "[Torch] En Jetson JP4.x necesitas Python 3.8 (actual: $JPY)."
-        echo "        Recrea el entorno: conda remove -n $ENV_NAME --all -y && conda create -n $ENV_NAME python=3.8 -y"
-        return 1
-      fi
+      case "$JPY" in
+        3.6|3.8) : ;;
+        *) echo "[Torch] JP4.x requiere Python 3.6 o 3.8 (actual: $JPY)"; return 1;;
+      esac
 
-      # URLs directas a las ruedas NVIDIA para JetPack 4.x (repo jp/v46), Python 3.8 (cp38-cp38)
+      PYTAG=$(run_in_env python - <<'PY'
+import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")
+PY
+)
+      ABITAG=$(run_in_env python - <<'PY'
+import sys
+v=f"cp{sys.version_info.major}{sys.version_info.minor}"
+print(v+"m" if v in ("cp36","cp37") else v)
+PY
+)
+
       BASE="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch"
-      TORCH_WHL="torch-1.10.0%2Bnv22.02-cp38-cp38-linux_aarch64.whl"
-      TV_WHL="torchvision-0.11.1%2Bnv22.02-cp38-cp38-linux_aarch64.whl"
-      TA_WHL="torchaudio-0.10.0%2Bnv22.02-cp38-cp38-linux_aarch64.whl"
-
-      # Instalar cada wheel por URL directa (evita PyPI)
-      run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TORCH_WHL}"
-      run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TV_WHL}"
-      run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TA_WHL}"
+      # '+nv22.02' debe ir como %2B
+      for SUF in "%2Bnv22.02" "%2Bnv22.01"; do
+        TORCH_WHL="torch-1.10.0${SUF}-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+        TV_WHL="torchvision-0.11.1${SUF}-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+        TA_WHL="torchaudio-0.10.0${SUF}-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+        if run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TORCH_WHL}" \
+           && run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TV_WHL}" \
+           && run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TA_WHL}"; then
+          break
+        fi
+      done
 
       # Verificación
       run_in_env python - <<'PY'
@@ -182,7 +192,6 @@ PY
       echo "PyTorch (Jetson) ya está en versión compatible."
     fi
   else
-    # En PC deja que requirements instale torch>=2.x (opcional índice extra)
     if [[ -n "$TORCH_EXTRA_INDEX_URL" ]]; then
       export PIP_EXTRA_INDEX_URL="$TORCH_EXTRA_INDEX_URL"
     fi
