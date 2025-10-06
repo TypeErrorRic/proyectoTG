@@ -179,9 +179,11 @@ PY
 
       # URLs directas a las ruedas NVIDIA para JetPack 4.x (repo jp/v46)
       BASE="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch"
-      TORCH_WHL="torch-1.10.0-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-      TV_WHL="torchvision-0.11.1-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-      TA_WHL="torchaudio-0.10.0-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+
+      # OJO: el '+nv22.02' debe ir como %2B en la URL
+      TORCH_WHL="torch-1.10.0%2Bnv22.02-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+      TV_WHL="torchvision-0.11.1%2Bnv22.02-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+      TA_WHL="torchaudio-0.10.0%2Bnv22.02-${PYTAG}-${ABITAG}-linux_aarch64.whl
 
       # Instalar cada wheel por URL directa (evita PyPI)
       run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TORCH_WHL}"
