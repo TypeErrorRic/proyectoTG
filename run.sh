@@ -97,22 +97,16 @@ fi
 
 # ============ Crear entorno si no existe =================
 create_env_if_needed() {
-  local create_opts=()
-  # En Jetson heredamos site-packages del sistema para ver python3-opencv / python3-pyqt5
-  if [[ "$IS_JETSON" -eq 1 ]]; then
-    create_opts+=(--system-site-packages)
-  fi
-
-  # Compatibilidad con micromamba/conda
+  # Ya no usamos --system-site-packages con conda/micromamba (no es válido)
   if is_cmd conda; then
     if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
       echo "Creando entorno $ENV_NAME con Python $PYTHON_VER..."
-      conda create -y -n "$ENV_NAME" python="$PYTHON_VER" "${create_opts[@]}"
+      conda create -y -n "$ENV_NAME" python="$PYTHON_VER"
     fi
   else
     if ! micromamba env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
       echo "Creando entorno (micromamba) $ENV_NAME con Python $PYTHON_VER..."
-      micromamba create -y -n "$ENV_NAME" python="$PYTHON_VER" "${create_opts[@]}"
+      micromamba create -y -n "$ENV_NAME" python="$PYTHON_VER"
     fi
   fi
 }
