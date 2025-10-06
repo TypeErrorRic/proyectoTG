@@ -99,32 +99,48 @@ run_in_env_pc() {
 py_jetson() { python3 "$@"; }
 pip_jetson() { python3 -m pip "$@"; }
 
+# --- Compatibilidad Python 3.6 en Jetson (paquetes pip fijados) ---
 install_py36_compat_jetson() {
-  # Asegura versiones compatibles con Python 3.6
+  # Paquetes compatibles con Python 3.6 que PyTorch 1.10/1.11 usa
   python3 -m pip install --no-cache-dir \
     typing_extensions==4.1.1 \
     importlib_resources==5.4.0 \
     dataclasses==0.8 \
     "numpy==1.19.5" \
-    "pillow<=8.4.0"
+    "pillow<=8.4.0" \
+    "protobuf==3.19.6"
 }
 
+# --- Prerrequisitos de sistema para Jetson JP4.x ---
 install_jetson_system_prereqs() {
   [[ "$IS_JETSON" -eq 1 ]] || return 0
   echo "Detectado Jetson (aarch64). Instalando prerrequisitos del sistema..."
+
   sudo apt-get update
-  sudo apt-get install -y python3-pip python3-opencv python3-pyqt5
-  sudo apt-get install -y libopenblas-base libatlas-base-dev || true
-  # FIX de OpenMP (libomp.so)
-  sudo apt-get install -y libomp5 libomp-dev
-  # pip moderno suficiente
+  # Python y bindings útiles del sistema
+  sudo apt-get install -y --no-install-recommends \
+    python3-pip python3-opencv python3-pyqt5
+
+  # BLAS/Atlas para NumPy/Scipy
+  sudo apt-get install -y --no-install-recommends \
+    libopenblas-base libatlas-base-dev
+
+  # FIX de OpenMP (libomp.so requerido por el wheel de Torch)
+  sudo apt-get install -y --no-install-recommends \
+    libomp5 libomp-dev
+
+  # Asegurar pip/setuptools compatibles con Python 3.6
   python3 -m pip install --upgrade "pip<22" "setuptools<60" wheel
-  # Añade ~/.local/bin al PATH (para torchrun, etc.)
+
+  # Añade ~/.local/bin al PATH (para torchrun, f2py, etc.) y actívalo ya
   if ! grep -q 'export PATH="\$HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
   fi
-}
+  export PATH="$HOME/.local/bin:$PATH"
 
+  # Refrescar el cargador de bibliotecas
+  sudo ldconfig
+}
 
 ensure_torch_jetson() {
   if python3 - <<'PY'
@@ -143,7 +159,7 @@ PY
   local WHEEL_URL="https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl"
   python3 -m pip install --no-cache-dir --no-deps "$WHEEL_URL"
 
-  # **Clave**: backports y versiones compatibles para py3.6
+  # 🔧 Paquetes de compatibilidad para Python 3.6
   install_py36_compat_jetson
 
   echo "Verificando PyTorch…"
@@ -204,6 +220,24 @@ case "${1:-}" in
       if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
       create_env_if_needed_pc
       install_requirements_pc
+    fi
+    ;;
+  visual)
+    echo "Ejecutando visualizador..."
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      # --- Jetson: usa python3 del sistema ---
+      export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+      cd src/data || { echo "No se encontró src/data"; exit 1; }
+      python3 visualizador.py
+    else
+      # --- PC: ejecuta dentro del entorno conda/micromamba ---
+      if ! load_conda_like; then
+        echo "ERROR: falta conda/micromamba en PC."; exit 2
+      fi
+      conda activate "$ENV_NAME" 2>/dev/null || true
+      export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+      cd src/data || { echo "No se encontró src/data"; exit 1; }
+      python visualizador.py
     fi
     ;;
   check)
