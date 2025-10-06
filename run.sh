@@ -148,20 +148,32 @@ PY
     then
       echo "Instalando PyTorch (Jetson Nano JP4.x, wheels oficiales NVIDIA)…"
 
-      # Detectar tags de Python para nombrar ruedas (cp36-cp36m o cp38-cp38)
-      PYTAG=$(python3 - <<'PY'
+      # *** USAR Python del entorno, NO el del sistema ***
+      # Validar versión compatible (JP4.x soporta cp36m o cp38)
+      JPY=$(run_in_env python - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)
+      case "$JPY" in
+        3.6|3.8) : ;;  # ok
+        *)
+          echo "[Torch] En Jetson JP4.x necesitas Python 3.6 o 3.8 (actual: $JPY)."
+          echo "        Recrea el entorno: conda remove -n $ENV_NAME --all -y && conda create -n $ENV_NAME python=3.8 -y"
+          return 1
+          ;;
+      esac
+
+      # Detectar tags de Python para nombrar ruedas (cp36-cp36m o cp38-cp38) usando el ENTORNO
+      PYTAG=$(run_in_env python - <<'PY'
 import sys
 print(f"cp{sys.version_info.major}{sys.version_info.minor}")
 PY
 )
-      ABITAG=$(python3 - <<'PY'
+      ABITAG=$(run_in_env python - <<'PY'
 import sys
 v = f"cp{sys.version_info.major}{sys.version_info.minor}"
-# En Py3.6/3.7 el segundo tag lleva 'm' (cp36m/cp37m); en 3.8+ no lleva 'm'
-if v in ("cp36","cp37"):
-    print(v+"m")
-else:
-    print(v)
+print(v+"m" if v in ("cp36","cp37") else v)
 PY
 )
 
@@ -193,6 +205,7 @@ PY
     fi
   fi
 }
+
 
 
 # ============== Instalar requirements ===================
