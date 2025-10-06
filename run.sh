@@ -139,29 +139,44 @@ install_jetson_system_prereqs() {
 # ============== Torch según plataforma ==================
 ensure_torch() {
   if [[ "$IS_JETSON" -eq 1 ]]; then
-    # En Jetson JP4.x: versiones típicas
+    # Verifica que estén las versiones compatibles de NVIDIA para JP 4.x
     if ! run_in_env python - <<'PY'
 import sys
 try:
     import torch, torchvision, torchaudio
-    ok = torch.__version__.startswith("1.10.") and torchvision.__version__.startswith("0.11.") and torchaudio.__version__.startswith("0.10.")
+    ok = torch.__version__.startswith("1.10.") and \
+         torchvision.__version__.startswith("0.11.") and \
+         torchaudio.__version__.startswith("0.10.")
     sys.exit(0 if ok else 1)
 except Exception:
     sys.exit(1)
 PY
     then
-      echo "Instalando PyTorch para Jetson (1.10.0/0.11.1/0.10.0)..."
-      run_in_env python -m pip install --no-cache-dir "torch==1.10.0" "torchvision==0.11.1" "torchaudio==0.10.0"
+      echo "Instalando PyTorch (Jetson Nano JP4.x, wheels oficiales NVIDIA)…"
+      run_in_env python -m pip install --no-cache-dir \
+        "torch==1.10.0+nv22.02" \
+        "torchvision==0.11.1+nv22.02" \
+        "torchaudio==0.10.0+nv22.02" \
+        -f https://developer.download.nvidia.com/compute/redist/jp/v46
+
+      # Verificación
+      run_in_env python - <<'PY'
+import torch, torchvision, torchaudio
+print("torch:", torch.__version__)
+print("torchvision:", torchvision.__version__)
+print("torchaudio:", torchaudio.__version__)
+PY
     else
-      echo "PyTorch (Jetson) ya está en la versión compatible."
+      echo "PyTorch (Jetson) ya está en versión compatible."
     fi
   else
-    # En PC dejamos que requirements instale torch>=2.x, pero soportamos índice extra opcional.
+    # En PC deja que requirements instale torch>=2.x (opcional índice extra)
     if [[ -n "$TORCH_EXTRA_INDEX_URL" ]]; then
       export PIP_EXTRA_INDEX_URL="$TORCH_EXTRA_INDEX_URL"
     fi
   fi
 }
+
 
 # ============== Instalar requirements ===================
 ensure_requirements() {

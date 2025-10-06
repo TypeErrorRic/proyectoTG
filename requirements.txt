@@ -1,3 +1,15 @@
+# ============================================================================
+# Requerimientos universales — compatibles con PC (x86_64) y Jetson (aarch64)
+# ============================================================================
+# Instalar con:
+#   python3 -m pip install --upgrade pip
+#   pip install -r requirements.txt
+#
+# En Jetson:
+#   1. Instala PyTorch desde el wheel de NVIDIA (según tu JetPack).
+#   2. Luego corre: pip install -r requirements.txt
+# ============================================================================
+
 # ========= Base =========
 numpy>=1.24 ; python_version >= "3.9"
 numpy>=1.21,<2.0 ; python_version < "3.9"
@@ -16,13 +28,15 @@ tqdm>=4.65
 Pillow>=9.5
 
 # ========= PyTorch =========
-# En PC instala PyTorch por pip (2.x). En Jetson evita pip y usa wheel propio (ver comandos).
+# En PC (x86_64): instalar PyTorch 2.x normalmente desde PyPI.
+# En Jetson (aarch64): instalar manualmente el wheel NVIDIA (torch 1.10.x / 1.12.x).
+# Para evitar conflictos, solo declaramos dependencias condicionales:
 torch>=2.0.0 ; platform_machine != "aarch64"
 torchvision>=0.15.0 ; platform_machine != "aarch64"
 torchaudio>=2.0.0 ; platform_machine != "aarch64"
 
 # ========= CV & ML =========
-opencv-python>=4.8 ; platform_machine != "aarch64"   # En Jetson usa APT: python3-opencv
+opencv-python>=4.8 ; platform_machine != "aarch64"   # En Jetson: sudo apt install python3-opencv
 scikit-image>=0.21 ; python_version >= "3.9"
 scikit-image==0.19.3 ; python_version < "3.9"
 
@@ -34,10 +48,10 @@ albumentations>=1.3.0
 # ========= Semantic Segmentation =========
 segmentation-models-pytorch==0.3.3
 torchmetrics>=1.0.0 ; platform_machine != "aarch64"
-torchmetrics==0.11.4 ; platform_machine == "aarch64"  # compatible con Torch 1.10.x
+torchmetrics==0.11.4 ; platform_machine == "aarch64"  # Compatible con Torch 1.10.x de Jetson
 
 # ========= Depth / 3D =========
-open3d>=0.17.0 ; platform_machine != "aarch64"        # En Jetson compilar es pesado: se omite
+open3d>=0.17.0 ; platform_machine != "aarch64"        # En Jetson compilar es costoso → se omite
 pyntcloud==0.3.1
 h5py>=3.9.0 ; python_version >= "3.9"
 h5py>=3.8,<3.9 ; python_version < "3.9"
@@ -65,4 +79,4 @@ ipywidgets>=8.0.0
 json5>=0.9.11
 
 # ========= GUI / Qt =========
-pyqt5>=5.15 ; platform_machine != "aarch64"           # En Jetson usa APT: python3-pyqt5
+pyqt5>=5.15 ; platform_machine != "aarch64"           # En Jetson: sudo apt install python3-pyqt5
