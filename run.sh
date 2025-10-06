@@ -136,7 +136,7 @@ install_jetson_system_prereqs() {
   sudo apt-get install -y libopenblas-base libatlas-base-dev || true
 }
 
-# ============== Torch según plataforma ==================
+# ============== Torch según plataforma (Jetson Nano 4GB JP4.x) ==================
 ensure_torch() {
   if [[ "$IS_JETSON" -eq 1 ]]; then
     # Verifica que estén las versiones compatibles de NVIDIA para JP 4.x
@@ -153,11 +153,34 @@ except Exception:
 PY
     then
       echo "Instalando PyTorch (Jetson Nano JP4.x, wheels oficiales NVIDIA)…"
-      run_in_env python -m pip install --no-cache-dir \
-        "torch==1.10.0+nv22.02" \
-        "torchvision==0.11.1+nv22.02" \
-        "torchaudio==0.10.0+nv22.02" \
-        -f https://developer.download.nvidia.com/compute/redist/jp/v46
+
+      # Detectar tags de Python para nombrar ruedas (cp36-cp36m o cp38-cp38)
+      PYTAG=$(python3 - <<'PY'
+import sys
+print(f"cp{sys.version_info.major}{sys.version_info.minor}")
+PY
+)
+      ABITAG=$(python3 - <<'PY'
+import sys
+v = f"cp{sys.version_info.major}{sys.version_info.minor}"
+# En Py3.6/3.7 el segundo tag lleva 'm' (cp36m/cp37m); en 3.8+ no lleva 'm'
+if v in ("cp36","cp37"):
+    print(v+"m")
+else:
+    print(v)
+PY
+)
+
+      # URLs directas a las ruedas NVIDIA para JetPack 4.x (repo jp/v46)
+      BASE="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch"
+      TORCH_WHL="torch-1.10.0-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+      TV_WHL="torchvision-0.11.1-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+      TA_WHL="torchaudio-0.10.0-${PYTAG}-${ABITAG}-linux_aarch64.whl"
+
+      # Instalar cada wheel por URL directa (evita PyPI)
+      run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TORCH_WHL}"
+      run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TV_WHL}"
+      run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TA_WHL}"
 
       # Verificación
       run_in_env python - <<'PY'
@@ -175,6 +198,8 @@ PY
       export PIP_EXTRA_INDEX_URL="$TORCH_EXTRA_INDEX_URL"
     fi
   fi
+}
+
 }
 
 
