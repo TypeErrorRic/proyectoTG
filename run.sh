@@ -148,42 +148,23 @@ PY
     then
       echo "Instalando PyTorch (Jetson Nano JP4.x, wheels oficiales NVIDIA)…"
 
-      # *** USAR Python del entorno, NO el del sistema ***
-      # Validar versión compatible (JP4.x soporta cp36m o cp38)
+      # Validar que el entorno usa Python 3.8 (JP4.x)
       JPY=$(run_in_env python - <<'PY'
 import sys
 print(f"{sys.version_info.major}.{sys.version_info.minor}")
 PY
 )
-      case "$JPY" in
-        3.6|3.8) : ;;  # ok
-        *)
-          echo "[Torch] En Jetson JP4.x necesitas Python 3.6 o 3.8 (actual: $JPY)."
-          echo "        Recrea el entorno: conda remove -n $ENV_NAME --all -y && conda create -n $ENV_NAME python=3.8 -y"
-          return 1
-          ;;
-      esac
+      if [[ "$JPY" != "3.8" ]]; then
+        echo "[Torch] En Jetson JP4.x necesitas Python 3.8 (actual: $JPY)."
+        echo "        Recrea el entorno: conda remove -n $ENV_NAME --all -y && conda create -n $ENV_NAME python=3.8 -y"
+        return 1
+      fi
 
-      # Detectar tags de Python para nombrar ruedas (cp36-cp36m o cp38-cp38) usando el ENTORNO
-      PYTAG=$(run_in_env python - <<'PY'
-import sys
-print(f"cp{sys.version_info.major}{sys.version_info.minor}")
-PY
-)
-      ABITAG=$(run_in_env python - <<'PY'
-import sys
-v = f"cp{sys.version_info.major}{sys.version_info.minor}"
-print(v+"m" if v in ("cp36","cp37") else v)
-PY
-)
-
-      # URLs directas a las ruedas NVIDIA para JetPack 4.x (repo jp/v46)
+      # URLs directas a las ruedas NVIDIA para JetPack 4.x (repo jp/v46), Python 3.8 (cp38-cp38)
       BASE="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch"
-
-      # OJO: el '+nv22.02' debe ir como %2B en la URL
-      TORCH_WHL="torch-1.10.0%2Bnv22.02-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-      TV_WHL="torchvision-0.11.1%2Bnv22.02-${PYTAG}-${ABITAG}-linux_aarch64.whl"
-      TA_WHL="torchaudio-0.10.0%2Bnv22.02-${PYTAG}-${ABITAG}-linux_aarch64.whl
+      TORCH_WHL="torch-1.10.0%2Bnv22.02-cp38-cp38-linux_aarch64.whl"
+      TV_WHL="torchvision-0.11.1%2Bnv22.02-cp38-cp38-linux_aarch64.whl"
+      TA_WHL="torchaudio-0.10.0%2Bnv22.02-cp38-cp38-linux_aarch64.whl"
 
       # Instalar cada wheel por URL directa (evita PyPI)
       run_in_env python -m pip install --no-cache-dir --no-deps "${BASE}/${TORCH_WHL}"
