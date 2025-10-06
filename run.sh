@@ -99,24 +99,38 @@ run_in_env_pc() {
 py_jetson() { python3 "$@"; }
 pip_jetson() { python3 -m pip "$@"; }
 
+install_py36_compat_jetson() {
+  # Asegura versiones compatibles con Python 3.6
+  python3 -m pip install --no-cache-dir \
+    typing_extensions==4.1.1 \
+    importlib_resources==5.4.0 \
+    dataclasses==0.8 \
+    "numpy==1.19.5" \
+    "pillow<=8.4.0"
+}
+
 install_jetson_system_prereqs() {
   [[ "$IS_JETSON" -eq 1 ]] || return 0
   echo "Detectado Jetson (aarch64). Instalando prerrequisitos del sistema..."
   sudo apt-get update
   sudo apt-get install -y python3-pip python3-opencv python3-pyqt5
   sudo apt-get install -y libopenblas-base libatlas-base-dev || true
-  # ⚙️ Solución al error 'libomp.so'
+  # FIX de OpenMP (libomp.so)
   sudo apt-get install -y libomp5 libomp-dev
-  python3 -m pip install --upgrade pip setuptools wheel
+  # pip moderno suficiente
+  python3 -m pip install --upgrade "pip<22" "setuptools<60" wheel
+  # Añade ~/.local/bin al PATH (para torchrun, etc.)
+  if ! grep -q 'export PATH="\$HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+  fi
 }
 
+
 ensure_torch_jetson() {
-  if py_jetson - <<'PY'
+  if python3 - <<'PY'
 try:
-    import torch
-    import sys
-    ok = torch.__version__.startswith(("1.10.","1.11"))
-    sys.exit(0 if ok else 1)
+    import torch, sys
+    sys.exit(0 if torch.__version__.startswith(("1.10.","1.11")) else 1)
 except Exception:
     sys.exit(1)
 PY
@@ -127,10 +141,13 @@ PY
 
   echo "Instalando PyTorch (Jetson JP4.x, wheel NVIDIA)…"
   local WHEEL_URL="https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl"
-  pip_jetson install --no-cache-dir --no-deps "$WHEEL_URL"
+  python3 -m pip install --no-cache-dir --no-deps "$WHEEL_URL"
+
+  # **Clave**: backports y versiones compatibles para py3.6
+  install_py36_compat_jetson
 
   echo "Verificando PyTorch…"
-  py_jetson - <<'PY'
+  python3 - <<'PY'
 import torch
 print("torch:", torch.__version__)
 print("cuda :", torch.cuda.is_available())
