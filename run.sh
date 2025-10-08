@@ -190,7 +190,7 @@ install_realsense_jetson_in_env() {
   fi
   echo "pybind11_DIR: ${PYBIND11_DIR}"
 
-  # Helper: función para configurar con CMake
+  # Helpers ==========================================================
   _cmake_configure() {
     local extra_msg="${1:-}"
     echo "==> Configurando CMake ${extra_msg}"
@@ -212,7 +212,6 @@ install_realsense_jetson_in_env() {
     return 0
   }
 
-  # Helper: función para compilar con retry -j2 -> -j1
   _cmake_build_install() {
     echo "==> Compilando librealsense (intento con -j2)…"
     if ! make -j2; then
@@ -227,20 +226,62 @@ install_realsense_jetson_in_env() {
     return 0
   }
 
-  # 3) Intento 1: usar el árbol actual + pybind11 externo
+  _pin_pybind11_submodule_2104() {
+    echo "==> Forzando submódulo third-party/pybind11 a v2.10.4…"
+    git submodule update --init --recursive || true
+    if [[ -d third-party/pybind11 ]]; then
+      pushd third-party/pybind11 >/dev/null
+      git fetch --tags || true
+      git checkout v2.10.4 || return 1
+      popd >/dev/null
+    else
+      echo "Advertencia: no existe third-party/pybind11; creando y fijando a v2.10.4…"
+      mkdir -p third-party
+      pushd third-party >/dev/null
+      git clone https://github.com/pybind/pybind11.git
+      cd pybind11
+      git checkout v2.10.4 || return 1
+      popd >/dev/null
+    fi
+    return 0
+  }
+
+  _force_find_system_pybind11_if_needed() {
+    # Variante alternativa: elimina submódulo para obligar a usar el del sistema
+    echo "==> Alternativa: eliminando submódulo pybind11 para usar el del sistema…"
+    rm -rf third-party/pybind11
+    export CMAKE_PREFIX_PATH="$(python3 -c 'import pybind11,os;print(os.path.dirname(os.path.dirname(pybind11.get_cmake_dir())))'):${CMAKE_PREFIX_PATH:-}"
+  }
+  # ================================================================
+
+  # 3) Intento: configurar con el árbol actual + pybind11 del sistema
   pushd librealsense >/dev/null
   if ! _cmake_configure "(árbol actual)"; then
-    # Analizamos el error para ver si es el típico de PythonInterp >= 3.7
+    # ¿Error típico de Python>=3.7?
     if grep -qiE "PythonInterp.*at least.*3\.7|Found unsuitable version.*3\.6" build/cmake_config.log 2>/dev/null; then
-      echo "Detectado requisito de Python>=3.7 por pybind11 reciente. Aplicando fallback a v2.50.0…"
-      cd ..
+      echo ">> Detectado requisito de Python>=3.7 por pybind11 interno."
+
+      echo "==> Aplicando fallback a librealsense v2.50.0 (compatible JP4/Py3.6)…"
       git fetch --tags || true
-      git checkout v2.50.0
-      # Intento 2: reconfigurar con el tag compatible
-      if ! _cmake_configure "(fallback v2.50.0)"; then
-        echo "ERROR: CMake falló incluso con fallback v2.50.0. Revisa librealsense/build/cmake_config.log."
+      git checkout v2.50.0 || { echo "ERROR: no se pudo hacer checkout v2.50.0"; popd >/dev/null; return 2; }
+
+      # Fijar el submódulo interno a v2.10.4
+      if ! _pin_pybind11_submodule_2104; then
+        echo "ERROR: No se pudo fijar pybind11 del submódulo a v2.10.4."
         popd >/dev/null
         return 2
+      fi
+
+      # Reconfigurar con submódulo fijado
+      if ! _cmake_configure "(fallback v2.50.0 + submódulo pybind11 v2.10.4)"; then
+        echo "==> Reintento: forzar uso del pybind11 del sistema (eliminando submódulo)…"
+        _force_find_system_pybind11_if_needed
+        if ! _cmake_configure "(fallback v2.50.0 + system pybind11)"; then
+          echo "ERROR: CMake falló incluso tras forzar pybind11 2.10.4."
+          echo "Revisa librealsense/build/cmake_config.log."
+          popd >/dev/null
+          return 2
+        fi
       fi
     else
       echo "ERROR: CMake falló (no es el error típico de Python>=3.7). Revisa librealsense/build/cmake_config.log."
@@ -262,12 +303,13 @@ install_realsense_jetson_in_env() {
   python3 - <<'PY'
 try:
     import pyrealsense2 as rs
-    import pkgutil, sys
+    import sys
     print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
 except Exception as e:
     print("FALLO import pyrealsense2:", repr(e))
     sys.exit(1)
 PY
+
   echo "Listo: pyrealsense2 instalado y usable en Jetson."
 }
 
