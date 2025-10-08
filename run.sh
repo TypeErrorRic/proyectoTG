@@ -188,25 +188,67 @@ PY
   export CMAKE_PREFIX_PATH="${PREFIX}:${CMAKE_PREFIX_PATH:-}"
 }
 
-# Compila SOLO la lib C++ (sin bindings) y luego instala el wrapper con el Python del entorno conda
-build_librealsense_cpp_then_wrapper_in_env() {
-  echo "Compilando librealsense ${RS_TAG} (C++ solo) e instalando wrapper Python en '$ENV_NAME'…"
+# Compila librealsense C++ y el binding Python desde el CMake top-level,
+# instalando el módulo dentro del entorno conda (Py 3.8).
+build_librealsense_with_bindings_top_cmake_in_env() {
+  echo "Compilando librealsense ${RS_TAG} + bindings Python para el entorno '$ENV_NAME'…"
 
-  # Reglas udev + repo
+  # 1) Asegura repo + reglas udev
   [[ -d librealsense ]] || git clone https://github.com/IntelRealSense/librealsense.git
   sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
   sudo udevadm control --reload-rules && sudo udevadm trigger
 
+  # 2) Rutas del Python del entorno conda
+  local PY PY_INC PY_LIB PY_SITE PREFIX
+  PY="$(conda run -n "$ENV_NAME" which python)"
+  PY_INC="$(conda run -n "$ENV_NAME" python - <<'PY'
+import sysconfig; print(sysconfig.get_paths()["include"])
+PY
+)"
+  PY_LIB="$(conda run -n "$ENV_NAME" python - <<'PY'
+import sys,glob
+v=f"{sys.version_info.major}.{sys.version_info.minor}"
+c=glob.glob(f"{sys.prefix}/lib/libpython{v}*.so") + glob.glob(f"/usr/lib/aarch64-linux-gnu/libpython{v}*.so")
+print(c[0] if c else "")
+PY
+)"
+  PY_SITE="$(conda run -n "$ENV_NAME" python - <<'PY'
+import site; print(site.getsitepackages()[0])
+PY
+)"
+  PREFIX="$(conda run -n "$ENV_NAME" python - <<'PY'
+import sys; print(sys.prefix)
+PY
+)"
+
+  echo "PY      = $PY"
+  echo "PY_INC  = $PY_INC"
+  echo "PY_LIB  = $PY_LIB"
+  echo "PY_SITE = $PY_SITE"
+  echo "PREFIX  = $PREFIX"
+
+  if [[ -z "$PY_LIB" || -z "$PY_INC" ]]; then
+    echo "ERROR: No se pudo resolver PY_LIB o PY_INC del entorno $ENV_NAME."
+    return 2
+  fi
+
+  # 3) Build + install (CMake top-level instala directo en el site-packages del PY)
   pushd librealsense >/dev/null
   git fetch --tags || true
   git checkout "${RS_TAG}"
 
-  # === 1) Compila SOLO la lib C++ (sin pybind) ===
   rm -rf build && mkdir build && cd build
+
+  # Nota: fijamos también el destino explícito por si el script de instalación lo necesita.
   cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DFORCE_RSUSB_BACKEND=ON \
-    -DBUILD_PYTHON_BINDINGS=OFF \
+    -DBUILD_PYTHON_BINDINGS=ON \
+    -DPYTHON_EXECUTABLE="$PY" \
+    -DPYTHON_INCLUDE_DIR="$PY_INC" \
+    -DPYTHON_LIBRARY="$PY_LIB" \
+    -DPYTHON_INSTALL_DIR="$PY_SITE" \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DBUILD_EXAMPLES=OFF \
     -DBUILD_GRAPHICAL_EXAMPLES=OFF | tee cmake_config.log
 
@@ -214,15 +256,10 @@ build_librealsense_cpp_then_wrapper_in_env() {
   sudo make install
   sudo ldconfig
 
-  # === 2) Instala el wrapper Python con el MISMO Python del entorno ===
-  cd ../wrappers/python
-  conda run --no-capture-output -n "$ENV_NAME" python -m pip install --upgrade pip setuptools wheel
-  conda run --no-capture-output -n "$ENV_NAME" python -m pip install .
-
-  # === 3) Verificación dentro del entorno ===
+  # 4) Verificación dentro del entorno
   conda run --no-capture-output -n "$ENV_NAME" python - <<'PY'
-import pyrealsense2 as rs, inspect, subprocess
-print("pyrealsense2:", rs.__file__)
+import pyrealsense2 as rs, inspect, subprocess, sys
+print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
 try:
     so = inspect.getfile(rs)
     print("ldd:")
@@ -264,7 +301,7 @@ case "${1:-}" in
       # 3) Jetson: compilar librealsense + wrapper en el entorno conda
       install_jetson_system_prereqs
       clone_rules_librealsense
-      build_librealsense_cpp_then_wrapper_in_env
+      build_librealsense_with_bindings_top_cmake_in_env
       verify_pyrealsense_in_env
       echo "Listo: RealSense (lib + pyrealsense2) instalado para Python $PYTHON_VER en entorno $ENV_NAME (Jetson)."
     else
