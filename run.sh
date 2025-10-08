@@ -188,8 +188,7 @@ PY
   export CMAKE_PREFIX_PATH="${PREFIX}:${CMAKE_PREFIX_PATH:-}"
 }
 
-# Compila librealsense C++ y el binding Python desde el CMake top-level,
-# instalando el módulo dentro del entorno conda (Py 3.8).
+# Compila librealsense C++ + bindings Python e instala el módulo en el env conda (Py 3.8)
 build_librealsense_with_bindings_top_cmake_in_env() {
   echo "Compilando librealsense ${RS_TAG} + bindings Python para el entorno '$ENV_NAME'…"
 
@@ -198,59 +197,89 @@ build_librealsense_with_bindings_top_cmake_in_env() {
   sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
   sudo udevadm control --reload-rules && sudo udevadm trigger
 
-  # 2) Rutas del Python del entorno conda
-  local PY PY_INC PY_LIB PY_SITE PREFIX
+  # 2) Rutas del Python del entorno conda (usa directamente ese intérprete)
+  local PY PREFIX PY_INC PY_SITE PY_LIB
   PY="$(conda run -n "$ENV_NAME" which python)"
-  PY_INC="$(conda run -n "$ENV_NAME" python - <<'PY'
-import sysconfig; print(sysconfig.get_paths()["include"])
-PY
-)"
-  PY_LIB="$(conda run -n "$ENV_NAME" python - <<'PY'
-import sys,glob
-v=f"{sys.version_info.major}.{sys.version_info.minor}"
-c=glob.glob(f"{sys.prefix}/lib/libpython{v}*.so") + glob.glob(f"/usr/lib/aarch64-linux-gnu/libpython{v}*.so")
-print(c[0] if c else "")
-PY
-)"
-  PY_SITE="$(conda run -n "$ENV_NAME" python - <<'PY'
-import site; print(site.getsitepackages()[0])
-PY
-)"
-  PREFIX="$(conda run -n "$ENV_NAME" python - <<'PY'
+  PREFIX="$("$PY" - <<'PY'
 import sys; print(sys.prefix)
 PY
 )"
+  PY_INC="$("$PY" - <<'PY'
+import sysconfig; print(sysconfig.get_paths()["include"])
+PY
+)"
+  PY_SITE="$("$PY" - <<'PY'
+import site, sys
+# toma el site-packages del propio env (prefijo del env)
+candidates = [p for p in site.getsitepackages() if p.startswith(sys.prefix)]
+print(candidates[0] if candidates else site.getsitepackages()[0])
+PY
+)"
 
-  echo "PY      = $PY"
-  echo "PY_INC  = $PY_INC"
-  echo "PY_LIB  = $PY_LIB"
-  echo "PY_SITE = $PY_SITE"
-  echo "PREFIX  = $PREFIX"
+  # Intentar localizar la librería de Python
+  PY_LIB="$("$PY" - <<'PY'
+import sys, glob, os
+ver=f"{sys.version_info.major}.{sys.version_info.minor}"
+cands=[]
+for d in (os.path.join(sys.prefix,"lib"), "/usr/lib/aarch64-linux-gnu", "/usr/local/lib"):
+    cands += glob.glob(os.path.join(d, f"libpython{ver}*.so"))
+    cands += glob.glob(os.path.join(d, f"libpython{ver}*.so.*"))
+print(cands[0] if cands else "")
+PY
+)"
 
-  if [[ -z "$PY_LIB" || -z "$PY_INC" ]]; then
-    echo "ERROR: No se pudo resolver PY_LIB o PY_INC del entorno $ENV_NAME."
-    return 2
+  # Si no hay lib directa, crea symlink a .so.1.0 dentro del env
+  if [[ -z "$PY_LIB" && -d "$PREFIX/lib" ]]; then
+    if ls "$PREFIX/lib"/libpython3.8.so.* >/dev/null 2>&1; then
+      echo "Creando symlink libpython3.8.so en $PREFIX/lib…"
+      ln -sf "$(ls "$PREFIX/lib"/libpython3.8.so.* | head -n1)" "$PREFIX/lib/libpython3.8.so"
+      PY_LIB="$PREFIX/lib/libpython3.8.so"
+    fi
   fi
 
-  # 3) Build + install (CMake top-level instala directo en el site-packages del PY)
+  echo "PY      = $PY"
+  echo "PREFIX  = $PREFIX"
+  echo "PY_INC  = $PY_INC"
+  echo "PY_SITE = $PY_SITE"
+  echo "PY_LIB  = ${PY_LIB:-<no encontrado>}"
+
+  if [[ -z "$PY_INC" ]]; then
+    echo "ERROR: No se pudo resolver PY_INC (headers de Python)."
+    return 2
+  fi
+  if [[ -z "$PY_LIB" ]]; then
+    echo "ADVERTENCIA: No se encontró libpython*.so. Intentaré continuar sin -DPYTHON_LIBRARY."
+  fi
+
+  # 3) Build + install (CMake top-level instala directo en el site-packages del env)
   pushd librealsense >/dev/null
   git fetch --tags || true
   git checkout "${RS_TAG}"
 
   rm -rf build && mkdir build && cd build
 
-  # Nota: fijamos también el destino explícito por si el script de instalación lo necesita.
-  cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DFORCE_RSUSB_BACKEND=ON \
-    -DBUILD_PYTHON_BINDINGS=ON \
-    -DPYTHON_EXECUTABLE="$PY" \
-    -DPYTHON_INCLUDE_DIR="$PY_INC" \
-    -DPYTHON_LIBRARY="$PY_LIB" \
-    -DPYTHON_INSTALL_DIR="$PY_SITE" \
-    -DCMAKE_INSTALL_PREFIX="$PREFIX" \
-    -DBUILD_EXAMPLES=OFF \
-    -DBUILD_GRAPHICAL_EXAMPLES=OFF | tee cmake_config.log
+  # Ayuda a CMake a encontrar cosas del env
+  export CMAKE_PREFIX_PATH="${PREFIX}:${CMAKE_PREFIX_PATH:-}"
+
+  # Prepara args CMake
+  CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE=Release
+    -DFORCE_RSUSB_BACKEND=ON
+    -DBUILD_PYTHON_BINDINGS=ON
+    -DPYTHON_EXECUTABLE="$PY"
+    -DPYTHON_INCLUDE_DIR="$PY_INC"
+    -DPYTHON_INSTALL_DIR="$PY_SITE"
+    -DCMAKE_INSTALL_PREFIX="$PREFIX"
+    -DBUILD_EXAMPLES=OFF
+    -DBUILD_GRAPHICAL_EXAMPLES=OFF
+    -Dpybind11_FINDPYTHON=ON
+  )
+  # Solo si tenemos la lib, pásala
+  if [[ -n "$PY_LIB" ]]; then
+    CMAKE_ARGS+=(-DPYTHON_LIBRARY="$PY_LIB")
+  fi
+
+  cmake .. "${CMAKE_ARGS[@]}" | tee cmake_config.log
 
   make -j2 || make -j1
   sudo make install
@@ -258,7 +287,7 @@ PY
 
   # 4) Verificación dentro del entorno
   conda run --no-capture-output -n "$ENV_NAME" python - <<'PY'
-import pyrealsense2 as rs, inspect, subprocess, sys
+import pyrealsense2 as rs, inspect, subprocess
 print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
 try:
     so = inspect.getfile(rs)
