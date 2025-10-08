@@ -171,12 +171,23 @@ install_requirements_jetson() {
 
 install_realsense_jetson_in_env() {
   echo "Instalando pyrealsense2 (Jetson) compilando librealsense…"
-  # Reglas udev + código
+
+  # Asegura deps del sistema (si no lo hiciste antes)
+  install_jetson_system_prereqs
+
+  # Reglas udev y repo
   [[ -d librealsense ]] || git clone https://github.com/IntelRealSense/librealsense.git
   sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
   sudo udevadm control --reload-rules && sudo udevadm trigger
 
+  # === Pin pybind11 compatible con Python 3.6 ===
+  python3 -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+  python3 -m pip install "pybind11==2.10.4"
+  PYBIND11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())')"
+  echo "pybind11_DIR: $PYBIND11_DIR"
+
   pushd librealsense >/dev/null
+  rm -rf build
   mkdir -p build && cd build
 
   cmake .. \
@@ -184,6 +195,7 @@ install_realsense_jetson_in_env() {
     -DFORCE_RSUSB_BACKEND=ON \
     -DBUILD_PYTHON_BINDINGS=ON \
     -DPYTHON_EXECUTABLE="$(which python3)" \
+    -Dpybind11_DIR="$PYBIND11_DIR" \
     -DBUILD_EXAMPLES=OFF \
     -DBUILD_GRAPHICAL_EXAMPLES=OFF
 
@@ -195,7 +207,7 @@ install_realsense_jetson_in_env() {
   echo "Verificando import pyrealsense2…"
   python3 - <<'PY'
 import pyrealsense2 as rs
-print("pyrealsense2 OK:", rs.__version__)
+print("pyrealsense2 OK (Jetson)")
 PY
 }
 
