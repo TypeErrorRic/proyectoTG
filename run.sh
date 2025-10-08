@@ -2,19 +2,16 @@
 set -euo pipefail
 
 # ================== Config por defecto ==================
-ENV_NAME="${ENV_NAME:-TG}"
+ENV_NAME="${ENV_NAME:-TG_develop}"  # Nombre del entorno conda en PC
+PYTHON_VER="3.6"                    # Python 3.6 en PC y Jetson
 
-# 🔧 Python 3.6 tanto en PC como Jetson para compatibilidad completa
-PYTHON_VER="${PYTHON_VER:-3.6}"
-
-# Puedes apuntar a índices de PyTorch si quieres CUDA en PC:
-# ej: TORCH_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu121"
-TORCH_EXTRA_INDEX_URL="${TORCH_EXTRA_INDEX_URL:-}"
-
-# ========================================================
-# Detectores de plataforma
+# ================== Detectores de plataforma ==================
 is_cmd() { command -v "$1" >/dev/null 2>&1; }
 is_aarch64() { [[ "$(uname -m)" == "aarch64" ]]; }
+is_linux() { [[ "${OSTYPE:-}" == linux* ]]; }
+is_msys() { [[ "${OSTYPE:-}" == msys || "${OSTYPE:-}" == cygwin ]]; }  # Git Bash
+is_darwin() { [[ "${OSTYPE:-}" == darwin* ]]; }
+is_windows_shell() { is_msys; }
 is_jetson_board() {
   [[ -f /etc/nv_tegra_release ]] && return 0
   [[ -d /proc/device-tree/tegra-fuse || -d /proc/device-tree/chosen/nvidia,tegra-udrm ]] && return 0
@@ -22,9 +19,7 @@ is_jetson_board() {
 }
 
 IS_JETSON=0
-if is_aarch64 && is_jetson_board; then
-  IS_JETSON=1
-fi
+if is_aarch64 && is_jetson_board; then IS_JETSON=1; fi
 
 # ================== Pausa inteligente ===================
 pause_if_needed() {
@@ -33,7 +28,7 @@ pause_if_needed() {
     want_pause=1
   elif [[ "${KEEP_OPEN:-auto}" == "0" ]]; then
     want_pause=0
-  elif [[ "${OSTYPE:-}" == msys || "${OSTYPE:-}" == cygwin ]]; then
+  elif is_windows_shell; then
     want_pause=1
   fi
   [[ "$want_pause" -eq 0 ]] && return 0
@@ -49,14 +44,10 @@ pause_if_needed() {
 }
 trap pause_if_needed EXIT
 
-# ==================== Modo PC (Conda) ===================
-load_conda_like() {
+# ==================== PC (Conda) ====================
+load_conda() {
   if is_cmd conda; then
     eval "$("$(command -v conda)" shell.bash hook)"
-    return 0
-  fi
-  if [[ -n "${CONDA_EXE:-}" ]]; then
-    eval "$("$CONDA_EXE" shell.bash hook)"
     return 0
   fi
   for CAND in \
@@ -64,197 +55,222 @@ load_conda_like() {
     "$HOME/anaconda3/etc/profile.d/conda.sh" \
     "/opt/conda/etc/profile.d/conda.sh"
   do
-    [[ -f "$CAND" ]] && { source "$CAND"; return 0; }
+    [[ -f "$CAND" ]] && { # shellcheck disable=SC1090
+      source "$CAND"; return 0;
+    }
   done
-  if is_cmd micromamba; then
-    eval "$(micromamba shell hook -s bash)"
-    return 0
-  fi
   return 1
 }
 
-create_env_if_needed_pc() {
-  if is_cmd conda; then
-    if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-      echo "Creando entorno $ENV_NAME (Conda) con Python $PYTHON_VER..."
-      conda create -y -n "$ENV_NAME" python="$PYTHON_VER"
-    fi
-  else
-    if ! micromamba env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-      echo "Creando entorno $ENV_NAME (Micromamba) con Python $PYTHON_VER..."
-      micromamba create -y -n "$ENV_NAME" python="$PYTHON_VER"
-    fi
+create_env_pc() {
+  if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+    echo "Creando entorno $ENV_NAME (Conda) con Python $PYTHON_VER…"
+    conda create -y -n "$ENV_NAME" "python=$PYTHON_VER"
   fi
 }
 
 run_in_env_pc() {
-  if is_cmd conda; then
-    conda run --no-capture-output -n "$ENV_NAME" "$@"
-  else
-    micromamba run -n "$ENV_NAME" "$@"
-  fi
+  conda run --no-capture-output -n "$ENV_NAME" "$@"
 }
 
-# =================== Modo Jetson (sin Conda) ===================
-py_jetson() { python3 "$@"; }
-pip_jetson() { python3 -m pip "$@"; }
-
-# --- Compatibilidad Python 3.6 en Jetson (paquetes pip fijados) ---
-install_py36_compat_jetson() {
-  # Paquetes compatibles con Python 3.6 que PyTorch 1.10/1.11 usa
-  python3 -m pip install --no-cache-dir \
-    typing_extensions==4.1.1 \
-    importlib_resources==5.4.0 \
-    dataclasses==0.8 \
-    "numpy==1.19.5" \
-    "pillow<=8.4.0" \
-    "protobuf==3.19.6"
+install_requirements_pc() {
+  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (PC)."; return 0; }
+  echo "Instalando dependencias (PC, conda env: $ENV_NAME)…"
+  run_in_env_pc python -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+  run_in_env_pc python -m pip install opencv-python==4.5.5.64
+  run_in_env_pc python -m pip install -r requirements.txt
 }
 
-# --- Prerrequisitos de sistema para Jetson JP4.x ---
-install_jetson_system_prereqs() {
-  [[ "$IS_JETSON" -eq 1 ]] || return 0
-  echo "Detectado Jetson (aarch64). Instalando prerrequisitos del sistema..."
-
-  sudo apt-get update
-  # Python y bindings útiles del sistema
-  sudo apt-get install -y --no-install-recommends \
-    python3-pip python3-opencv python3-pyqt5
-
-  # BLAS/Atlas para NumPy/Scipy
-  sudo apt-get install -y --no-install-recommends \
-    libopenblas-base libatlas-base-dev
-
-  # FIX de OpenMP (libomp.so requerido por el wheel de Torch)
-  sudo apt-get install -y --no-install-recommends \
-    libomp5 libomp-dev
-
-  # Asegurar pip/setuptools compatibles con Python 3.6
-  python3 -m pip install --upgrade "pip<22" "setuptools<60" wheel
-
-  # Añade ~/.local/bin al PATH (para torchrun, f2py, etc.) y actívalo ya
-  if ! grep -q 'export PATH="\$HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-  fi
-  export PATH="$HOME/.local/bin:$PATH"
-
-  # Refrescar el cargador de bibliotecas
-  sudo ldconfig
-}
-
-ensure_torch_jetson() {
-  if python3 - <<'PY'
-try:
-    import torch, sys
-    sys.exit(0 if torch.__version__.startswith(("1.10.","1.11")) else 1)
-except Exception:
-    sys.exit(1)
-PY
-  then
-    echo "PyTorch (Jetson) ya instalado: $(python3 -c 'import torch; print(torch.__version__)')"
+install_realsense_pc_in_env() {
+  # Instala pyrealsense2 dentro del entorno (Windows/Linux x86_64). macOS no soportado.
+  if is_darwin; then
+    echo "Aviso: macOS no está soportado oficialmente por Intel RealSense. Saltando instalación."
     return 0
   fi
 
-  echo "Instalando PyTorch (Jetson JP4.x, wheel NVIDIA)…"
-  local WHEEL_URL="https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl"
-  python3 -m pip install --no-cache-dir --no-deps "$WHEEL_URL"
+  echo "Instalando pyrealsense2 (PC) en el entorno conda $ENV_NAME…"
 
-  # 🔧 Paquetes de compatibilidad para Python 3.6
-  install_py36_compat_jetson
+  # ¿Ya está instalado? (solo validamos que importe)
+  if run_in_env_pc python - <<'PY'
+try:
+    import pyrealsense2 as rs
+    print("pyrealsense2 ya importable en este entorno.")
+    import sys; sys.exit(0)
+except Exception as e:
+    print("pyrealsense2 NO importable todavía:", repr(e))
+    import sys; sys.exit(1)
+PY
+  then
+    :
+  else
+    # Instalar wheel desde PyPI (para Py3.6 toma una versión compatible)
+    run_in_env_pc python -m pip install pyrealsense2
+  fi
 
-  echo "Verificando PyTorch…"
-  python3 - <<'PY'
-import torch
-print("torch:", torch.__version__)
-print("cuda :", torch.cuda.is_available())
-if torch.cuda.is_available():
-    print("gpu  :", torch.cuda.get_device_name(0))
+  echo "Verificación de import y detalle de instalación…"
+  # No usamos rs.__version__ porque a veces no existe; tomamos versión de pkg_resources
+  run_in_env_pc python - <<'PY'
+import sys
+try:
+    import pyrealsense2 as rs
+    print("Import OK  ->", rs.__file__)
+    try:
+        import pkg_resources
+        v = pkg_resources.get_distribution("pyrealsense2").version
+        print("Version    ->", v)
+    except Exception:
+        # Fallback: pip show
+        import subprocess, shlex
+        try:
+            out = subprocess.check_output(shlex.split(sys.executable + " -m pip show pyrealsense2")).decode(errors="ignore")
+            for line in out.splitlines():
+                if line.startswith("Version:"):
+                    print(line)
+                    break
+        except Exception:
+            print("Version    -> (no disponible)")
+except Exception as e:
+    print("FALLO import pyrealsense2:", repr(e))
+    sys.exit(2)
 PY
 }
 
-# ================== Requirements ======================
-install_requirements_pc() {
-  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (PC)."; return 0; }
-  if [[ -n "$TORCH_EXTRA_INDEX_URL" ]]; then
-    export PIP_EXTRA_INDEX_URL="$TORCH_EXTRA_INDEX_URL"
+# =================== Jetson (sin conda) ===================
+pip_jetson() { python3 -m pip "$@"; }
+
+install_jetson_system_prereqs() {
+  echo "Instalando prerrequisitos del sistema (Jetson)…"
+  sudo apt-get update
+  sudo apt-get install -y python3-pip python3-opencv
+  # BLAS y OpenMP
+  sudo apt-get install -y libopenblas-base libatlas-base-dev || true
+  sudo apt-get install -y libomp5 libomp-dev
+  # Herramientas de build y dependencias librealsense
+  sudo apt-get install -y libssl-dev libusb-1.0-0-dev pkg-config \
+                          libgtk-3-dev libglfw3-dev libgl1-mesa-dev libglu1-mesa-dev \
+                          cmake git udev
+  # Pip/setuptools compatibles con Python 3.6
+  python3 -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
+  # PATH local
+  if ! grep -q 'export PATH="\$HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
   fi
-  echo "Instalando dependencias (PC, conda/micromamba)…"
-  run_in_env_pc python -m pip install --upgrade pip
-  run_in_env_pc python -m pip install -r requirements.txt
 }
 
 install_requirements_jetson() {
   [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (Jetson)."; return 0; }
   echo "Instalando dependencias (Jetson, pip3 del sistema)…"
   TMP_REQ="$(mktemp)"
+  # Evitar torch* por incompatibilidades
   grep -Ev '^[[:space:]]*(torch|torchaudio|torchvision)($|[=<>!~])' requirements.txt > "$TMP_REQ" || true
-  pip_jetson install --no-cache-dir -r "$TMP_REQ" || {
-    echo "Reintentando dependencias (Jetson)…"
-    PIP_DISABLE_PIP_VERSION_CHECK=1 pip_jetson install --retries 5 --timeout 180 --no-cache-dir -r "$TMP_REQ"
-  }
+  PIP_DISABLE_PIP_VERSION_CHECK=1 pip_jetson install --no-cache-dir -r "$TMP_REQ"
   rm -f "$TMP_REQ"
+}
+
+install_realsense_jetson_in_env() {
+  echo "Instalando pyrealsense2 (Jetson) compilando librealsense…"
+  # Reglas udev + código
+  [[ -d librealsense ]] || git clone https://github.com/IntelRealSense/librealsense.git
+  sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+
+  pushd librealsense >/dev/null
+  mkdir -p build && cd build
+
+  cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DFORCE_RSUSB_BACKEND=ON \
+    -DBUILD_PYTHON_BINDINGS=ON \
+    -DPYTHON_EXECUTABLE="$(which python3)" \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_GRAPHICAL_EXAMPLES=OFF
+
+  make -j2
+  sudo make install
+  sudo ldconfig
+  popd >/dev/null
+
+  echo "Verificando import pyrealsense2…"
+  python3 - <<'PY'
+import pyrealsense2 as rs
+print("pyrealsense2 OK:", rs.__version__)
+PY
 }
 
 # ===================== MAIN =============================
 case "${1:-}" in
-  env)
+  env|deps)
     if [[ "$IS_JETSON" -eq 1 ]]; then
+      # Jetson: instala deps + requirements + compila librealsense (pyrealsense2)
       install_jetson_system_prereqs
-      ensure_torch_jetson
       install_requirements_jetson
+      install_realsense_jetson_in_env
     else
-      if ! load_conda_like; then
-        echo "ERROR: No se encontró conda/micromamba en PC."
-        exit 2
-      fi
-      create_env_if_needed_pc
+      # PC: crea/actualiza entorno + requirements + pyrealsense2 en el entorno
+      if ! load_conda; then echo "ERROR: No se encontró conda en PC."; exit 2; fi
+      create_env_pc
       install_requirements_pc
+      install_realsense_pc_in_env
     fi
     ;;
-  deps)
-    if [[ "$IS_JETSON" -eq 1 ]]; then
-      install_jetson_system_prereqs
-      ensure_torch_jetson
-      install_requirements_jetson
-    else
-      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
-      create_env_if_needed_pc
-      install_requirements_pc
-    fi
-    ;;
-  visual)
-    echo "Ejecutando visualizador..."
-    if [[ "$IS_JETSON" -eq 1 ]]; then
-      # --- Jetson: usa python3 del sistema ---
-      export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-      cd src/data || { echo "No se encontró src/data"; exit 1; }
-      python3 visualizador.py
-    else
-      # --- PC: ejecuta dentro del entorno conda/micromamba ---
-      if ! load_conda_like; then
-        echo "ERROR: falta conda/micromamba en PC."; exit 2
-      fi
-      conda activate "$ENV_NAME" 2>/dev/null || true
-      export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-      cd src/data || { echo "No se encontró src/data"; exit 1; }
-      python visualizador.py
-    fi
-    ;;
+
   check)
     if [[ "$IS_JETSON" -eq 1 ]]; then
       python3 - <<'PY'
-import torch, cv2, open3d as o3d
-print("torch:", torch.__version__, "cv2:", cv2.__version__, "open3d:", o3d.__version__)
+try:
+    import sys, platform, cv2
+    print("Python:", sys.version.split()[0], "| Platform:", platform.machine())
+    print("cv2   :", cv2.__version__)
+except Exception as e:
+    print("ERROR en check (Jetson):", e)
+    raise
 PY
     else
-      if ! load_conda_like; then echo "ERROR: falta conda/micromamba en PC."; exit 2; fi
+      if ! load_conda; then echo "ERROR: No se encontró conda en PC."; exit 2; fi
       run_in_env_pc python - <<'PY'
-import torch, cv2, open3d as o3d
-print("torch:", torch.__version__, "cv2:", cv2.__version__, "open3d:", o3d.__version__)
+try:
+    import sys, platform, cv2
+    print("Python:", sys.version.split()[0], "| Platform:", platform.machine())
+    print("cv2   :", cv2.__version__)
+except Exception as e:
+    print("ERROR en check (PC):", e)
+    raise
 PY
     fi
     ;;
-  *)
-    echo "Uso: $0 {env|deps|check}"
+
+    realsense-test)
+    echo "Iniciando prueba de cámara (RealSense)…"
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      # === Jetson Nano ===
+      if [[ -f "src/utilities/viewCamera.py" ]]; then
+        echo "[Jetson] Ejecutando viewCamera.py con Python del sistema..."
+        python3 src/utilities/viewCamera.py
+      else
+        echo "ERROR: No se encontró src/utilities/viewCamera.py"
+        exit 1
+      fi
+    else
+      # === PC (entorno conda) ===
+      if ! load_conda; then echo "ERROR: No se encontró conda."; exit 2; fi
+      if [[ -f "src/utilities/viewCamera.py" ]]; then
+        echo "[PC] Ejecutando viewCamera.py dentro del entorno $ENV_NAME..."
+        conda run --no-capture-output -n "$ENV_NAME" python src/utilities/viewCamera.py
+      else
+        echo "ERROR: No se encontró src/utilities/viewCamera.py"
+        exit 1
+      fi
+    fi
+    
     ;;
+
+  visual)
+    # Placeholder para tu visualizador propio
+    echo "Usa 'realsense-test' para una prueba rápida de cámara RealSense."
+    ;;
+
+  *)
+    echo "Uso: $0 {env|deps|check|realsense-test|visual}"
+    ;;
+
 esac

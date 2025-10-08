@@ -1,6 +1,8 @@
 # main_manifest_viewer.py — Visor RGB-D + Labels (basado en nyuv2_manifest.csv)
 # Controles: n/d/→ sig. | p/a/← ant. | o overlay | l leyenda | q/ESC salir
 
+# Cuarto Commit. Funciona con ese run.sh y requerimientos.
+
 import os, csv, cv2, numpy as np
 import pandas as pd
 
