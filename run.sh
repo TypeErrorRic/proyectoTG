@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ================== Config por defecto ==================
-ENV_NAME="${ENV_NAME:-TG_develop}"  # Nombre del entorno conda en PC
-PYTHON_VER="3.6"                    # Python 3.6 en PC y Jetson
+# ================== Configuración por defecto ==================
+ENV_NAME="${ENV_NAME:-TG_py38}"  # Nombre del entorno conda (PC y Jetson)
+PYTHON_VER="3.8"                 # Python 3.8 en ambos
+
+# Tag de librealsense recomendado para JP4.x (estable)
+RS_TAG="${RS_TAG:-v2.50.0}"
 
 # ================== Detectores de plataforma ==================
 is_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -17,7 +20,6 @@ is_jetson_board() {
   [[ -d /proc/device-tree/tegra-fuse || -d /proc/device-tree/chosen/nvidia,tegra-udrm ]] && return 0
   return 1
 }
-
 IS_JETSON=0
 if is_aarch64 && is_jetson_board; then IS_JETSON=1; fi
 
@@ -44,13 +46,15 @@ pause_if_needed() {
 }
 trap pause_if_needed EXIT
 
-# ==================== PC (Conda) ====================
+# ==================== Conda (carga/instala) ====================
 load_conda() {
   if is_cmd conda; then
     eval "$("$(command -v conda)" shell.bash hook)"
     return 0
   fi
   for CAND in \
+    "$HOME/miniforge/etc/profile.d/conda.sh" \
+    "$HOME/miniforge3/etc/profile.d/conda.sh" \
     "$HOME/miniconda3/etc/profile.d/conda.sh" \
     "$HOME/anaconda3/etc/profile.d/conda.sh" \
     "/opt/conda/etc/profile.d/conda.sh"
@@ -62,36 +66,55 @@ load_conda() {
   return 1
 }
 
-create_env_pc() {
+install_miniforge_if_needed() {
+  if load_conda; then return 0; fi
+  echo "Conda no encontrado. Instalando Miniforge para este sistema…"
+  local url=""
+  if is_linux; then
+    if is_aarch64; then
+      url="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh"
+    else
+      url="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh"
+    fi
+  elif is_darwin; then
+    url="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-$(uname -m).sh"
+  else
+    echo "Plataforma no soportada automáticamente para instalar Miniforge."
+    return 1
+  fi
+  mkdir -p "$HOME/.cache/miniforge"
+  local shfile="$HOME/.cache/miniforge/Miniforge_installer.sh"
+  curl -L "$url" -o "$shfile"
+  bash "$shfile" -b -p "$HOME/miniforge"
+  echo 'export PATH="$HOME/miniforge/bin:$PATH"' >> "$HOME/.bashrc"
+  # shellcheck disable=SC1090
+  source "$HOME/miniforge/etc/profile.d/conda.sh"
+}
+
+create_env_common() {
   if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
     echo "Creando entorno $ENV_NAME (Conda) con Python $PYTHON_VER…"
     conda create -y -n "$ENV_NAME" "python=$PYTHON_VER"
   fi
 }
 
-run_in_env_pc() {
+run_in_env() {
   conda run --no-capture-output -n "$ENV_NAME" "$@"
 }
 
-install_requirements_pc() {
-  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (PC)."; return 0; }
-  echo "Instalando dependencias (PC, conda env: $ENV_NAME)…"
-  run_in_env_pc python -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
-  run_in_env_pc python -m pip install opencv-python==4.5.5.64
-  run_in_env_pc python -m pip install -r requirements.txt
+install_requirements_common() {
+  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt."; return 0; }
+  echo "Instalando dependencias (pip) dentro del entorno $ENV_NAME…"
+  run_in_env python -m pip install --upgrade pip setuptools wheel
+  run_in_env python -m pip install -r requirements.txt
+  run_in_env python -m pip install opencv-python==4.8.1.78 
 }
 
+# =================== PC (x86_64) ===================
 install_realsense_pc_in_env() {
-  # Instala pyrealsense2 dentro del entorno (Windows/Linux x86_64). macOS no soportado.
-  if is_darwin; then
-    echo "Aviso: macOS no está soportado oficialmente por Intel RealSense. Saltando instalación."
-    return 0
-  fi
-
-  echo "Instalando pyrealsense2 (PC) en el entorno conda $ENV_NAME…"
-
-  # ¿Ya está instalado? (solo validamos que importe)
-  if run_in_env_pc python - <<'PY'
+  echo "Instalando pyrealsense2 (PC, wheel PyPI) dentro del entorno $ENV_NAME…"
+  # Intento wheel
+  if run_in_env python - <<'PY'
 try:
     import pyrealsense2 as rs
     print("pyrealsense2 ya importable en este entorno.")
@@ -103,287 +126,170 @@ PY
   then
     :
   else
-    # Instalar wheel desde PyPI (para Py3.6 toma una versión compatible)
-    run_in_env_pc python -m pip install pyrealsense2
+    run_in_env python -m pip install pyrealsense2 || true
   fi
 
-  echo "Verificación de import y detalle de instalación…"
-  # No usamos rs.__version__ porque a veces no existe; tomamos versión de pkg_resources
-  run_in_env_pc python - <<'PY'
-import sys
+  # Verificación; si falla el wheel, avisar.
+  if ! run_in_env python - <<'PY'
 try:
-    import pyrealsense2 as rs
+    import pyrealsense2 as rs, pkgutil
     print("Import OK  ->", rs.__file__)
-    try:
-        import pkg_resources
-        v = pkg_resources.get_distribution("pyrealsense2").version
-        print("Version    ->", v)
-    except Exception:
-        # Fallback: pip show
-        import subprocess, shlex
-        try:
-            out = subprocess.check_output(shlex.split(sys.executable + " -m pip show pyrealsense2")).decode(errors="ignore")
-            for line in out.splitlines():
-                if line.startswith("Version:"):
-                    print(line)
-                    break
-        except Exception:
-            print("Version    -> (no disponible)")
 except Exception as e:
-    print("FALLO import pyrealsense2:", repr(e))
-    sys.exit(2)
+    print("FALLO import pyrealsense2:", e)
+    raise SystemExit(1)
 PY
+  then
+    echo "ADVERTENCIA: No se pudo importar pyrealsense2 desde wheel en PC."
+    echo "Puedes compilar desde fuente como en Jetson (mismo procedimiento) si lo necesitas en PC."
+  fi
 }
 
-# =================== Jetson (sin conda) ===================
-pip_jetson() { python3 -m pip "$@"; }
-
+# =================== Jetson (aarch64) ===================
 install_jetson_system_prereqs() {
   echo "Instalando prerrequisitos del sistema (Jetson)…"
   sudo apt-get update
-  sudo apt-get install -y python3-pip python3-opencv
-  # BLAS y OpenMP
-  sudo apt-get install -y libopenblas-base libatlas-base-dev || true
-  sudo apt-get install -y libomp5 libomp-dev
-  # Herramientas de build y dependencias librealsense
+  sudo apt-get install -y python3-pip
   sudo apt-get install -y libssl-dev libusb-1.0-0-dev pkg-config \
                           libgtk-3-dev libglfw3-dev libgl1-mesa-dev libglu1-mesa-dev \
-                          cmake git udev
-  # Pip/setuptools compatibles con Python 3.6
-  python3 -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
-  # PATH local
-  if ! grep -q 'export PATH="\$HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-  fi
-  #Inastalar Matploid:
-  sudo apt install -y python3-matplotlib
+                          cmake build-essential git udev
+  # Opción útil en Nano para compilaciones largas (swap manual recomendado fuera de este script).
 }
 
-install_requirements_jetson() {
-  [[ -f requirements.txt ]] || { echo "ADVERTENCIA: no hay requirements.txt (Jetson)."; return 0; }
-  echo "Instalando dependencias (Jetson, pip3 del sistema)…"
-  TMP_REQ="$(mktemp)"
-  # Evitar torch* por incompatibilidades
-  grep -Ev '^[[:space:]]*(torch|torchaudio|torchvision)($|[=<>!~])' requirements.txt > "$TMP_REQ" || true
-  PIP_DISABLE_PIP_VERSION_CHECK=1 pip_jetson install --no-cache-dir -r "$TMP_REQ"
-  rm -f "$TMP_REQ"
-}
-
-install_realsense_jetson_in_env() {
-  echo "==> Instalando pyrealsense2 (Jetson) con pybind11 2.10.4 (compatible Py3.6)…"
-
-  # 0) Prerrequisitos del sistema (OpenCV, toolchain, etc.)
-  install_jetson_system_prereqs
-
-  # 1) Reglas udev + clonar librealsense si no existe
+clone_rules_librealsense() {
   [[ -d librealsense ]] || git clone https://github.com/IntelRealSense/librealsense.git
   sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
   sudo udevadm control --reload-rules && sudo udevadm trigger
-
-  # 2) Asegurar pybind11 compatible con Python 3.6 y obtener su cmake_dir
-  python3 -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
-  python3 -m pip install "pybind11==2.10.4"
-  PYBIND11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())' || true)"
-  if [[ -z "${PYBIND11_DIR:-}" ]]; then
-    echo "ERROR: No se pudo obtener pybind11.get_cmake_dir()."
-    return 2
-  fi
-  echo "pybind11_DIR: ${PYBIND11_DIR}"
-
-  # Helpers ==========================================================
-  _cmake_configure() {
-    local extra_msg="${1:-}"
-    echo "==> Configurando CMake ${extra_msg}"
-    rm -rf build
-    mkdir -p build && cd build
-
-    # Guardamos el log para diagnosticar fallos
-    if ! cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DFORCE_RSUSB_BACKEND=ON \
-        -DBUILD_PYTHON_BINDINGS=ON \
-        -DPYTHON_EXECUTABLE="$(which python3)" \
-        -Dpybind11_DIR="${PYBIND11_DIR}" \
-        -DPYBIND11_PYTHON_VERSION=3.6 \
-        -DBUILD_EXAMPLES=OFF \
-        -DBUILD_GRAPHICAL_EXAMPLES=OFF | tee cmake_config.log; then
-      return 1
-    fi
-    return 0
-  }
-
-  _cmake_build_install() {
-    echo "==> Compilando librealsense (intento con -j2)…"
-    if ! make -j2; then
-      echo "Compilación falló con -j2. Reintentando con -j1 (menos RAM)…"
-      if ! make -j1; then
-        echo "ERROR: Compilación falló también con -j1."
-        return 1
-      fi
-    fi
-    sudo make install
-    sudo ldconfig
-    return 0
-  }
-
-  _pin_pybind11_submodule_2104() {
-    echo "==> Forzando submódulo third-party/pybind11 a v2.10.4…"
-    git submodule update --init --recursive || true
-    if [[ -d third-party/pybind11 ]]; then
-      pushd third-party/pybind11 >/dev/null
-      git fetch --tags || true
-      git checkout v2.10.4 || return 1
-      popd >/dev/null
-    else
-      echo "Advertencia: no existe third-party/pybind11; creando y fijando a v2.10.4…"
-      mkdir -p third-party
-      pushd third-party >/dev/null
-      git clone https://github.com/pybind/pybind11.git
-      cd pybind11
-      git checkout v2.10.4 || return 1
-      popd >/dev/null
-    fi
-    return 0
-  }
-
-  _force_find_system_pybind11_if_needed() {
-    # Variante alternativa: elimina submódulo para obligar a usar el del sistema
-    echo "==> Alternativa: eliminando submódulo pybind11 para usar el del sistema…"
-    rm -rf third-party/pybind11
-    export CMAKE_PREFIX_PATH="$(python3 -c 'import pybind11,os;print(os.path.dirname(os.path.dirname(pybind11.get_cmake_dir())))'):${CMAKE_PREFIX_PATH:-}"
-  }
-  # ================================================================
-
-  # 3) Intento: configurar con el árbol actual + pybind11 del sistema
-  pushd librealsense >/dev/null
-  if ! _cmake_configure "(árbol actual)"; then
-    # ¿Error típico de Python>=3.7?
-    if grep -qiE "PythonInterp.*at least.*3\.7|Found unsuitable version.*3\.6" build/cmake_config.log 2>/dev/null; then
-      echo ">> Detectado requisito de Python>=3.7 por pybind11 interno."
-
-      echo "==> Aplicando fallback a librealsense v2.50.0 (compatible JP4/Py3.6)…"
-      git fetch --tags || true
-      git checkout v2.50.0 || { echo "ERROR: no se pudo hacer checkout v2.50.0"; popd >/dev/null; return 2; }
-
-      # Fijar el submódulo interno a v2.10.4
-      if ! _pin_pybind11_submodule_2104; then
-        echo "ERROR: No se pudo fijar pybind11 del submódulo a v2.10.4."
-        popd >/dev/null
-        return 2
-      fi
-
-      # Reconfigurar con submódulo fijado
-      if ! _cmake_configure "(fallback v2.50.0 + submódulo pybind11 v2.10.4)"; then
-        echo "==> Reintento: forzar uso del pybind11 del sistema (eliminando submódulo)…"
-        _force_find_system_pybind11_if_needed
-        if ! _cmake_configure "(fallback v2.50.0 + system pybind11)"; then
-          echo "ERROR: CMake falló incluso tras forzar pybind11 2.10.4."
-          echo "Revisa librealsense/build/cmake_config.log."
-          popd >/dev/null
-          return 2
-        fi
-      fi
-    else
-      echo "ERROR: CMake falló (no es el error típico de Python>=3.7). Revisa librealsense/build/cmake_config.log."
-      popd >/dev/null
-      return 2
-    fi
-  fi
-
-  # 4) Compilar e instalar (con reintento -j1 si hace falta)
-  if ! _cmake_build_install; then
-    echo "ERROR: No se pudo compilar/instalar librealsense."
-    popd >/dev/null
-    return 3
-  fi
-  popd >/dev/null
-
-  # 5) Verificación final de pyrealsense2
-  echo "==> Verificando import de pyrealsense2…"
-  python3 - <<'PY'
-try:
-    import pyrealsense2 as rs
-    import sys
-    print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
-except Exception as e:
-    print("FALLO import pyrealsense2:", repr(e))
-    sys.exit(1)
-PY
-
-  echo "Listo: pyrealsense2 instalado y usable en Jetson."
 }
 
+compute_py_paths_in_env() {
+  # Exporta variables PY, PY_INC, PY_LIB y CMAKE_PREFIX_PATH para el entorno activo
+  export PY="$(conda run -n "$ENV_NAME" which python)"
+  export PY_INC="$(conda run -n "$ENV_NAME" python - <<'PY'
+import sysconfig; print(sysconfig.get_paths()["include"])
+PY
+  )"
+  export PY_LIB="$(conda run -n "$ENV_NAME" python - <<'PY'
+import sys,glob,sysconfig,os
+ver=f"{sys.version_info.major}.{sys.version_info.minor}"
+cands=[
+  *glob.glob(f"{sys.prefix}/lib/libpython{ver}*.so"),
+  *glob.glob(f"/usr/lib/aarch64-linux-gnu/libpython{ver}*.so"),
+  *glob.glob(f"/usr/local/lib/libpython{ver}*.so"),
+]
+print(cands[0] if cands else "")
+PY
+  )"
+  # Ayuda a CMake a encontrar pybind11 del entorno
+  local PREFIX
+  PREFIX="$(conda run -n "$ENV_NAME" python - <<'PY'
+import sys; print(sys.prefix)
+PY
+  )"
+  export CMAKE_PREFIX_PATH="${PREFIX}:${CMAKE_PREFIX_PATH:-}"
+}
+
+build_librealsense_with_bindings_in_env() {
+  echo "Compilando librealsense ${RS_TAG} con bindings Python para el entorno $ENV_NAME…"
+  pushd librealsense >/dev/null
+  git fetch --tags || true
+  git checkout "${RS_TAG}"
+
+  rm -rf build && mkdir build && cd build
+  compute_py_paths_in_env
+
+  echo "Usando:"
+  echo "  PY         = $PY"
+  echo "  PY_INC     = $PY_INC"
+  echo "  PY_LIB     = $PY_LIB"
+  echo "  CMAKE_PREFIX_PATH = ${CMAKE_PREFIX_PATH:-<vacío>}"
+
+  cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DFORCE_RSUSB_BACKEND=ON \
+    -DBUILD_PYTHON_BINDINGS=ON \
+    -DPYTHON_EXECUTABLE="$PY" \
+    -DPYTHON_INCLUDE_DIR="$PY_INC" \
+    -DPYTHON_LIBRARY="$PY_LIB" \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_GRAPHICAL_EXAMPLES=OFF | tee cmake_config.log
+
+  make -j2 || make -j1
+  sudo make install
+  sudo ldconfig
+
+  # Instala el wrapper en el MISMO Python del entorno
+  echo "Instalando wrapper Python en el entorno…"
+  cd ../wrappers/python
+  conda run --no-capture-output -n "$ENV_NAME" python -m pip install --upgrade pip setuptools wheel
+  conda run --no-capture-output -n "$ENV_NAME" python -m pip install .
+
+  popd >/dev/null
+}
+
+verify_pyrealsense_in_env() {
+  echo "Verificando import de pyrealsense2 dentro del entorno $ENV_NAME…"
+  run_in_env python - <<'PY'
+import pyrealsense2 as rs, sys, inspect, subprocess
+print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
+try:
+    so = inspect.getfile(rs)
+    print("ldd:")
+    print(subprocess.check_output(["ldd", so]).decode())
+except Exception:
+    pass
+PY
+}
 
 # ===================== MAIN =============================
 case "${1:-}" in
   env|deps)
+    # 1) Conda + entorno
+    install_miniforge_if_needed
+    if ! load_conda; then echo "ERROR: No se pudo cargar conda tras instalar Miniforge."; exit 2; fi
+    create_env_common
+
+    # 2) Requirements comunes
+    install_requirements_common
+
     if [[ "$IS_JETSON" -eq 1 ]]; then
-      # Jetson: instala deps + requirements + compila librealsense (pyrealsense2)
+      # 3) Jetson: compilar librealsense + wrapper en el entorno conda
       install_jetson_system_prereqs
-      install_requirements_jetson
-      install_realsense_jetson_in_env
+      clone_rules_librealsense
+      build_librealsense_with_bindings_in_env
+      verify_pyrealsense_in_env
+      echo "Listo: RealSense (lib + pyrealsense2) instalado para Python $PYTHON_VER en entorno $ENV_NAME (Jetson)."
     else
-      # PC: crea/actualiza entorno + requirements + pyrealsense2 en el entorno
-      if ! load_conda; then echo "ERROR: No se encontró conda en PC."; exit 2; fi
-      create_env_pc
-      install_requirements_pc
+      # 3) PC: intentar wheel pyrealsense2 dentro del entorno
       install_realsense_pc_in_env
+      echo "Listo: Entorno $ENV_NAME con Python $PYTHON_VER preparado en PC."
     fi
     ;;
 
   check)
-    if [[ "$IS_JETSON" -eq 1 ]]; then
-      python3 - <<'PY'
+    if ! load_conda; then echo "ERROR: No se encontró conda."; exit 2; fi
+    run_in_env python - <<'PY'
+import sys, platform
+print("Python:", sys.version.split()[0], "| Platform:", platform.machine())
 try:
-    import sys, platform, cv2
-    print("Python:", sys.version.split()[0], "| Platform:", platform.machine())
-    print("cv2   :", cv2.__version__)
+    import pyrealsense2 as rs
+    print("pyrealsense2:", getattr(rs, "__file__", "(no instalado)"))
 except Exception as e:
-    print("ERROR en check (Jetson):", e)
-    raise
+    print("pyrealsense2: (no importable) ->", e)
 PY
-    else
-      if ! load_conda; then echo "ERROR: No se encontró conda en PC."; exit 2; fi
-      run_in_env_pc python - <<'PY'
-try:
-    import sys, platform, cv2
-    print("Python:", sys.version.split()[0], "| Platform:", platform.machine())
-    print("cv2   :", cv2.__version__)
-except Exception as e:
-    print("ERROR en check (PC):", e)
-    raise
-PY
-    fi
     ;;
 
-    realsense-test)
-    echo "Iniciando prueba de cámara (RealSense)…"
-    if [[ "$IS_JETSON" -eq 1 ]]; then
-      # === Jetson Nano ===
-      if [[ -f "src/utilities/viewCamera.py" ]]; then
-        echo "[Jetson] Ejecutando viewCamera.py con Python del sistema..."
-        python3 src/utilities/viewCamera.py
-      else
-        echo "ERROR: No se encontró src/utilities/viewCamera.py"
-        exit 1
-      fi
+  realsense-test)
+    echo "Iniciando prueba de cámara con pyrealsense2 dentro del entorno $ENV_NAME…"
+    if [[ -f "src/utilities/viewCamera.py" ]]; then
+      run_in_env python src/utilities/viewCamera.py
     else
-      # === PC (entorno conda) ===
-      if ! load_conda; then echo "ERROR: No se encontró conda."; exit 2; fi
-      if [[ -f "src/utilities/viewCamera.py" ]]; then
-        echo "[PC] Ejecutando viewCamera.py dentro del entorno $ENV_NAME..."
-        conda run --no-capture-output -n "$ENV_NAME" python src/utilities/viewCamera.py
-      else
-        echo "ERROR: No se encontró src/utilities/viewCamera.py"
-        exit 1
-      fi
+      echo "ERROR: No se encontró src/utilities/viewCamera.py"
+      exit 1
     fi
-    
     ;;
 
   visual)
-    # Placeholder para tu visualizador propio
-    echo "Usa 'realsense-test' para una prueba rápida de cámara RealSense."
+    echo "Placeholder. Usa 'realsense-test' para ejecutar tu visor."
     ;;
 
   *)
