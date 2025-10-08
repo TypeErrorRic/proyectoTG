@@ -3,5 +3,5 @@ Pillow==8.4.0
 tqdm==4.62.3
 PyYAML==5.4.1
 pandas==1.1.5        
-matplotlib==3.3.4    
+matplotlib==3.3.4 ; python_version == "3.6" and platform_machine != "aarch64"
 json5==0.9.5

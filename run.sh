@@ -155,6 +155,8 @@ install_jetson_system_prereqs() {
   if ! grep -q 'export PATH="\$HOME/.local/bin' "$HOME/.bashrc" 2>/dev/null; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
   fi
+  #Inastalar Matploid:
+  sudo apt install -y python3-matplotlib
 }
 
 install_requirements_jetson() {
