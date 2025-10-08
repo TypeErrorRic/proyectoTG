@@ -172,57 +172,105 @@ install_requirements_jetson() {
 install_realsense_jetson_in_env() {
   echo "==> Instalando pyrealsense2 (Jetson) con pybind11 2.10.4 (compatible Py3.6)…"
 
-  # Asegura prerequisitos del sistema (si ya lo haces fuera, puedes omitir esta línea)
+  # 0) Prerrequisitos del sistema (OpenCV, toolchain, etc.)
   install_jetson_system_prereqs
 
-  # Reglas udev + repo librealsense
+  # 1) Reglas udev + clonar librealsense si no existe
   [[ -d librealsense ]] || git clone https://github.com/IntelRealSense/librealsense.git
   sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
   sudo udevadm control --reload-rules && sudo udevadm trigger
 
-  # ===== Pin pybind11 compatible con Python 3.6 =====
+  # 2) Asegurar pybind11 compatible con Python 3.6 y obtener su cmake_dir
   python3 -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
   python3 -m pip install "pybind11==2.10.4"
-  PYBIND11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())')"
-  echo "pybind11_DIR: $PYBIND11_DIR"
-
-  # ===== Configurar y compilar librealsense apuntando al pybind11 externo =====
-  pushd librealsense >/dev/null
-  rm -rf build
-  mkdir -p build && cd build
-
-  # Nota: FORZAMOS RSUSB para no parchear kernel; bindings Python ON; Py3.6 explícito.
-  if ! cmake .. \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DFORCE_RSUSB_BACKEND=ON \
-      -DBUILD_PYTHON_BINDINGS=ON \
-      -DPYTHON_EXECUTABLE="$(which python3)" \
-      -Dpybind11_DIR="${PYBIND11_DIR}" \
-      -DPYBIND11_PYTHON_VERSION=3.6 \
-      -DBUILD_EXAMPLES=OFF \
-      -DBUILD_GRAPHICAL_EXAMPLES=OFF; then
-    echo "ERROR: CMake falló aun con pybind11_DIR=${PYBIND11_DIR}"
-    echo "Revisa librealsense/build/CMakeFiles/CMakeOutput.log para más detalles."
-    popd >/dev/null
+  PYBIND11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())' || true)"
+  if [[ -z "${PYBIND11_DIR:-}" ]]; then
+    echo "ERROR: No se pudo obtener pybind11.get_cmake_dir()."
     return 2
   fi
+  echo "pybind11_DIR: ${PYBIND11_DIR}"
 
-  echo "Compilando librealsense… (puede tardar)"
-  make -j2
-  sudo make install
-  sudo ldconfig
+  # Helper: función para configurar con CMake
+  _cmake_configure() {
+    local extra_msg="${1:-}"
+    echo "==> Configurando CMake ${extra_msg}"
+    rm -rf build
+    mkdir -p build && cd build
+
+    # Guardamos el log para diagnosticar fallos
+    if ! cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DFORCE_RSUSB_BACKEND=ON \
+        -DBUILD_PYTHON_BINDINGS=ON \
+        -DPYTHON_EXECUTABLE="$(which python3)" \
+        -Dpybind11_DIR="${PYBIND11_DIR}" \
+        -DPYBIND11_PYTHON_VERSION=3.6 \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_GRAPHICAL_EXAMPLES=OFF | tee cmake_config.log; then
+      return 1
+    fi
+    return 0
+  }
+
+  # Helper: función para compilar con retry -j2 -> -j1
+  _cmake_build_install() {
+    echo "==> Compilando librealsense (intento con -j2)…"
+    if ! make -j2; then
+      echo "Compilación falló con -j2. Reintentando con -j1 (menos RAM)…"
+      if ! make -j1; then
+        echo "ERROR: Compilación falló también con -j1."
+        return 1
+      fi
+    fi
+    sudo make install
+    sudo ldconfig
+    return 0
+  }
+
+  # 3) Intento 1: usar el árbol actual + pybind11 externo
+  pushd librealsense >/dev/null
+  if ! _cmake_configure "(árbol actual)"; then
+    # Analizamos el error para ver si es el típico de PythonInterp >= 3.7
+    if grep -qiE "PythonInterp.*at least.*3\.7|Found unsuitable version.*3\.6" build/cmake_config.log 2>/dev/null; then
+      echo "Detectado requisito de Python>=3.7 por pybind11 reciente. Aplicando fallback a v2.50.0…"
+      cd ..
+      git fetch --tags || true
+      git checkout v2.50.0
+      # Intento 2: reconfigurar con el tag compatible
+      if ! _cmake_configure "(fallback v2.50.0)"; then
+        echo "ERROR: CMake falló incluso con fallback v2.50.0. Revisa librealsense/build/cmake_config.log."
+        popd >/dev/null
+        return 2
+      fi
+    else
+      echo "ERROR: CMake falló (no es el error típico de Python>=3.7). Revisa librealsense/build/cmake_config.log."
+      popd >/dev/null
+      return 2
+    fi
+  fi
+
+  # 4) Compilar e instalar (con reintento -j1 si hace falta)
+  if ! _cmake_build_install; then
+    echo "ERROR: No se pudo compilar/instalar librealsense."
+    popd >/dev/null
+    return 3
+  fi
   popd >/dev/null
 
-  echo "Verificando import de pyrealsense2…"
+  # 5) Verificación final de pyrealsense2
+  echo "==> Verificando import de pyrealsense2…"
   python3 - <<'PY'
 try:
     import pyrealsense2 as rs
-    print("pyrealsense2 OK:", getattr(rs, "__file__", "(sin ruta)"))
+    import pkgutil, sys
+    print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
 except Exception as e:
-    print("Fallo import pyrealsense2:", repr(e))
-    raise
+    print("FALLO import pyrealsense2:", repr(e))
+    sys.exit(1)
 PY
+  echo "Listo: pyrealsense2 instalado y usable en Jetson."
 }
+
 
 # ===================== MAIN =============================
 case "${1:-}" in
