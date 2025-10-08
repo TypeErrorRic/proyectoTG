@@ -170,44 +170,57 @@ install_requirements_jetson() {
 }
 
 install_realsense_jetson_in_env() {
-  echo "Instalando pyrealsense2 (Jetson) compilando librealsense…"
+  echo "==> Instalando pyrealsense2 (Jetson) con pybind11 2.10.4 (compatible Py3.6)…"
 
-  # Asegura deps del sistema (si no lo hiciste antes)
+  # Asegura prerequisitos del sistema (si ya lo haces fuera, puedes omitir esta línea)
   install_jetson_system_prereqs
 
-  # Reglas udev y repo
+  # Reglas udev + repo librealsense
   [[ -d librealsense ]] || git clone https://github.com/IntelRealSense/librealsense.git
   sudo cp librealsense/config/99-realsense-libusb.rules /etc/udev/rules.d/ || true
   sudo udevadm control --reload-rules && sudo udevadm trigger
 
-  # === Pin pybind11 compatible con Python 3.6 ===
+  # ===== Pin pybind11 compatible con Python 3.6 =====
   python3 -m pip install --upgrade "pip<22" "setuptools<60" "wheel<0.38"
   python3 -m pip install "pybind11==2.10.4"
   PYBIND11_DIR="$(python3 -c 'import pybind11; print(pybind11.get_cmake_dir())')"
   echo "pybind11_DIR: $PYBIND11_DIR"
 
+  # ===== Configurar y compilar librealsense apuntando al pybind11 externo =====
   pushd librealsense >/dev/null
   rm -rf build
   mkdir -p build && cd build
 
-  cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DFORCE_RSUSB_BACKEND=ON \
-    -DBUILD_PYTHON_BINDINGS=ON \
-    -DPYTHON_EXECUTABLE="$(which python3)" \
-    -Dpybind11_DIR="$PYBIND11_DIR" \
-    -DBUILD_EXAMPLES=OFF \
-    -DBUILD_GRAPHICAL_EXAMPLES=OFF
+  # Nota: FORZAMOS RSUSB para no parchear kernel; bindings Python ON; Py3.6 explícito.
+  if ! cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DFORCE_RSUSB_BACKEND=ON \
+      -DBUILD_PYTHON_BINDINGS=ON \
+      -DPYTHON_EXECUTABLE="$(which python3)" \
+      -Dpybind11_DIR="${PYBIND11_DIR}" \
+      -DPYBIND11_PYTHON_VERSION=3.6 \
+      -DBUILD_EXAMPLES=OFF \
+      -DBUILD_GRAPHICAL_EXAMPLES=OFF; then
+    echo "ERROR: CMake falló aun con pybind11_DIR=${PYBIND11_DIR}"
+    echo "Revisa librealsense/build/CMakeFiles/CMakeOutput.log para más detalles."
+    popd >/dev/null
+    return 2
+  fi
 
+  echo "Compilando librealsense… (puede tardar)"
   make -j2
   sudo make install
   sudo ldconfig
   popd >/dev/null
 
-  echo "Verificando import pyrealsense2…"
+  echo "Verificando import de pyrealsense2…"
   python3 - <<'PY'
-import pyrealsense2 as rs
-print("pyrealsense2 OK (Jetson)")
+try:
+    import pyrealsense2 as rs
+    print("pyrealsense2 OK:", getattr(rs, "__file__", "(sin ruta)"))
+except Exception as e:
+    print("Fallo import pyrealsense2:", repr(e))
+    raise
 PY
 }
 
