@@ -341,15 +341,78 @@ case "${1:-}" in
     ;;
 
   check)
-    if ! load_conda; then echo "ERROR: No se encontró conda."; exit 2; fi
+    if ! load_conda; then
+        echo "ERROR: No se encontró conda."
+        exit 2
+    fi
+
+    echo "==> Verificando pyrealsense2 y paquetes de requirements.txt..."
+
     run_in_env python - <<'PY'
-import sys, platform
-print("Python:", sys.version.split()[0], "| Platform:", platform.machine())
+import os, sys, importlib
+
+print(f"Python: {sys.version.split()[0]}")
+
+# ---- Verificar pyrealsense2 ----
 try:
-    import pyrealsense2 as rs
-    print("pyrealsense2:", getattr(rs, "__file__", "(no instalado)"))
+    import pyrealsense2  # noqa: F401
+    print("✅ pyrealsense2: OK")
 except Exception as e:
-    print("pyrealsense2: (no importable) ->", e)
+    print(f"❌ pyrealsense2: {e}")
+
+req_file = "requirements.txt"
+if not os.path.exists(req_file):
+    print("⚠️  No se encontró requirements.txt en el directorio actual.")
+    sys.exit(0)
+
+print("\n📦 Revisando paquetes de requirements.txt...\n")
+
+# Mapeos de paquete->módulo cuando difieren
+SPECIAL = {
+    "opencv-python": "cv2",
+    "opencv-python-headless": "cv2",
+    "pillow": "PIL",
+    "scikit-learn": "sklearn",
+    "pyyaml": "yaml",
+    "python-dateutil": "dateutil",
+}
+
+def normalize(line: str):
+    line = line.split("#", 1)[0].strip()
+    if not line:
+        return None
+    # quitar marcadores de entorno (PEP 508)
+    line = line.split(";", 1)[0].strip()
+    # quitar extras [foo]
+    if "[" in line:
+        line = line.split("[", 1)[0].strip()
+    # quitar especificadores de versión
+    for sep in ("==", ">=", "<=", "~=", "!=", ">", "<"):
+        if sep in line:
+            line = line.split(sep, 1)[0].strip()
+            break
+    return line or None
+
+missing = []
+checked = 0
+
+with open(req_file, "r", encoding="utf-8") as f:
+    for raw in f:
+        pkg = normalize(raw)
+        if not pkg:
+            continue
+        mod = SPECIAL.get(pkg.lower(), pkg.replace("-", "_"))
+        try:
+            importlib.import_module(mod)
+            print(f"✅ {pkg}")
+        except Exception:
+            print(f"❌ {pkg}")
+            missing.append(pkg)
+        checked += 1
+
+print(f"\nResumen: {checked} paquetes verificados, {len(missing)} faltantes.")
+if missing:
+    print("Faltantes: " + ", ".join(missing))
 PY
     ;;
 
@@ -364,9 +427,28 @@ PY
     ;;
 
   visual)
-    echo "Placeholder. Usa 'realsense-test' para ejecutar tu visor."
-    ;;
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+        echo "No funciona en Jetson."
+    else
+        # --- Inicializa conda ---
+        if ! command -v conda &> /dev/null; then
+            echo "Error: conda no está disponible en el PATH"
+            exit 1
+        fi
+        source "$(conda info --base)/etc/profile.d/conda.sh"
 
+        # --- Activa entorno ---
+        conda activate TG || { echo "Error al activar entorno TG"; exit 1; }
+
+        # --- Configura entorno Python ---
+        export PYTHONUTF8=1
+        export PYTHONIOENCODING=utf-8
+
+        # --- Ejecuta visualizador ---
+        cd src/data || { echo "No existe src/data"; exit 1; }
+        python visualizador.py
+    fi
+    ;;
   *)
     echo "Uso: $0 {env|deps|check|realsense-test|visual}"
     ;;
