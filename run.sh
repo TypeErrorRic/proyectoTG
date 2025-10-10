@@ -365,6 +365,7 @@ SPECIAL = {
     "python-dateutil": "dateutil",
     # CuPy wheels importan como 'cupy'
     "cupy": "cupy",
+    "cupy-cuda102": "cupy",      # <-- agrega esta línea
     "cupy-cuda11x": "cupy",
     "cupy-cuda12x": "cupy",
 }
