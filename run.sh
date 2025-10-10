@@ -494,6 +494,24 @@ PY
         python visualizador.py
     fi
     ;;
+  realsense-test)
+    echo "Iniciando prueba de cámara con pyrealsense2 dentro del entorno $ENV_NAME…"
+    if [[ -f "src/utilities/viewCamera.py" ]]; then
+      run_in_env python src/utilities/viewCamera.py
+    else
+      echo "ERROR: No se encontró src/utilities/viewCamera.py"
+      exit 1
+    fi
+    ;;
+  run)
+  echo "Iniciando entorno $ENV_NAME…"
+    if [[ -f "src/utilities/ransacCellingGround.py" ]]; then
+      run_in_env python src/utilities/ransacCellingGround.py
+    else
+      echo "ERROR: No se encontró src/utilities/ransacCellingGround.py"
+      exit 1
+    fi
+    ;;
   *)
     echo "Uso: $0 {env|deps|check|realsense-test|visual}"
     ;;
