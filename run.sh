@@ -376,15 +376,14 @@ def clean_spec(line: str):
     line = line.split("#", 1)[0].strip()
     if not line:
         return None
-    # quitar marcadores de entorno ;python_version<"3.9"
-    line = line.split(";", 1)[0].strip()
+    
     return line or None
 
 def base_from_spec(spec: str):
     """
     Extrae el nombre base del paquete (sin versión ni extras), para mapear a nombre de módulo.
     """
-    cut_chars = set("<>=!~ [")
+    cut_chars = set("<>=!~ [@")
     out = []
     for ch in spec:
         if ch in cut_chars:
