@@ -51,69 +51,121 @@ def ransac_plane_gpu(points,
                      min_inliers=500,
                      up_axis=(0.0, -1.0, 0.0),
                      max_angle_deg=20.0,
-                     seed=42):
+                     seed=42,
+                     batch_size=None,
+                     point_chunk=None):
     """
-    RANSAC de un plano 'horizontal' (suelo/techo).
+    RANSAC de un plano 'horizontal' (suelo/techo) optimizado para GPU.
+
+    Cambios clave de rendimiento:
+    - Evalúa muchos modelos por lote (vectorizado) para reducir lanzamientos de kernel.
+    - Evita sincronizaciones Host<->GPU en cada iteración; sólo por lote.
+    - Usa criterio de orientación sin arccos (umbral en coseno) para ahorrar cómputo.
+
+    Parámetros:
     - points: (N,3) (xp array o numpy; se convierte)
     - dist_thresh: tolerancia (m)
-    - max_iters: iteraciones RANSAC
+    - max_iters: iteraciones RANSAC totales (aprox. modelos evaluados)
     - min_inliers: inliers mínimos para aceptar
     - up_axis: vector 'vertical' del mundo (p.ej. (0,-1,0) RealSense; (0,0,1) mundo Z-up)
-    - max_angle_deg: |ángulo(n, ±up_axis)| <= umbral
+    - max_angle_deg: |ángulo(n, up_axis)| <= umbral (se implementa con coseno)
+    - seed: semilla RNG
+    - batch_size: tamaño de lote de modelos (auto: 1024 en GPU, 64 en CPU)
+    - point_chunk: tamaño de bloque de puntos para contar inliers (auto)
+
     Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
     """
-    rng = np.random.default_rng(seed)
     P = _to_xp(points).astype(xp.float32)
-    N = P.shape[0]
+    N = int(P.shape[0])
     if N < 3:
         return None
 
+    # Heurísticas por backend
+    if batch_size is None:
+        batch_size = 1024 if GPU else 64
+    if point_chunk is None:
+        point_chunk = 16384 if GPU else 8192
+
+    # Normaliza up una vez
     up = xp.asarray(up_axis, dtype=xp.float32)
-    best = {'count': -1}
+    up = up / (xp.linalg.norm(up) + 1e-9)
+    cos_thresh = math.cos(math.radians(float(max_angle_deg)))
 
-    for _ in range(max_iters):
-        # Muestra 3 índices distintos (en CPU para robustez) y trae a backend
-        i, j, k = rng.choice(N, size=3, replace=False)
-        a, b, c = P[i], P[j], P[k]
+    # RNG: permitir en GPU si disponible
+    if GPU:
+        rng_state = cp.random.RandomState(seed)
+        rand_fn = lambda shape: rng_state.randint(0, N, size=shape, dtype=cp.int32)
+    else:
+        rng_state = np.random.default_rng(seed)
+        rand_fn = lambda shape: rng_state.integers(0, N, size=shape, dtype=np.int32)
 
-        # Modelo
-        n, d = plane_from_3pts(a, b, c)
+    best_count = -1
+    best_n = None
+    best_d = None
 
-        # Descarta degenerados
-        if not xp.isfinite(d):
-            continue
-        if xp.linalg.norm(n) < 1e-6:
-            continue
+    remaining = int(max_iters)
+    while remaining > 0:
+        K = int(min(batch_size, remaining))
+        remaining -= K
 
-        # Orientación: cercano a ± up_axis
-        ang = angle_between(n[None, :], xp.stack([up, -up], axis=0))  # returns shape (2,)
-        ang_min = float(xp.min(ang).get() if GPU else xp.min(ang))
-        if math.degrees(ang_min) > max_angle_deg:
-            continue
+        # 1) Muestreo de índices (con reemplazo; degenerados se filtran por norma)
+        idxs = rand_fn((K, 3))
+        a = P[idxs[:, 0]]
+        b = P[idxs[:, 1]]
+        c = P[idxs[:, 2]]
 
-        # Inliers
-        dists = point_plane_dist(n[None, :], d[None, ...], P)[0]  # (N,)
-        mask = dists <= dist_thresh
-        count = int(mask.sum().get() if GPU else mask.sum())
+        # 2) Modelo por lote
+        ab = b - a
+        ac = c - a
+        n = xp.cross(ab, ac)  # (K,3)
+        norm = xp.linalg.norm(n, axis=1)  # (K,)
+        valid = norm > 1e-8
+        # Evitar división por cero
+        n_unit = xp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0)
+        d = -xp.sum(n_unit * a, axis=1)
 
-        if count > best['count'] and count >= min_inliers:
-            best = {
-                'n': n,
-                'd': d,
-                'mask': mask,
-                'count': count
-            }
+        # 3) Filtro de orientación mediante coseno
+        cosang = xp.abs(n_unit @ up)  # (K,)
+        valid = xp.logical_and(valid, cosang >= cos_thresh)
 
-    if best['count'] < 0:
+        # 4) Conteo de inliers en bloques de puntos para no reventar memoria
+        counts = xp.zeros((K,), dtype=xp.int32)
+        if N <= point_chunk:
+            dists = xp.abs(n_unit @ P.T + d[:, None])  # (K,N)
+            counts = xp.sum(dists <= dist_thresh, axis=1)
+        else:
+            for start in range(0, N, point_chunk):
+                end = min(N, start + point_chunk)
+                Pc = P[start:end]  # (M,3)
+                dists = xp.abs(n_unit @ Pc.T + d[:, None])  # (K,M)
+                counts += xp.sum(dists <= dist_thresh, axis=1)
+
+        # Invalida modelos no válidos
+        counts = xp.where(valid, counts, -xp.ones_like(counts))
+
+        # 5) Mejor del lote
+        batch_best_idx = int((xp.argmax(counts)).get() if GPU else int(xp.argmax(counts)))
+        batch_best_count = int((counts[batch_best_idx]).get() if GPU else int(counts[batch_best_idx]))
+
+        if batch_best_count > best_count and batch_best_count >= min_inliers:
+            best_count = batch_best_count
+            best_n = n_unit[batch_best_idx]
+            best_d = d[batch_best_idx]
+
+    if best_count < 0:
         return None
 
-    inliers_idx = xp.flatnonzero(best['mask'])
+    # 6) Recalcular máscara de inliers del mejor modelo una sola vez
+    dists = xp.abs(best_n[None, :] @ P.T + best_d)
+    mask = (dists[0] <= dist_thresh)
+    inliers_idx = xp.flatnonzero(mask)
+
     return {
-        'n': xp.asarray(best['n']),
-        'd': xp.asarray(best['d']),
-        'inliers_mask': xp.asarray(best['mask']),
+        'n': xp.asarray(best_n),
+        'd': xp.asarray(best_d),
+        'inliers_mask': xp.asarray(mask),
         'inliers_idx': xp.asarray(inliers_idx),
-        'num_inliers': int(best['count'])
+        'num_inliers': int(best_count),
     }
 
 
