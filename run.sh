@@ -363,10 +363,6 @@ SPECIAL = {
     "scikit-learn": "sklearn",
     "pyyaml": "yaml",
     "python-dateutil": "dateutil",
-    # CuPy wheels importan como 'cupy'
-    "cupy": "cupy",
-    "cupy-cuda11x": "cupy",
-    "cupy-cuda12x": "cupy",
 }
 
 def clean_spec(line: str):
