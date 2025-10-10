@@ -340,34 +340,22 @@ case "${1:-}" in
     fi
     ;;
 
-  check)
+    check)
     if ! load_conda; then
         echo "ERROR: No se encontró conda."
         exit 2
     fi
 
-    echo "==> Verificando pyrealsense2 y paquetes de requirements.txt..."
+    # Exporta IS_JETSON para que el Python interno lo pueda leer
+    export IS_JETSON
 
+    echo "==> Verificando pyrealsense2 y paquetes de requirements.txt..."
     run_in_env python - <<'PY'
-import os, sys, importlib
+import os, sys, importlib, subprocess, textwrap
 
 print(f"Python: {sys.version.split()[0]}")
 
-# ---- Verificar pyrealsense2 ----
-try:
-    import pyrealsense2  # noqa: F401
-    print("✅ pyrealsense2: OK")
-except Exception as e:
-    print(f"❌ pyrealsense2: {e}")
-
-req_file = "requirements.txt"
-if not os.path.exists(req_file):
-    print("⚠️  No se encontró requirements.txt en el directorio actual.")
-    sys.exit(0)
-
-print("\n📦 Revisando paquetes de requirements.txt...\n")
-
-# Mapeos de paquete->módulo cuando difieren
+# ---------- Utilidades ----------
 SPECIAL = {
     "opencv-python": "cv2",
     "opencv-python-headless": "cv2",
@@ -377,53 +365,110 @@ SPECIAL = {
     "python-dateutil": "dateutil",
 }
 
-def normalize(line: str):
+def clean_spec(line: str):
+    """
+    Devuelve la especificación 'instalable' (con pins/extras) sin comentarios ni marcadores PEP 508.
+    """
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    # quitar comentarios
     line = line.split("#", 1)[0].strip()
     if not line:
         return None
-    # quitar marcadores de entorno (PEP 508)
+    # quitar marcadores de entorno ;python_version<"3.9"
     line = line.split(";", 1)[0].strip()
-    # quitar extras [foo]
-    if "[" in line:
-        line = line.split("[", 1)[0].strip()
-    # quitar especificadores de versión
-    for sep in ("==", ">=", "<=", "~=", "!=", ">", "<"):
-        if sep in line:
-            line = line.split(sep, 1)[0].strip()
-            break
     return line or None
 
-missing = []
+def base_from_spec(spec: str):
+    """
+    Extrae el nombre base del paquete (sin versión ni extras), para mapear a nombre de módulo.
+    """
+    cut_chars = set("<>=!~ [")
+    out = []
+    for ch in spec:
+        if ch in cut_chars:
+            break
+        out.append(ch)
+    return "".join(out).strip()
+
+def mod_from_pkgname(pkgname: str):
+    return SPECIAL.get(pkgname.lower(), pkgname.replace("-", "_"))
+
+# ---------- pyrealsense2 ----------
+rs_ok = False
+try:
+    import pyrealsense2  # noqa: F401
+    print("✅ pyrealsense2: OK")
+    rs_ok = True
+except Exception as e:
+    print(f"❌ pyrealsense2: {e!s}")
+
+# En PC intentamos instalar wheel; en Jetson solo avisamos
+is_jetson = os.getenv("IS_JETSON", "0") == "1"
+if not rs_ok and not is_jetson:
+    print("→ Intentando instalar pyrealsense2 (wheel, PC)…")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyrealsense2"])
+        import pyrealsense2  # reintento
+        print("✅ pyrealsense2 instalado (wheel)")
+        rs_ok = True
+    except Exception as e:
+        print(f"⚠️  No se pudo instalar pyrealsense2 por wheel: {e!s}")
+        print("    Puedes compilarlo con 'env' como en Jetson si lo necesitas en PC.")
+
+if not rs_ok and is_jetson:
+    print("ℹ️ En Jetson, instala pyrealsense2 compilando con 'env' (librealsense + bindings).")
+
+# ---------- requirements.txt ----------
+req_file = "requirements.txt"
+if not os.path.exists(req_file):
+    print("⚠️  No se encontró requirements.txt en el directorio actual.")
+    sys.exit(0)
+
+print("\n📦 Revisando paquetes de requirements.txt...\n")
+
+missing_specs = []    # lista de líneas tal como deben instalarse con pip
 checked = 0
 
 with open(req_file, "r", encoding="utf-8") as f:
     for raw in f:
-        pkg = normalize(raw)
+        spec = clean_spec(raw)
+        if not spec:
+            continue
+        pkg = base_from_spec(spec)
         if not pkg:
             continue
-        mod = SPECIAL.get(pkg.lower(), pkg.replace("-", "_"))
+        mod = mod_from_pkgname(pkg)
         try:
             importlib.import_module(mod)
-            print(f"✅ {pkg}")
+            print(f"✅ {spec}")
         except Exception:
-            print(f"❌ {pkg}")
-            missing.append(pkg)
+            print(f"❌ {spec}")
+            missing_specs.append(spec)
         checked += 1
 
-print(f"\nResumen: {checked} paquetes verificados, {len(missing)} faltantes.")
-if missing:
-    print("Faltantes: " + ", ".join(missing))
-PY
-    ;;
+print(f"\nResumen: {checked} paquetes verificados, {len(missing_specs)} faltantes.")
+if missing_specs:
+    print("→ Intentando instalar faltantes dentro del entorno activo…")
+    failed = []
+    for spec in missing_specs:
+        print(f"   - pip install {spec}")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", spec])
+        except Exception as e:
+            print(f"     ⚠️  Falló {spec}: {e!s}")
+            failed.append(spec)
 
-  realsense-test)
-    echo "Iniciando prueba de cámara con pyrealsense2 dentro del entorno $ENV_NAME…"
-    if [[ -f "src/utilities/viewCamera.py" ]]; then
-      run_in_env python src/utilities/viewCamera.py
-    else
-      echo "ERROR: No se encontró src/utilities/viewCamera.py"
-      exit 1
-    fi
+    if failed:
+        print("\n❌ Algunos paquetes no se pudieron instalar automáticamente:")
+        for spec in failed:
+            print(f"   - {spec}")
+        # no salir con error duro para que puedas leer el log completo
+    else:
+        print("\n✅ Todos los paquetes faltantes fueron instalados correctamente.")
+
+PY
     ;;
 
   visual)
