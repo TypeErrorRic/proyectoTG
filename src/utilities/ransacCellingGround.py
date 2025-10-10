@@ -53,7 +53,8 @@ def ransac_plane_gpu(points,
                      max_angle_deg=20.0,
                      seed=42,
                      batch_size=None,
-                     point_chunk=None):
+                     point_chunk=None,
+                     score_subset=None):
     """
     RANSAC de un plano 'horizontal' (suelo/techo) optimizado para GPU.
 
@@ -70,8 +71,10 @@ def ransac_plane_gpu(points,
     - up_axis: vector 'vertical' del mundo (p.ej. (0,-1,0) RealSense; (0,0,1) mundo Z-up)
     - max_angle_deg: |ángulo(n, up_axis)| <= umbral (se implementa con coseno)
     - seed: semilla RNG
-    - batch_size: tamaño de lote de modelos (auto: 1024 en GPU, 64 en CPU)
+    - batch_size: tamaño de lote de modelos (auto)
     - point_chunk: tamaño de bloque de puntos para contar inliers (auto)
+    - score_subset: número de puntos para puntuar modelos por lote (luego se
+      valida el mejor con TODOS los puntos). Reduce K*N en Jetson.
 
     Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
     """
@@ -80,11 +83,43 @@ def ransac_plane_gpu(points,
     if N < 3:
         return None
 
-    # Heurísticas por backend
+    # Heurísticas por backend y tamaño de GPU
+    small_gpu = False
+    if GPU:
+        try:
+            props = cp.cuda.runtime.getDeviceProperties(0)
+            mp = int(props.get('multiProcessorCount', 0))
+            mem = int(props.get('totalGlobalMem', 0))
+            # Jetson Nano ~ 1-2 SM y < 4GB
+            small_gpu = (mp <= 4) or (mem and mem < 4 * 1024**3)
+        except Exception:
+            small_gpu = True  # conservador
+
     if batch_size is None:
-        batch_size = 1024 if GPU else 64
+        if GPU and not small_gpu:
+            batch_size = 1024
+        elif GPU and small_gpu:
+            batch_size = 128
+        else:
+            batch_size = 64
+
     if point_chunk is None:
-        point_chunk = 16384 if GPU else 8192
+        if GPU and not small_gpu:
+            point_chunk = 16384
+        elif GPU and small_gpu:
+            point_chunk = 8192
+        else:
+            point_chunk = 8192
+
+    if score_subset is None:
+        if GPU and not small_gpu:
+            score_subset = min(16384, N)
+        elif GPU and small_gpu:
+            score_subset = min(4096, N)
+        else:
+            score_subset = min(8192, N)
+    else:
+        score_subset = min(int(score_subset), N)
 
     # Normaliza up una vez
     up = xp.asarray(up_axis, dtype=xp.float32)
@@ -102,6 +137,23 @@ def ransac_plane_gpu(points,
     best_count = -1
     best_n = None
     best_d = None
+
+    # Subconjunto fijo para puntuar modelos por lote
+    if GPU:
+        try:
+            samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(cp.int32)
+        except Exception:
+            # Fallback si choice falla: usa randint y recorta únicos simples
+            tmp = rng_state.randint(0, N, size=score_subset * 2, dtype=cp.int32)
+            samp_idx = cp.unique(tmp)[:score_subset]
+            if samp_idx.size < score_subset:
+                # rellena si faltan
+                pad = score_subset - int(samp_idx.size)
+                samp_idx = cp.concatenate([samp_idx, tmp[:pad]])
+        P_samp = P[samp_idx]
+    else:
+        samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(np.int32)
+        P_samp = P[samp_idx]
 
     remaining = int(max_iters)
     while remaining > 0:
@@ -128,17 +180,11 @@ def ransac_plane_gpu(points,
         cosang = xp.abs(n_unit @ up)  # (K,)
         valid = xp.logical_and(valid, cosang >= cos_thresh)
 
-        # 4) Conteo de inliers en bloques de puntos para no reventar memoria
+        # 4) Conteo de inliers sobre SUBMUESTRA para elegir mejor modelo del lote
+        #    Mucho más eficiente en Jetson que KxN directo.
         counts = xp.zeros((K,), dtype=xp.int32)
-        if N <= point_chunk:
-            dists = xp.abs(n_unit @ P.T + d[:, None])  # (K,N)
-            counts = xp.sum(dists <= dist_thresh, axis=1)
-        else:
-            for start in range(0, N, point_chunk):
-                end = min(N, start + point_chunk)
-                Pc = P[start:end]  # (M,3)
-                dists = xp.abs(n_unit @ Pc.T + d[:, None])  # (K,M)
-                counts += xp.sum(dists <= dist_thresh, axis=1)
+        dists_s = xp.abs(n_unit @ P_samp.T + d[:, None])  # (K,S)
+        counts = xp.sum(dists_s <= dist_thresh, axis=1)
 
         # Invalida modelos no válidos
         counts = xp.where(valid, counts, -xp.ones_like(counts))
@@ -155,17 +201,30 @@ def ransac_plane_gpu(points,
     if best_count < 0:
         return None
 
-    # 6) Recalcular máscara de inliers del mejor modelo una sola vez
-    dists = xp.abs(best_n[None, :] @ P.T + best_d)
-    mask = (dists[0] <= dist_thresh)
+    # 6) Recalcular máscara de inliers del mejor modelo sobre TODOS los puntos (una vez)
+    mask = xp.zeros((N,), dtype=bool)
+    if N <= point_chunk:
+        dists = xp.abs(best_n[None, :] @ P.T + best_d)
+        mask = (dists[0] <= dist_thresh)
+    else:
+        # por bloques
+        out = []
+        for start in range(0, N, point_chunk):
+            end = min(N, start + point_chunk)
+            Pc = P[start:end]
+            dists = xp.abs(best_n[None, :] @ Pc.T + best_d)[0]
+            out.append(dists <= dist_thresh)
+        mask = xp.concatenate(out, axis=0)
     inliers_idx = xp.flatnonzero(mask)
+
+    final_count = int((mask.sum()).get() if GPU else int(mask.sum()))
 
     return {
         'n': xp.asarray(best_n),
         'd': xp.asarray(best_d),
         'inliers_mask': xp.asarray(mask),
         'inliers_idx': xp.asarray(inliers_idx),
-        'num_inliers': int(best_count),
+        'num_inliers': final_count,
     }
 
 
