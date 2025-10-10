@@ -6,4 +6,4 @@ PyYAML==6.0.1
 pandas==1.5.3
 matplotlib==3.7.5 ; python_version >= "3.8" and platform_machine != "aarch64"
 json5==0.9.14
-cupy-cuda11x==12.3.0 ; platform_system == "Linux" and platform_machine == "aarch64"
+cupy-cuda102==12.3.0; platform_system == "Linux" and platform_machine == "aarch64"

@@ -1,272 +1,121 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 import math
 import numpy as np
 
 try:
-    import torch
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    XP_TORCH = True
+    import cupy as cp
+    xp = cp  # backend: GPU
+    GPU = True
 except Exception:
-    torch = None
-    DEVICE = "cpu"
-    XP_TORCH = False
-
-def _to_t(x):
-    if isinstance(x, np.ndarray):
-        return torch.from_numpy(x)
-    return x
+    xp = np  # backend: CPU
+    GPU = False
 
 
-def plane_from_3pts_t(a, b, c, eps=1e-9):
+def _to_xp(a):
+    return xp.asarray(a) if not isinstance(a, (xp.ndarray,)) else a
+
+
+def plane_from_3pts(a, b, c, eps=1e-9):
     """
-    a,b,c: (...,3) tensores torch (device=DEVICE)
-    return: n (...,3) normal unitaria, d (...,) escalar del plano n·x + d = 0
+    a,b,c: (...,3)
+    Return: n (...,3) unit normal, d (...,) so that n·x + d = 0
     """
     ab = b - a
     ac = c - a
-    n = torch.cross(ab, ac, dim=-1)
-    norm = torch.linalg.norm(n, dim=-1, keepdim=True) + eps
+    n = xp.cross(ab, ac)
+    norm = xp.linalg.norm(n, axis=-1, keepdims=True) + eps
     n = n / norm
-    d = -(n * a).sum(dim=-1)
+    d = -xp.sum(n * a, axis=-1)
     return n, d
 
 
-def point_plane_dist_t(n, d, pts):
+def point_plane_dist(n, d, pts):
     """
-    n: (k,3), d: (k,), pts: (N,3)  -> dist (k,N)
+    n: (...,3), d: (...,)
+    pts: (N,3)
+    Return: ( ... , N ) absolute distances
     """
-    return (n @ pts.T + d[:, None]).abs()
+    # Broadcast: (k,3)·(N,3) -> (k,N)
+    return xp.abs(n @ pts.T + d[..., None])
 
 
-def angle_between_t(u, v, eps=1e-9):
-    """
-    u: (...,3), v: (...,3)  -> ángulo en rad (broadcast sobre la primera dim)
-    """
-    u = u / (torch.linalg.norm(u, dim=-1, keepdim=True) + eps)
-    v = v / (torch.linalg.norm(v, dim=-1, keepdim=True) + eps)
-    cosang = torch.clamp((u * v).sum(dim=-1), -1.0, 1.0)
-    return torch.arccos(cosang)
+def angle_between(u, v, eps=1e-9):
+    u = u / (xp.linalg.norm(u, axis=-1, keepdims=True) + eps)
+    v = v / (xp.linalg.norm(v, axis=-1, keepdims=True) + eps)
+    cosang = xp.clip(xp.sum(u * v, axis=-1), -1.0, 1.0)
+    return xp.arccos(cosang)  # rad
 
 
-def ransac_plane_torch(points,
-                       dist_thresh=0.02,
-                       max_iters=2000,
-                       min_inliers=500,
-                       up_axis=(0.0, -1.0, 0.0),
-                       max_angle_deg=20.0,
-                       seed=42):
+def ransac_plane_gpu(points,
+                     dist_thresh=0.02,
+                     max_iters=2000,
+                     min_inliers=500,
+                     up_axis=(0.0, -1.0, 0.0),
+                     max_angle_deg=20.0,
+                     seed=42):
     """
-    RANSAC para un plano horizontal (suelo/techo) usando Torch (GPU si disponible).
+    RANSAC de un plano 'horizontal' (suelo/techo).
+    - points: (N,3) (xp array o numpy; se convierte)
+    - dist_thresh: tolerancia (m)
+    - max_iters: iteraciones RANSAC
+    - min_inliers: inliers mínimos para aceptar
+    - up_axis: vector 'vertical' del mundo (p.ej. (0,-1,0) RealSense; (0,0,1) mundo Z-up)
+    - max_angle_deg: |ángulo(n, ±up_axis)| <= umbral
+    Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
     """
-    if not XP_TORCH:
-        raise RuntimeError("PyTorch no está disponible en este entorno.")
-
     rng = np.random.default_rng(seed)
-    P = _to_t(points).to(dtype=torch.float32, device=DEVICE)
+    P = _to_xp(points).astype(xp.float32)
     N = P.shape[0]
     if N < 3:
         return None
 
-    up = torch.tensor(up_axis, dtype=torch.float32, device=DEVICE)
+    up = xp.asarray(up_axis, dtype=xp.float32)
     best = {'count': -1}
 
     for _ in range(max_iters):
-        # elegir 3 índices distintos (usamos NumPy por simplicidad)
+        # Muestra 3 índices distintos (en CPU para robustez) y trae a backend
         i, j, k = rng.choice(N, size=3, replace=False)
         a, b, c = P[i], P[j], P[k]
 
-        # modelo
-        n, d = plane_from_3pts_t(a, b, c)
+        # Modelo
+        n, d = plane_from_3pts(a, b, c)
 
-        if not torch.isfinite(d).all():
+        # Descarta degenerados
+        if not xp.isfinite(d):
             continue
-        if torch.linalg.norm(n) < 1e-6:
+        if xp.linalg.norm(n) < 1e-6:
             continue
 
-        # orientación cercana a ±up
-        ang = angle_between_t(n[None, :], torch.stack([up, -up], dim=0))  # (2,)
-        ang_min = ang.min().item()
+        # Orientación: cercano a ± up_axis
+        ang = angle_between(n[None, :], xp.stack([up, -up], axis=0))  # returns shape (2,)
+        ang_min = float(xp.min(ang).get() if GPU else xp.min(ang))
         if math.degrees(ang_min) > max_angle_deg:
             continue
 
-        # inliers
-        dists = point_plane_dist_t(n[None, :], d[None], P)[0]  # (N,)
+        # Inliers
+        dists = point_plane_dist(n[None, :], d[None, ...], P)[0]  # (N,)
         mask = dists <= dist_thresh
-        count = int(mask.sum().item())
+        count = int(mask.sum().get() if GPU else mask.sum())
 
         if count > best['count'] and count >= min_inliers:
-            best = {'n': n, 'd': d, 'mask': mask, 'count': count}
+            best = {
+                'n': n,
+                'd': d,
+                'mask': mask,
+                'count': count
+            }
 
     if best['count'] < 0:
         return None
 
-    inliers_idx = torch.nonzero(best['mask'], as_tuple=False).squeeze(1)
+    inliers_idx = xp.flatnonzero(best['mask'])
     return {
-        'n': best['n'],
-        'd': best['d'],
-        'inliers_mask': best['mask'],
-        'inliers_idx': inliers_idx,
-        'num_inliers': best['count'],
+        'n': xp.asarray(best['n']),
+        'd': xp.asarray(best['d']),
+        'inliers_mask': xp.asarray(best['mask']),
+        'inliers_idx': xp.asarray(inliers_idx),
+        'num_inliers': int(best['count'])
     }
 
-
-def extract_floor_and_ceiling_torch(points,
-                                    dist_thresh=0.02,
-                                    max_iters=3000,
-                                    min_inliers=800,
-                                    up_axis=(0.0, -1.0, 0.0),
-                                    max_angle_deg=20.0,
-                                    seed=42):
-    """
-    Encuentra dos planos horizontales (suelo y techo) y los clasifica por “altura”.
-    """
-    if not XP_TORCH:
-        raise RuntimeError("PyTorch no está disponible en este entorno.")
-
-    P = _to_t(points).to(dtype=torch.float32, device=DEVICE)
-    up = torch.tensor(up_axis, dtype=torch.float32, device=DEVICE)
-
-    res1 = ransac_plane_torch(P, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
-    if res1 is None:
-        return None, None
-
-    # quitar inliers del primer plano
-    keep = ~res1['inliers_mask']
-    P2 = P[keep]
-    res2 = ransac_plane_torch(P2, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed + 1)
-    if res2 is None:
-        pts1 = P[res1['inliers_idx']]
-        h1 = (pts1 @ up).mean().item()
-        floor, ceiling = (res1, None) if h1 < 0 else (None, res1)
-        return floor, ceiling
-
-    # clasificar por proyección sobre +up
-    pts1 = P[res1['inliers_idx']]
-    pts2 = P2[res2['inliers_idx']]
-    h1 = (pts1 @ up).mean().item()
-    h2 = (pts2 @ up).mean().item()
-
-    if h1 < h2:
-        floor, ceiling = res1, res2
-    else:
-        floor, ceiling = res2, res1
-    return floor, ceiling
-
-
-# =============================
-# Implementación con NumPy (CPU)
-# =============================
-
-def plane_from_3pts_np(a, b, c, eps=1e-9):
-    ab = b - a
-    ac = c - a
-    n = np.cross(ab, ac)
-    norm = np.linalg.norm(n) + eps
-    n = n / norm
-    d = -np.dot(n, a)
-    return n, d
-
-
-def angle_between_np(u, v, eps=1e-9):
-    u = u / (np.linalg.norm(u, axis=-1, keepdims=True) + eps)
-    v = v / (np.linalg.norm(v, axis=-1, keepdims=True) + eps)
-    cosang = np.clip(np.sum(u * v, axis=-1), -1.0, 1.0)
-    return np.arccos(cosang)
-
-
-def ransac_plane_numpy(points,
-                       dist_thresh=0.02,
-                       max_iters=2000,
-                       min_inliers=500,
-                       up_axis=(0.0, -1.0, 0.0),
-                       max_angle_deg=20.0,
-                       seed=42):
-    if points is None:
-        return None
-    P = np.asarray(points, dtype=np.float32)
-    N = P.shape[0]
-    if N < 3:
-        return None
-
-    rng = np.random.default_rng(seed)
-    up = np.asarray(up_axis, dtype=np.float32)
-    best = {'count': -1}
-
-    for _ in range(max_iters):
-        i, j, k = rng.choice(N, size=3, replace=False)
-        a, b, c = P[i], P[j], P[k]
-
-        n, d = plane_from_3pts_np(a, b, c)
-        if not np.isfinite(d):
-            continue
-        if np.linalg.norm(n) < 1e-6:
-            continue
-
-        ang = angle_between_np(n[None, :], np.stack([up, -up], axis=0))
-        ang_min = float(ang.min())
-        if math.degrees(ang_min) > max_angle_deg:
-            continue
-
-        # Distancias a plano: |n·x + d|
-        dists = np.abs(P @ n + d)
-        mask = dists <= dist_thresh
-        count = int(mask.sum())
-
-        if count > best['count'] and count >= min_inliers:
-            best = {'n': n, 'd': d, 'mask': mask, 'count': count}
-
-    if best['count'] < 0:
-        return None
-
-    inliers_idx = np.nonzero(best['mask'])[0]
-    return {
-        'n': best['n'],
-        'd': best['d'],
-        'inliers_mask': best['mask'],
-        'inliers_idx': inliers_idx,
-        'num_inliers': best['count'],
-    }
-
-
-def extract_floor_and_ceiling_numpy(points,
-                                    dist_thresh=0.02,
-                                    max_iters=3000,
-                                    min_inliers=800,
-                                    up_axis=(0.0, -1.0, 0.0),
-                                    max_angle_deg=20.0,
-                                    seed=42):
-    P = np.asarray(points, dtype=np.float32)
-    up = np.asarray(up_axis, dtype=np.float32)
-
-    res1 = ransac_plane_numpy(P, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
-    if res1 is None:
-        return None, None
-
-    keep = ~res1['inliers_mask']
-    P2 = P[keep]
-    res2 = ransac_plane_numpy(P2, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed + 1)
-    if res2 is None:
-        pts1 = P[res1['inliers_idx']]
-        h1 = float((pts1 @ up).mean())
-        floor, ceiling = (res1, None) if h1 < 0 else (None, res1)
-        return floor, ceiling
-
-    pts1 = P[res1['inliers_idx']]
-    pts2 = P2[res2['inliers_idx']]
-    h1 = float((pts1 @ up).mean())
-    h2 = float((pts2 @ up).mean())
-
-    if h1 < h2:
-        floor, ceiling = res1, res2
-    else:
-        floor, ceiling = res2, res1
-    return floor, ceiling
-
-
-# =============================
-# Wrapper: usa Torch si existe
-# =============================
 
 def extract_floor_and_ceiling(points,
                               dist_thresh=0.02,
@@ -274,37 +123,52 @@ def extract_floor_and_ceiling(points,
                               min_inliers=800,
                               up_axis=(0.0, -1.0, 0.0),
                               max_angle_deg=20.0,
-                              seed=42,
-                              verbose=False):
-    if XP_TORCH:
-        return extract_floor_and_ceiling_torch(points, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
-    else:
-        return extract_floor_and_ceiling_numpy(points, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
-
-
-def get_backend_info():
-    """Retorna información del backend en uso.
-
-    Returns
-    -------
-    dict: { 'framework': 'Torch'|'NumPy', 'device': 'GPU'|'CPU' }
+                              seed=42):
     """
-    if XP_TORCH:
-        device = 'GPU' if (torch is not None and torch.cuda.is_available()) else 'CPU'
-        return {'framework': 'Torch', 'device': device}
+    1) Encuentra primer plano horizontal (suelo o techo).
+    2) Elimina sus inliers y vuelve a buscar el segundo.
+    3) Clasifica como 'floor' (menor proyección sobre +up) y 'ceiling' (mayor).
+    """
+    P = _to_xp(points).astype(xp.float32)
+    up = xp.asarray(up_axis, dtype=xp.float32)
+
+    res1 = ransac_plane_gpu(P, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
+    if res1 is None:
+        return None, None
+
+    # Quitar inliers del primer plano
+    mask1 = res1['inliers_mask']
+    keep = ~mask1
+    P2 = P[keep]
+    res2 = ransac_plane_gpu(P2, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed + 1)
+    if res2 is None:
+        # Sólo un plano encontrado: intenta clasificarlo como 'floor' y deja 'ceiling' en None
+        # Clasificación por “altura” media de inliers
+        pts1 = P[res1['inliers_idx']]
+        # proyección escalar sobre +up
+        h1 = xp.mean(pts1 @ up)
+        floor, ceiling = (res1, None) if (h1.get() if GPU else h1) < 0 else (None, res1)
+        return floor, ceiling
+
+    # Clasificar por altura (proyección sobre +up)
+    pts1 = P[res1['inliers_idx']]
+    pts2 = P2[res2['inliers_idx']]
+    h1 = xp.mean(pts1 @ up)
+    h2 = xp.mean(pts2 @ up)
+
+    if (h1.get() if GPU else h1) < (h2.get() if GPU else h2):
+        floor, ceiling = res1, res2
     else:
-        return {'framework': 'NumPy', 'device': 'CPU'}
+        floor, ceiling = res2, res1
 
-
-def get_backend_string():
-    info = get_backend_info()
-    return f"{info['framework']} ({info['device']})"
+    return floor, ceiling
 
 
 # =======================
 # Ejemplo de uso mínimo
 # =======================
 if __name__ == "__main__":
+    # Simulación rápida: plano z=0 (suelo) y z=2.5 (techo) + ruido
     np.random.seed(0)
     N = 50000
     xy = np.random.uniform(-3, 3, size=(N//2, 2))
@@ -314,31 +178,28 @@ if __name__ == "__main__":
     xy2 = np.random.uniform(-3, 3, size=(N//2, 2))
     z_ceil = np.full((N//2, 1), 2.5) + np.random.normal(0, 0.005, size=(N//2, 1))
     ceil_pts = np.hstack([xy2, z_ceil])
+
     pts = np.vstack([floor_pts, ceil_pts]).astype(np.float32)
 
+    # Aquí asumimos mundo Z-up -> up_axis=(0,0,1)
     floor, ceiling = extract_floor_and_ceiling(
         pts,
         dist_thresh=0.02,
         max_iters=1500,
         min_inliers=1500,
         up_axis=(0.0, 0.0, 1.0),
-        max_angle_deg=15.0,
+        max_angle_deg=15.0
     )
 
-    print("Backend:", get_backend_string())
-
-    def _to_np_arr(x):
-        if XP_TORCH and (torch is not None) and isinstance(x, torch.Tensor):
-            return x.detach().cpu().numpy()
-        return np.asarray(x)
-
-    if floor is not None:
-        n = _to_np_arr(floor['n'])
-        d = float(_to_np_arr(floor['d']))
+    backend = "GPU (CuPy)" if GPU else "CPU (NumPy)"
+    print(f"Backend: {backend}")
+    if floor:
         print("Floor inliers:", floor['num_inliers'])
-        print("Floor plane: n =", n, " d =", d)
-    if ceiling is not None:
-        n = _to_np_arr(ceiling['n'])
-        d = float(_to_np_arr(ceiling['d']))
+        n = floor['n'].get() if GPU else floor['n']
+        d = floor['d'].get() if GPU else floor['d']
+        print("Floor plane: n =", n, " d =", float(d))
+    if ceiling:
         print("Ceiling inliers:", ceiling['num_inliers'])
-        print("Ceiling plane: n =", n, " d =", d)
+        n = ceiling['n'].get() if GPU else ceiling['n']
+        d = ceiling['d'].get() if GPU else ceiling['d']
+        print("Ceiling plane: n =", n, " d =", float(d))
