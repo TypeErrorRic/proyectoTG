@@ -515,5 +515,4 @@ PY
   *)
     echo "Uso: $0 {env|deps|check|realsense-test|visual}"
     ;;
-
 esac
