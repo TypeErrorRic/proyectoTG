@@ -9,16 +9,3 @@ json5==0.9.14
 # Matplotlib: evita aarch64 (Jetson) para no forzar builds pesados
 matplotlib==3.7.5 ; python_version >= "3.8" and platform_machine != "aarch64"
 cupy-cuda102==12.3.0 ; platform_system == "Linux" and platform_machine == "aarch64"
-
-# ==== Visión por Computadora ====
-opencv
-gstreamer
-gst-plugins-base
-gst-plugins-good
-gst-plugins-bad
-gst-plugins-ugly
-gst-libav
-gst-python
-pygobject
-gobject-introspection
-ffmpeg

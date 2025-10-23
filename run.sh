@@ -517,7 +517,90 @@ PY
       exit 1
     fi
     ;;
+  transmitir)
+    # Instala dependencias mínimas para transmisión y verifica.
+    # En Jetson usa APT (NVENC/NVMM + GStreamer). En PC usa conda-forge.
+    if [[ "$IS_JETSON" -eq 1 ]]; then
+      echo "==> [Jetson] Instalando paquetes de sistema para transmisión..."
+      sudo apt-get update
+      sudo apt-get install -y \
+        python3-opencv python3-gi python3-gst-1.0 \
+        gstreamer1.0-tools gstreamer1.0-libav \
+        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+        nvidia-l4t-gstreamer
+
+      echo "==> [Jetson] Verificando plugins GStreamer..."
+      set +e
+      gst-inspect-1.0 appsrc       >/dev/null 2>&1 && echo "  ✓ appsrc" || echo "  ✗ appsrc"
+      gst-inspect-1.0 appsink      >/dev/null 2>&1 && echo "  ✓ appsink" || echo "  ✗ appsink"
+      gst-inspect-1.0 rtph264pay   >/dev/null 2>&1 && echo "  ✓ rtph264pay" || echo "  ✗ rtph264pay"
+      gst-inspect-1.0 rtph264depay >/dev/null 2>&1 && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
+      gst-inspect-1.0 h264parse    >/dev/null 2>&1 && echo "  ✓ h264parse" || echo "  ✗ h264parse"
+      gst-inspect-1.0 avdec_h264   >/dev/null 2>&1 && echo "  ✓ avdec_h264" || echo "  ✗ avdec_h264"
+      gst-inspect-1.0 srt          >/dev/null 2>&1 && echo "  ✓ srt (plugin SRT)" || echo "  ⚠︎ srt (no detectado)"
+      gst-inspect-1.0 nvv4l2h264enc >/dev/null 2>&1 && echo "  ✓ nvv4l2h264enc (NVENC)" || echo "  ✗ nvv4l2h264enc (falta NVENC)"
+      gst-inspect-1.0 nvvidconv     >/dev/null 2>&1 && echo "  ✓ nvvidconv (NVMM)"     || echo "  ✗ nvvidconv (falta NVMM)"
+      set -e
+
+      echo "==> [Jetson] Verificando OpenCV con GStreamer (dentro del env si existe)..."
+      export PYTHONPATH=/usr/lib/python3/dist-packages:${PYTHONPATH:-}
+      if load_conda && conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+        run_in_env python - <<'PY'
+import cv2
+print("OpenCV:", cv2.__version__)
+print("GStreamer en OpenCV:", "OK" if "GStreamer: YES" in cv2.getBuildInformation() else "NO")
+PY
+      else
+        python3 - <<'PY'
+import cv2
+print("OpenCV (system):", cv2.__version__)
+print("GStreamer en OpenCV:", "OK" if "GStreamer: YES" in cv2.getBuildInformation() else "NO")
+PY
+      fi
+      echo "==> [Jetson] Listo."
+    else
+      echo "==> [PC] Preparando entorno conda para transmisión..."
+      install_miniforge_if_needed || true
+      if ! load_conda; then echo "ERROR: No se encontró conda."; exit 2; fi
+      # Crea el entorno si no existe (Python 3.8)
+      if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+        echo "Creando entorno $ENV_NAME (Python $PYTHON_VER)..."
+        conda create -y -n "$ENV_NAME" "python=$PYTHON_VER"
+      fi
+
+      # Usa mamba si está, si no conda
+      INSTALLER="conda"
+      command -v mamba >/dev/null 2>&1 && INSTALLER="mamba"
+
+      echo "==> [PC] Instalando paquetes en $ENV_NAME (conda-forge)..."
+      $INSTALLER install -y -n "$ENV_NAME" -c conda-forge \
+        numpy=1.24.4 pillow=9.5.0 tqdm=4.66.4 pyyaml=6.0.1 pandas=1.5.3 json5=0.9.14 matplotlib=3.7.5 \
+        opencv \
+        gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav \
+        gst-python pygobject gobject-introspection ffmpeg libsrt
+
+      echo "==> [PC] Verificando OpenCV + GStreamer dentro del entorno..."
+      run_in_env python - <<'PY'
+import cv2
+print("OpenCV:", cv2.__version__)
+print("GStreamer en OpenCV:", "OK" if "GStreamer: YES" in cv2.getBuildInformation() else "NO")
+PY
+
+      echo "==> [PC] Verificando plugins GStreamer dentro del entorno..."
+      set +e
+      run_in_env gst-inspect-1.0 appsrc       >/dev/null 2>&1 && echo "  ✓ appsrc" || echo "  ✗ appsrc"
+      run_in_env gst-inspect-1.0 appsink      >/dev/null 2>&1 && echo "  ✓ appsink" || echo "  ✗ appsink"
+      run_in_env gst-inspect-1.0 rtph264pay   >/dev/null 2>&1 && echo "  ✓ rtph264pay" || echo "  ✗ rtph264pay"
+      run_in_env gst-inspect-1.0 rtph264depay >/dev/null 2>&1 && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
+      run_in_env gst-inspect-1.0 h264parse    >/dev/null 2>&1 && echo "  ✓ h264parse" || echo "  ✗ h264parse"
+      run_in_env gst-inspect-1.0 avdec_h264   >/dev/null 2>&1 && echo "  ✓ avdec_h264" || echo "  ✗ avdec_h264"
+      run_in_env gst-inspect-1.0 srt          >/dev/null 2>&1 && echo "  ✓ srt (plugin SRT)" || echo "  ⚠︎ srt (no detectado)"
+      set -e
+      echo "==> [PC] Listo."
+    fi
+    ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|visual}"
+    echo "Uso: $0 {env|deps|check|realsense-test|visual|run|transmitir}"
     ;;
 esac
