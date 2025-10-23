@@ -571,13 +571,13 @@ PY
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP> [WxH] [FPS] [BRkbps] [PORT]}"
       WH="${2:-1280x720}"; W="${WH%x*}"; H="${WH#*x}"
       FPS="${3:-30}"; BRK="${4:-4000}"; PORT="${5:-5000}"
-      /usr/bin/python3 tx_rs_rgb_appsrc.py \
+      /usr/bin/python3 tx_appsrc.py \
         --host "$PC_IP" --port "$PORT" \
         --width "$W" --height "$H" --fps "$FPS" --bitrate "$BRK"
     else
       # PC -> Receptor
       PORT="${1:-5000}"
-      python rx_pc_view.py --port "$PORT"
+      python rx_view.py --port "$PORT"
     fi
     ;;
   *)
