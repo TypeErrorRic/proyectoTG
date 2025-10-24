@@ -603,29 +603,38 @@ PY
     [[ -f "$TX" ]] || { echo "ERROR: No existe $TX"; exit 2; }
     [[ -f "$RX" ]] || { echo "ERROR: No existe $RX"; exit 2; }
 
-    # MUY IMPORTANTE: consumir el subcomando para que $1 sea la IP
+    # Consumir el subcomando para que $1 sea la IP en Jetson
     shift
 
-    # Detectar Jetson solo si existe el release y es ARM64
-    if [[ -f /etc/nv_tegra_release && "$(uname -m)" == "aarch64" ]]; then
-      # === Jetson -> Transmisor ===
+    # ===== Ejecutar SIEMPRE dentro de conda =====
+    if ! load_conda; then
+      echo "ERROR: conda no disponible. Ejecuta: $0 deps  (para instalar Miniforge y crear $ENV_NAME)"
+      exit 2
+    fi
+    # Verifica que el entorno exista (no lo crea aquí para evitar instalaciones parciales)
+    if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+      echo "ERROR: No existe el entorno '$ENV_NAME'. Ejecuta antes: $0 deps"
+      exit 2
+    fi
+
+    # Asegura que src/utilities estén en el path de módulos
+    export PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}"
+
+    if [[ "${IS_JETSON:-0}" -eq 1 ]]; then
+      # === Jetson -> Transmisor (solo IP como argumento) ===
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
 
-      echo "==> Transmisor Jetson"
+      echo "==> Transmisor Jetson (Conda: $ENV_NAME)"
       echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
-      PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
-      /usr/bin/python3 "$TX" \
+      run_in_env python "$TX" \
         --host "$PC_IP" --port "$PORT" \
         --width "$WIDTH" --height "$HEIGHT" \
         --fps "$FPS" --bitrate "$BITRATE_KBPS"
     else
-      # === PC -> Receptor ===
-      echo "==> Receptor PC escuchando en puerto ${PORT}"
-      PY="$(command -v python3 || command -v python || echo python)"
-
-      PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
-      "$PY" "$RX" --port "$PORT"
+      # === PC -> Receptor (sin argumentos) ===
+      echo "==> Receptor PC (Conda: $ENV_NAME) escuchando en puerto ${PORT}"
+      run_in_env python "$RX" --port "$PORT"
     fi
     ;;
   *)
