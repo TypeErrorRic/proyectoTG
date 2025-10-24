@@ -603,7 +603,11 @@ PY
     [[ -f "$TX" ]] || { echo "ERROR: No existe $TX"; exit 2; }
     [[ -f "$RX" ]] || { echo "ERROR: No existe $RX"; exit 2; }
 
-    if [[ -f /etc/nv_tegra_release ]]; then
+    # MUY IMPORTANTE: consumir el subcomando para que $1 sea la IP
+    shift
+
+    # Detectar Jetson solo si existe el release y es ARM64
+    if [[ -f /etc/nv_tegra_release && "$(uname -m)" == "aarch64" ]]; then
       # === Jetson -> Transmisor ===
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
 
