@@ -583,7 +583,7 @@ PY
       echo "==> [PC] Listo."
     fi
     ;;
-    link_rgb)
+  link_rgb)
     # === Rutas relativas: run.sh -> src -> src/utilities ===
     ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SRC_DIR="${ROOT_DIR}/src"
