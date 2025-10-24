@@ -508,7 +508,7 @@ PY
       exit 1
     fi
     ;;
-  run)
+  test)
   echo "Iniciando entorno $ENV_NAME…"
     if [[ -f "src/utilities/ransacCellingGround.py" ]]; then
       run_in_env python src/utilities/ransacCellingGround.py
@@ -517,7 +517,7 @@ PY
       exit 1
     fi
     ;;
-  transmitir)
+  TxInstall)
     # ===================== SOLO JETSON (TX) EN CONDA =====================
     if [[ "$IS_JETSON" -ne 1 ]]; then
       echo "Este target es SOLO para Jetson (transmisor)."
@@ -543,36 +543,9 @@ PY
     /usr/bin/gst-inspect-1.0 rtph264pay       >/dev/null 2>&1 && echo "  ✓ rtph264pay"            || echo "  ✗ rtph264pay"
     set -e
 
-    # Detecta el directorio base de 'cv2' del sistema para inyectarlo SOLO en el proceso del env conda
-    CV2_BASE="$(
-      /usr/bin/python3 - <<'PY'
-import os, cv2
-p = os.path.abspath(cv2.__file__)           # .../dist-packages/cv2/*.so
-print(os.path.dirname(os.path.dirname(p)))  # .../dist-packages
-PY
-    )"
-    [[ -d "$CV2_BASE" ]] || { echo "ERROR: no se ubicó cv2 del sistema. Instala 'python3-opencv'."; exit 2; }
-
-    echo "==> [Jetson] Verificando conda + entorno '$ENV_NAME'..."
-    if ! load_conda; then echo "ERROR: conda no disponible."; exit 2; fi
-    if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-      echo "ERROR: No existe el entorno '$ENV_NAME'. Ejecuta antes: $0 deps"
-      exit 2
-    fi
-
-    echo "==> [Jetson] Probando 'cv2' del sistema dentro del entorno conda..."
-    run_in_env env PYTHONPATH="${CV2_BASE}:${PYTHONPATH:-}" python - <<'PY'
-import cv2
-print("cv2 path:", cv2.__file__)
-print("GStreamer enabled:", "YES" in cv2.getBuildInformation())
-PY
-
     echo "==> [Jetson] Listo."
-    echo "Para TRANSMITIR (usando tu script con cv2.VideoWriter, ej. tx_processed.py):"
-    echo "  PYTHONPATH=\"${CV2_BASE}:\$PYTHONPATH\" conda run -n \"${ENV_NAME}\" python tx_processed.py <IP_PC>"
-    echo "Reemplaza <IP_PC> por la IP del receptor. Mantén nvv4l2h264enc + rtph264pay en tu pipeline RTP/UDP."
     ;;
-  link_rgb)
+  run)
     # === Rutas relativas: run.sh -> src -> src/utilities ===
     ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SRC_DIR="${ROOT_DIR}/src"
