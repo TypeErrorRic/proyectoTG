@@ -1,3 +1,8 @@
+"""
+Receptor RTP/UDP H.264 para Windows (sin GI).
+Usa gst-launch-1.0 externo para recibir, decodificar y mostrar video.
+"""
+
 import argparse
 import os
 import shutil

@@ -658,6 +658,6 @@ PY
     fi
     ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|visual|run|transmitir}"
+    echo "Uso: $0 {env|deps|check|realsense-test|visual|run|TxInstall|test}"
     ;;
 esac

@@ -1,3 +1,8 @@
+"""
+Transmisor de frames crudos (RGB/BGR) desde cámara RealSense hacia FIFO para GStreamer.
+Usa gst-launch-1.0 externo para leer del FIFO, codificar H.264 y transmitir por RTP/UDP.
+"""
+
 import argparse
 import os
 import stat
