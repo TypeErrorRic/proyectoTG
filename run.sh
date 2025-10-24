@@ -642,12 +642,38 @@ PY
           --fps "$FPS" --bitrate "$BITRATE_KBPS"
 
     else
-      # === PC -> Receptor (sin argumentos) ===
-      echo "==> Receptor PC (Conda: $ENV_NAME) escuchando en puerto ${PORT}"
-      run_in_env env \
-        PYTHONNOUSERSITE=1 \
-        PYTHONPATH="${SRC_DIR}:${UTIL_DIR}" \
-        python "$RX" --port "$PORT"
+      # === PC -> Receptor (Windows, FUERA de conda) ===
+      echo "==> Receptor PC (Windows, Python 3.13) escuchando en puerto ${PORT}"
+
+      # Escoge el intérprete: preferimos el launcher de Windows 'py' con 3.13
+      if command -v py >/dev/null 2>&1; then
+        PY="py"
+        PY_VER=("-3.13")
+      elif command -v python3 >/dev/null 2>&1; then
+        PY="python3"
+        PY_VER=()
+      elif command -v python >/dev/null 2>&1; then
+        PY="python"
+        PY_VER=()
+      else
+        echo "ERROR: No se encontró Python en este PC. Instala Python 3.13 o usa el launcher 'py'."
+        exit 2
+      fi
+
+      # Si ejecutas desde Git Bash/MSYS, convierte la ruta POSIX a Windows para Python
+      RX_PATH="$RX"
+      if is_windows_shell && command -v cygpath >/dev/null 2>&1; then
+        RX_PATH="$(cygpath -w "$RX")"
+      fi
+
+      # Argumentos para el receptor (permite override opcional de GStreamer con GST_PREFIX)
+      RX_ARGS=(--port "$PORT")
+      if [[ -n "${GST_PREFIX:-}" ]]; then
+        RX_ARGS+=(--gst-prefix "$GST_PREFIX")
+      fi
+
+      # Ejecuta el receptor
+      "$PY" "${PY_VER[@]}" "$RX_PATH" "${RX_ARGS[@]}"
     fi
     ;;
   *)
