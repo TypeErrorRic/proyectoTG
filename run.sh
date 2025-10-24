@@ -555,29 +555,54 @@ PY
 
       echo "==> [PC] Instalando GStreamer (receptor) en $ENV_NAME..."
       $INSTALLER install -y -n "$ENV_NAME" -c conda-forge \
-        gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
+        gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav ffmpeg
 
-      echo "==> [PC] Verificando plugins necesarios en el entorno..."
+      echo "==> [PC] Verificando plugins necesarios..."
       set +e
-      run_in_env gst-inspect-1.0 rtph264depay >/dev/null 2>&1 && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
-      run_in_env gst-inspect-1.0 avdec_h264   >/dev/null 2>&1 && echo "  ✓ avdec_h264"   || echo "  ✗ avdec_h264"
+      if [[ "$OS" == "Windows_NT" ]]; then
+        # En Windows, asegura rutas de plugins dentro del env
+        run_in_env cmd /C ^
+          "set GST_PLUGIN_SYSTEM_PATH=%CONDA_PREFIX%\Library\lib\gstreamer-1.0 && ^
+          set PATH=%CONDA_PREFIX%\Library\bin;%PATH% && ^
+          gst-inspect-1.0 rtph264depay >NUL 2>&1" \
+          && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
+
+        run_in_env cmd /C ^
+          "set GST_PLUGIN_SYSTEM_PATH=%CONDA_PREFIX%\Library\lib\gstreamer-1.0 && ^
+          set PATH=%CONDA_PREFIX%\Library\bin;%PATH% && ^
+          gst-inspect-1.0 avdec_h264 >NUL 2>&1" \
+          && echo "  ✓ avdec_h264"   || echo "  ✗ avdec_h264"
+      else
+        run_in_env gst-inspect-1.0 rtph264depay >/dev/null 2>&1 \
+          && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
+        run_in_env gst-inspect-1.0 avdec_h264   >/dev/null 2>&1 \
+          && echo "  ✓ avdec_h264"   || echo "  ✗ avdec_h264"
+      fi
       set -e
-      echo "==> [PC] Listo. Usa 'run_in_env gst-launch-1.0 ...' para recibir."
+
+      echo "==> [PC] Listo."
     fi
     ;;
   link_rgb)
+    # Detecta rutas relativas: run.sh -> src -> src/utilities
+    ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SRC_DIR="${ROOT_DIR}/src"
+    UTIL_DIR="${SRC_DIR}/utilities"
+
     if [[ -f /etc/nv_tegra_release ]]; then
-      # Jetson -> Transmisor
+      # Jetson -> Transmisor (usa Python del sistema para GI/GStreamer)
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP> [WxH] [FPS] [BRkbps] [PORT]}"
       WH="${2:-1280x720}"; W="${WH%x*}"; H="${WH#*x}"
       FPS="${3:-30}"; BRK="${4:-4000}"; PORT="${5:-5000}"
-      /usr/bin/python3 tx_appsrc.py \
+
+      PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
+      /usr/bin/python3 "${SRC_DIR}/tx_appsrc.py" \
         --host "$PC_IP" --port "$PORT" \
         --width "$W" --height "$H" --fps "$FPS" --bitrate "$BRK"
     else
       # PC -> Receptor
       PORT="${1:-5000}"
-      python rx_view.py --port "$PORT"
+      python "${UTIL_DIR}/rx_view.py" --port "$PORT"
     fi
     ;;
   *)
