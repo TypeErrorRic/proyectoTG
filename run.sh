@@ -584,25 +584,44 @@ PY
     fi
     ;;
   link_rgb)
-    # Detecta rutas relativas: run.sh -> src -> src/utilities
+    # === Rutas relativas: run.sh -> src -> src/utilities ===
     ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SRC_DIR="${ROOT_DIR}/src"
     UTIL_DIR="${SRC_DIR}/utilities"
 
+    TX="${UTIL_DIR}/tx_appsrc.py"
+    RX="${UTIL_DIR}/rx_view.py"
+
+    # --- Parámetros estáticos ---
+    WIDTH=1280
+    HEIGHT=720
+    FPS=30
+    BITRATE_KBPS=4000
+    PORT=5000
+
+    # Verificación de archivos
+    [[ -f "$TX" ]] || { echo "ERROR: No existe $TX"; exit 2; }
+    [[ -f "$RX" ]] || { echo "ERROR: No existe $RX"; exit 2; }
+
     if [[ -f /etc/nv_tegra_release ]]; then
-      # Jetson -> Transmisor (usa Python del sistema para GI/GStreamer)
-      PC_IP="${1:?Uso: $0 link_rgb <PC_IP> [WxH] [FPS] [BRkbps] [PORT]}"
-      WH="${2:-1280x720}"; W="${WH%x*}"; H="${WH#*x}"
-      FPS="${3:-30}"; BRK="${4:-4000}"; PORT="${5:-5000}"
+      # === Jetson -> Transmisor ===
+      PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
+
+      echo "==> Transmisor Jetson"
+      echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
       PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
-      /usr/bin/python3 "${SRC_DIR}/tx_appsrc.py" \
+      /usr/bin/python3 "$TX" \
         --host "$PC_IP" --port "$PORT" \
-        --width "$W" --height "$H" --fps "$FPS" --bitrate "$BRK"
+        --width "$WIDTH" --height "$HEIGHT" \
+        --fps "$FPS" --bitrate "$BITRATE_KBPS"
     else
-      # PC -> Receptor
-      PORT="${1:-5000}"
-      python "${UTIL_DIR}/rx_view.py" --port "$PORT"
+      # === PC -> Receptor ===
+      echo "==> Receptor PC escuchando en puerto ${PORT}"
+      PY="$(command -v python3 || command -v python || echo python)"
+
+      PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
+      "$PY" "$RX" --port "$PORT"
     fi
     ;;
   *)
