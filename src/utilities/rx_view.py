@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Receptor PC (Windows) sin gi:
-Lanza gst-launch-1.0 para recibir RTP/UDP H.264 y mostrar video.
-
-Ejemplos:
-  py -3.13 rx_view.py                 # puerto 5000, decodificación por software
-  py -3.13 rx_view.py --port 6000     # cambiar puerto
-  py -3.13 rx_view.py --hw            # decodificación por hardware (d3d11h264dec)
-  py -3.13 rx_view.py --gst-prefix "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64"
-"""
-
 import argparse
 import os
 import shutil
