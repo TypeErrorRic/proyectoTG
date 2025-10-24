@@ -518,70 +518,59 @@ PY
     fi
     ;;
   transmitir)
-    if [[ "$IS_JETSON" -eq 1 ]]; then
-      echo "==> [Jetson] Instalando paquetes de sistema para transmisión (NVENC/NVMM)..."
-      sudo apt-get update
-      sudo apt-get install -y \
-        gstreamer1.0-tools gstreamer1.0-libav \
-        gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-        nvidia-l4t-gstreamer v4l-utils
-
-      echo "==> [Jetson] Verificando plugins GStreamer del sistema..."
-      set +e
-      /usr/bin/gst-inspect-1.0 nvarguscamerasrc >/dev/null 2>&1 && echo "  ✓ nvarguscamerasrc (CSI)" || echo "  ⚠︎ nvarguscamerasrc (no disponible)"
-      /usr/bin/gst-inspect-1.0 v4l2src         >/dev/null 2>&1 && echo "  ✓ v4l2src (USB/UVC)"     || echo "  ✗ v4l2src"
-      /usr/bin/gst-inspect-1.0 nvvidconv        >/dev/null 2>&1 && echo "  ✓ nvvidconv (NVMM)"      || echo "  ✗ nvvidconv"
-      /usr/bin/gst-inspect-1.0 nvv4l2h264enc    >/dev/null 2>&1 && echo "  ✓ nvv4l2h264enc (NVENC)" || echo "  ✗ nvv4l2h264enc"
-      /usr/bin/gst-inspect-1.0 h264parse        >/dev/null 2>&1 && echo "  ✓ h264parse"             || echo "  ✗ h264parse"
-      /usr/bin/gst-inspect-1.0 rtph264pay       >/dev/null 2>&1 && echo "  ✓ rtph264pay"            || echo "  ✗ rtph264pay"
-      set -e
-      echo "==> [Jetson] Listo. Usa /usr/bin/gst-launch-1.0 para transmitir."
-
-    else
-      echo "==> [PC] Preparando entorno conda para recepción..."
-      install_miniforge_if_needed || true
-      if ! load_conda; then echo "ERROR: No se encontró conda."; exit 2; fi
-
-      # Crea el entorno si no existe (Python 3.8)
-      if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-        echo "Creando entorno $ENV_NAME (Python $PYTHON_VER)..."
-        conda create -y -n "$ENV_NAME" "python=$PYTHON_VER"
-      fi
-
-      # Usa mamba si está, si no conda
-      INSTALLER="conda"
-      command -v mamba >/dev/null 2>&1 && INSTALLER="mamba"
-
-      echo "==> [PC] Instalando GStreamer (receptor) en $ENV_NAME..."
-      $INSTALLER install -y -n "$ENV_NAME" -c conda-forge \
-        gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav ffmpeg
-
-      echo "==> [PC] Verificando plugins necesarios..."
-      set +e
-      if [[ "$OS" == "Windows_NT" ]]; then
-        # En Windows, asegura rutas de plugins dentro del env
-        run_in_env cmd /C ^
-          "set GST_PLUGIN_SYSTEM_PATH=%CONDA_PREFIX%\Library\lib\gstreamer-1.0 && ^
-          set PATH=%CONDA_PREFIX%\Library\bin;%PATH% && ^
-          gst-inspect-1.0 rtph264depay >NUL 2>&1" \
-          && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
-
-        run_in_env cmd /C ^
-          "set GST_PLUGIN_SYSTEM_PATH=%CONDA_PREFIX%\Library\lib\gstreamer-1.0 && ^
-          set PATH=%CONDA_PREFIX%\Library\bin;%PATH% && ^
-          gst-inspect-1.0 avdec_h264 >NUL 2>&1" \
-          && echo "  ✓ avdec_h264"   || echo "  ✗ avdec_h264"
-      else
-        run_in_env gst-inspect-1.0 rtph264depay >/dev/null 2>&1 \
-          && echo "  ✓ rtph264depay" || echo "  ✗ rtph264depay"
-        run_in_env gst-inspect-1.0 avdec_h264   >/dev/null 2>&1 \
-          && echo "  ✓ avdec_h264"   || echo "  ✗ avdec_h264"
-      fi
-      set -e
-
-      echo "==> [PC] Listo."
+    # ===================== SOLO JETSON (TX) EN CONDA =====================
+    if [[ "$IS_JETSON" -ne 1 ]]; then
+      echo "Este target es SOLO para Jetson (transmisor)."
+      exit 0
     fi
+
+    echo "==> [Jetson] Instalando paquetes de sistema (GStreamer + OpenCV con soporte GStreamer)..."
+    sudo apt-get update
+    sudo apt-get install -y \
+      python3-opencv \
+      gstreamer1.0-tools gstreamer1.0-libav \
+      gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+      gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+      nvidia-l4t-gstreamer v4l-utils
+
+    echo "==> [Jetson] Verificando plugins GStreamer (L4T)..."
+    set +e
+    /usr/bin/gst-inspect-1.0 nvarguscamerasrc >/dev/null 2>&1 && echo "  ✓ nvarguscamerasrc (CSI)" || echo "  ⚠︎ nvarguscamerasrc (no disponible)"
+    /usr/bin/gst-inspect-1.0 v4l2src         >/dev/null 2>&1 && echo "  ✓ v4l2src (USB/UVC)"     || echo "  ✗ v4l2src"
+    /usr/bin/gst-inspect-1.0 nvvidconv        >/dev/null 2>&1 && echo "  ✓ nvvidconv (NVMM)"      || echo "  ✗ nvvidconv"
+    /usr/bin/gst-inspect-1.0 nvv4l2h264enc    >/dev/null 2>&1 && echo "  ✓ nvv4l2h264enc (NVENC)" || echo "  ✗ nvv4l2h264enc"
+    /usr/bin/gst-inspect-1.0 h264parse        >/dev/null 2>&1 && echo "  ✓ h264parse"             || echo "  ✗ h264parse"
+    /usr/bin/gst-inspect-1.0 rtph264pay       >/dev/null 2>&1 && echo "  ✓ rtph264pay"            || echo "  ✗ rtph264pay"
+    set -e
+
+    # Detecta el directorio base de 'cv2' del sistema para inyectarlo SOLO en el proceso del env conda
+    CV2_BASE="$(
+      /usr/bin/python3 - <<'PY'
+import os, cv2
+p = os.path.abspath(cv2.__file__)           # .../dist-packages/cv2/*.so
+print(os.path.dirname(os.path.dirname(p)))  # .../dist-packages
+PY
+    )"
+    [[ -d "$CV2_BASE" ]] || { echo "ERROR: no se ubicó cv2 del sistema. Instala 'python3-opencv'."; exit 2; }
+
+    echo "==> [Jetson] Verificando conda + entorno '$ENV_NAME'..."
+    if ! load_conda; then echo "ERROR: conda no disponible."; exit 2; fi
+    if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+      echo "ERROR: No existe el entorno '$ENV_NAME'. Ejecuta antes: $0 deps"
+      exit 2
+    fi
+
+    echo "==> [Jetson] Probando 'cv2' del sistema dentro del entorno conda..."
+    run_in_env env PYTHONPATH="${CV2_BASE}:${PYTHONPATH:-}" python - <<'PY'
+import cv2
+print("cv2 path:", cv2.__file__)
+print("GStreamer enabled:", "YES" in cv2.getBuildInformation())
+PY
+
+    echo "==> [Jetson] Listo."
+    echo "Para TRANSMITIR (usando tu script con cv2.VideoWriter, ej. tx_processed.py):"
+    echo "  PYTHONPATH=\"${CV2_BASE}:\$PYTHONPATH\" conda run -n \"${ENV_NAME}\" python tx_processed.py <IP_PC>"
+    echo "Reemplaza <IP_PC> por la IP del receptor. Mantén nvv4l2h264enc + rtph264pay en tu pipeline RTP/UDP."
     ;;
   link_rgb)
     # === Rutas relativas: run.sh -> src -> src/utilities ===
@@ -617,55 +606,41 @@ PY
     fi
 
     if [[ "${IS_JETSON:-0}" -eq 1 ]]; then
-      # === Jetson -> Transmisor (solo IP como argumento) ===
+      # === Jetson -> Transmisor (solo IP como argumento), SIN gi; usando OpenCV+GStreamer ===
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
 
       echo "==> Transmisor Jetson (Conda: $ENV_NAME)"
       echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
-      # ---- Detecta carpeta exacta de 'gi' del sistema (sin contaminar con otros paquetes) ----
-      GI_PY_DIR=""
-      for cand in \
-        /usr/lib/python3.8/dist-packages/gi \
-        /usr/lib/python3.10/dist-packages/gi \
-        /usr/lib/python3/dist-packages/gi
-      do
-        [[ -d "$cand" ]] && { GI_PY_DIR="$cand"; break; }
-      done
-      if [[ -z "$GI_PY_DIR" ]]; then
-        echo "ERROR: No se encontró la carpeta de 'gi' en el sistema. Instala paquetes de GStreamer:"
-        echo "  sudo apt-get install -y python3-gi gir1.2-gstreamer-1.0 \\"
-        echo "       gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-plugins-{base,good,bad,ugly} nvidia-l4t-gstreamer"
-        exit 3
-      fi
+      # Detecta la carpeta 'dist-packages' del OpenCV del sistema para inyectarla solo en este proceso
+      CV2_DIST="$(
+        /usr/bin/python3 - <<'PY'
+import os, cv2
+p = os.path.abspath(cv2.__file__)           # .../dist-packages/cv2/...
+print(os.path.dirname(os.path.dirname(p)))  # .../dist-packages
+PY
+      )"
+      [[ -d "$CV2_DIST" ]] || { echo "ERROR: no se ubicó cv2 del sistema. Instala 'python3-opencv'."; exit 2; }
 
-      # Rutas de typelibs y libs nativas de GStreamer (L4T)
-      GI_TYPEDIR="/usr/lib/aarch64-linux-gnu/girepository-1.0"
-      GST_PLUGDIR="/usr/lib/aarch64-linux-gnu/gstreamer-1.0"
-      SYS_LIBDIR="/usr/lib/aarch64-linux-gnu"
-
-      # 1) Prueba GI/GStreamer dentro del entorno, inyectando SOLO lo necesario
+      # Verificación rápida: que ese cv2 tenga GStreamer habilitado (dentro del env conda)
       run_in_env env \
         PYTHONNOUSERSITE=1 \
-        PYTHONPATH="${GI_PY_DIR}:${SRC_DIR}:${UTIL_DIR}" \
-        GI_TYPELIB_PATH="${GI_TYPEDIR}:${GI_TYPELIB_PATH:-}" \
-        LD_LIBRARY_PATH="${SYS_LIBDIR}:${LD_LIBRARY_PATH:-}" \
-        GST_PLUGIN_SYSTEM_PATH="${GST_PLUGDIR}" \
-        GST_PLUGIN_PATH="${GST_PLUGDIR}:${GST_PLUGIN_PATH:-}" \
-        python -c "import gi; gi.require_version('Gst','1.0'); from gi.repository import Gst; Gst.init(None); print('GI/GStreamer OK')"
+        PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
+        python - <<'PY'
+import cv2
+print("cv2 path:", cv2.__file__)
+print("GStreamer enabled:", "YES" in cv2.getBuildInformation())
+PY
 
-      # 2) Transmisión con las mismas variables (sin exponerlas globalmente)
+      # Transmisión: ejecuta tu tx_appsrc.py (OpenCV+GStreamer / sin gi)
       run_in_env env \
         PYTHONNOUSERSITE=1 \
-        PYTHONPATH="${GI_PY_DIR}:${SRC_DIR}:${UTIL_DIR}" \
-        GI_TYPELIB_PATH="${GI_TYPEDIR}:${GI_TYPELIB_PATH:-}" \
-        LD_LIBRARY_PATH="${SYS_LIBDIR}:${LD_LIBRARY_PATH:-}" \
-        GST_PLUGIN_SYSTEM_PATH="${GST_PLUGDIR}" \
-        GST_PLUGIN_PATH="${GST_PLUGDIR}:${GST_PLUGIN_PATH:-}" \
+        PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
         python "$TX" \
           --host "$PC_IP" --port "$PORT" \
           --width "$WIDTH" --height "$HEIGHT" \
           --fps "$FPS" --bitrate "$BITRATE_KBPS"
+
     else
       # === PC -> Receptor (sin argumentos) ===
       echo "==> Receptor PC (Conda: $ENV_NAME) escuchando en puerto ${PORT}"
