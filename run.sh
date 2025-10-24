@@ -622,19 +622,29 @@ PY
       )"
       [[ -d "$CV2_DIST" ]] || { echo "ERROR: no se ubicó cv2 del sistema. Instala 'python3-opencv'."; exit 2; }
 
-      # Verificación rápida: que ese cv2 tenga GStreamer habilitado (dentro del env conda)
-      run_in_env env \
+      echo "==> Comprobando OpenCV + GStreamer dentro del entorno '${ENV_NAME}'..."
+      if ! run_in_env env \
         PYTHONNOUSERSITE=1 \
+        PYTHONUNBUFFERED=1 \
+        PYTHONIOENCODING=utf-8 \
         PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
         python - <<'PY'
-import cv2
-print("cv2 path:", cv2.__file__)
-print("GStreamer enabled:", "YES" in cv2.getBuildInformation())
+import sys, cv2
+print("cv2 path:", cv2.__file__, flush=True)
+ok = "YES" in cv2.getBuildInformation()
+print("GStreamer enabled:", ok, flush=True)
+sys.exit(0 if ok else 42)
 PY
+      then
+        echo "ERROR: OpenCV actual no tiene soporte GStreamer. Instala 'python3-opencv' del sistema."
+        exit 2
+      fi
 
-      # Transmisión: ejecuta tu tx_appsrc.py (OpenCV+GStreamer / sin gi)
+      echo "==> Lanzando transmisor (salida sin buffer; verás logs en vivo del script)..."
       run_in_env env \
         PYTHONNOUSERSITE=1 \
+        PYTHONUNBUFFERED=1 \
+        PYTHONIOENCODING=utf-8 \
         PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
         python "$TX" \
           --host "$PC_IP" --port "$PORT" \
