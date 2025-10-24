@@ -596,15 +596,6 @@ PY
     shift
 
     # ===== Ejecutar SIEMPRE dentro de conda =====
-    if ! load_conda; then
-      echo "ERROR: conda no disponible. Ejecuta: $0 deps"
-      exit 2
-    fi
-    if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-      echo "ERROR: No existe el entorno '$ENV_NAME'. Ejecuta antes: $0 deps"
-      exit 2
-    fi
-
     if [[ "${IS_JETSON:-0}" -eq 1 ]]; then
       # === Jetson -> Transmisor (solo IP como argumento), SIN gi; usando OpenCV+GStreamer ===
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
@@ -612,16 +603,39 @@ PY
       echo "==> Transmisor Jetson (Conda: $ENV_NAME)"
       echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
-      # Detecta la carpeta 'dist-packages' del OpenCV del sistema para inyectarla solo en este proceso
+      echo "==> Buscando OpenCV (cv2) del sistema en dist-packages..."
       CV2_DIST="$(
         /usr/bin/python3 - <<'PY'
-import os, cv2
-p = os.path.abspath(cv2.__file__)           # .../dist-packages/cv2/...
-print(os.path.dirname(os.path.dirname(p)))  # .../dist-packages
-PY
-      )"
-      [[ -d "$CV2_DIST" ]] || { echo "ERROR: no se ubicó cv2 del sistema. Instala 'python3-opencv'."; exit 2; }
+import sys, os, glob
+cands = [
+  "/usr/lib/python3/dist-packages",
+  "/usr/lib/python3.6/dist-packages",
+  "/usr/lib/python3.7/dist-packages",
+  "/usr/lib/python3.8/dist-packages",
+  "/usr/lib/python3.9/dist-packages",
+  "/usr/lib/python3.10/dist-packages",
+]
+# Candidatos reales existentes que contengan carpeta 'cv2'
+hits = [p for p in cands if os.path.isdir(os.path.join(p, "cv2"))]
+if hits:
+    print(hits[0]); raise SystemExit(0)
 
+# Último recurso: busca cualquier dist-packages con 'cv2' dentro
+for p in glob.glob("/usr/lib/python3.*/dist-packages"):
+    if os.path.isdir(os.path.join(p, "cv2")):
+        print(p); raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+      )" || {
+        echo "ERROR: No se encontró 'cv2' del sistema. Instala OpenCV del sistema:"
+        echo "  sudo apt-get update && sudo apt-get install -y python3-opencv"
+        exit 2
+      }
+
+      echo "==> Usando CV2_DIST=${CV2_DIST}"
+
+      # Verificación rápida: que ese cv2 tenga GStreamer habilitado (dentro del env conda)
       echo "==> Comprobando OpenCV + GStreamer dentro del entorno '${ENV_NAME}'..."
       if ! run_in_env env \
         PYTHONNOUSERSITE=1 \
@@ -629,14 +643,23 @@ PY
         PYTHONIOENCODING=utf-8 \
         PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
         python - <<'PY'
-import sys, cv2
-print("cv2 path:", cv2.__file__, flush=True)
-ok = "YES" in cv2.getBuildInformation()
-print("GStreamer enabled:", ok, flush=True)
-sys.exit(0 if ok else 42)
+import sys, importlib
+try:
+    import cv2
+    print("cv2 path:", cv2.__file__, flush=True)
+    info = cv2.getBuildInformation()
+    ok = ("GStreamer: YES" in info) or ("GStreamer:                     YES" in info)
+    print("GStreamer enabled:", ok, flush=True)
+    sys.exit(0 if ok else 42)
+except Exception as e:
+    print("ERROR importando cv2 dentro del entorno:", repr(e), flush=True)
+    sys.exit(41)
 PY
       then
-        echo "ERROR: OpenCV actual no tiene soporte GStreamer. Instala 'python3-opencv' del sistema."
+        echo "ERROR: OpenCV usado dentro del entorno NO tiene GStreamer."
+        echo "Solución: asegúrate de tener 'python3-opencv' instalado y vuelve a lanzar:"
+        echo "  sudo apt-get install -y python3-opencv"
+        echo "Luego ejecuta de nuevo este comando."
         exit 2
       fi
 
@@ -650,7 +673,6 @@ PY
           --host "$PC_IP" --port "$PORT" \
           --width "$WIDTH" --height "$HEIGHT" \
           --fps "$FPS" --bitrate "$BITRATE_KBPS"
-
     else
       # === PC -> Receptor (Windows, FUERA de conda) ===
       echo "==> Receptor PC (Windows, Python 3.13) escuchando en puerto ${PORT}"
