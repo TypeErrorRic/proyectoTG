@@ -583,7 +583,7 @@ PY
       echo "==> [PC] Listo."
     fi
     ;;
-  link_rgb)
+    link_rgb)
     # === Rutas relativas: run.sh -> src -> src/utilities ===
     ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SRC_DIR="${ROOT_DIR}/src"
@@ -603,30 +603,50 @@ PY
     [[ -f "$TX" ]] || { echo "ERROR: No existe $TX"; exit 2; }
     [[ -f "$RX" ]] || { echo "ERROR: No existe $RX"; exit 2; }
 
-    # Consumir el subcomando para que $1 sea la IP en Jetson
+    # Consumir el subcomando para que $1 sea la IP (en Jetson)
     shift
 
     # ===== Ejecutar SIEMPRE dentro de conda =====
     if ! load_conda; then
-      echo "ERROR: conda no disponible. Ejecuta: $0 deps  (para instalar Miniforge y crear $ENV_NAME)"
+      echo "ERROR: conda no disponible. Ejecuta: $0 deps"
       exit 2
     fi
-    # Verifica que el entorno exista (no lo crea aquí para evitar instalaciones parciales)
     if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
       echo "ERROR: No existe el entorno '$ENV_NAME'. Ejecuta antes: $0 deps"
       exit 2
     fi
 
-    # Asegura que src/utilities estén en el path de módulos
+    # Rutas de tu proyecto para import
     export PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}"
 
     if [[ "${IS_JETSON:-0}" -eq 1 ]]; then
       # === Jetson -> Transmisor (solo IP como argumento) ===
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
 
+      # --- PUENTE GI (usar GStreamer del sistema desde conda) ---
+      # Añade site-packages del sistema para 'gi'
+      SYS_PY_DIST="/usr/lib/python3/dist-packages"
+      SYS_PY_VER="/usr/lib/python3.8/dist-packages"
+      export PYTHONPATH="${PYTHONPATH}:${SYS_PY_DIST}:${SYS_PY_VER}"
+
+      # Typelibs y plugins del GStreamer del sistema (L4T)
+      export GI_TYPELIB_PATH="/usr/lib/aarch64-linux-gnu/girepository-1.0:${GI_TYPELIB_PATH:-}"
+      export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}"
+      export GST_PLUGIN_SYSTEM_PATH="/usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+      export GST_PLUGIN_PATH="${GST_PLUGIN_SYSTEM_PATH}:${GST_PLUGIN_PATH:-}"
+
       echo "==> Transmisor Jetson (Conda: $ENV_NAME)"
       echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
+      # Verificación rápida de GI/Gst antes de transmitir (opcional pero útil)
+      run_in_env python - <<'PY' || { echo "ERROR: GI/GStreamer no disponibles en conda. Revisa instalación del paso 1."; exit 3; }
+import gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
+Gst.init(None)
+print("GI/GStreamer OK (Jetson)")
+PY
+      # Transmisión
       run_in_env python "$TX" \
         --host "$PC_IP" --port "$PORT" \
         --width "$WIDTH" --height "$HEIGHT" \
