@@ -625,7 +625,7 @@ PY
         videoconvert ! \
         nvvidconv ! 'video/x-raw(memory:NVMM),format=NV12' ! \
         nvv4l2h264enc insert-sps-pps=true iframeinterval=$FPS control-rate=1 \
-                       bitrate=$((BITRATE_KBPS*1000)) preset-level=2 profile=high ! \
+                      bitrate=$((BITRATE_KBPS*1000)) preset-level=2 ! \
         h264parse config-interval=1 ! rtph264pay pt=96 ! \
         udpsink host="$PC_IP" port="$PORT" sync=false \
         2> >(sed -u 's/^/[GST] /' >&2) &
