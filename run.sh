@@ -594,7 +594,7 @@ PY
       # Lee RGB crudo del FIFO, convierte a NV12 en NVMM y envía por RTP/UDP (H.264 HW)
       gst-launch-1.0 -v \
         filesrc location="$FIFO" do-timestamp=true ! \
-        videoparse width=$WIDTH height=$HEIGHT framerate=$FPS/1 format=rgb ! \
+        videoparse width=$WIDTH height=$HEIGHT framerate=$FPS/1 format=bgr ! \
         videoconvert ! \
         nvvidconv ! 'video/x-raw(memory:NVMM),format=NV12' ! \
         nvv4l2h264enc insert-sps-pps=true iframeinterval=$FPS control-rate=1 \
@@ -617,7 +617,7 @@ PY
           --fifo "$FIFO" \
           --width "$WIDTH" --height "$HEIGHT" \
           --fps "$FPS" \
-          --pipe-format rgb
+          --pipe-format bgr
 
       # Espera a que termine gst-launch (si sigue vivo)
       wait $GST_PID || true

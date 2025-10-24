@@ -36,7 +36,7 @@ def main():
     ap.add_argument(
         "--pipe-format",
         choices=["rgb", "bgr"],
-        default="rgb",
+        default="bgr",
         help="Formato de píxel que ESCRIBE este script en el FIFO (videoparse debe coincidir).",
     )
     args = ap.parse_args()
