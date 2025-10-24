@@ -623,22 +623,45 @@ PY
       echo "==> Transmisor Jetson (Conda: $ENV_NAME)"
       echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
-      # 1) Prueba GI/GStreamer dentro del entorno (sin contaminar globalmente)
+      # ---- Detecta carpeta exacta de 'gi' del sistema (sin contaminar con otros paquetes) ----
+      GI_PY_DIR=""
+      for cand in \
+        /usr/lib/python3.8/dist-packages/gi \
+        /usr/lib/python3.10/dist-packages/gi \
+        /usr/lib/python3/dist-packages/gi
+      do
+        [[ -d "$cand" ]] && { GI_PY_DIR="$cand"; break; }
+      done
+      if [[ -z "$GI_PY_DIR" ]]; then
+        echo "ERROR: No se encontró la carpeta de 'gi' en el sistema. Instala paquetes de GStreamer:"
+        echo "  sudo apt-get install -y python3-gi gir1.2-gstreamer-1.0 \\"
+        echo "       gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-plugins-{base,good,bad,ugly} nvidia-l4t-gstreamer"
+        exit 3
+      fi
+
+      # Rutas de typelibs y libs nativas de GStreamer (L4T)
+      GI_TYPEDIR="/usr/lib/aarch64-linux-gnu/girepository-1.0"
+      GST_PLUGDIR="/usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+      SYS_LIBDIR="/usr/lib/aarch64-linux-gnu"
+
+      # 1) Prueba GI/GStreamer dentro del entorno, inyectando SOLO lo necesario
       run_in_env env \
-        PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}:/usr/lib/python3/dist-packages:/usr/lib/python3.8/dist-packages" \
-        GI_TYPELIB_PATH="/usr/lib/aarch64-linux-gnu/girepository-1.0:${GI_TYPELIB_PATH:-}" \
-        LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}" \
-        GST_PLUGIN_SYSTEM_PATH="/usr/lib/aarch64-linux-gnu/gstreamer-1.0" \
-        GST_PLUGIN_PATH="/usr/lib/aarch64-linux-gnu/gstreamer-1.0:${GST_PLUGIN_PATH:-}" \
+        PYTHONNOUSERSITE=1 \
+        PYTHONPATH="${GI_PY_DIR}:${SRC_DIR}:${UTIL_DIR}" \
+        GI_TYPELIB_PATH="${GI_TYPEDIR}:${GI_TYPELIB_PATH:-}" \
+        LD_LIBRARY_PATH="${SYS_LIBDIR}:${LD_LIBRARY_PATH:-}" \
+        GST_PLUGIN_SYSTEM_PATH="${GST_PLUGDIR}" \
+        GST_PLUGIN_PATH="${GST_PLUGDIR}:${GST_PLUGIN_PATH:-}" \
         python -c "import gi; gi.require_version('Gst','1.0'); from gi.repository import Gst; Gst.init(None); print('GI/GStreamer OK')"
 
-      # 2) Transmisión con las mismas variables inyectadas solo a este proceso
+      # 2) Transmisión con las mismas variables (sin exponerlas globalmente)
       run_in_env env \
-        PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}:/usr/lib/python3/dist-packages:/usr/lib/python3.8/dist-packages" \
-        GI_TYPELIB_PATH="/usr/lib/aarch64-linux-gnu/girepository-1.0:${GI_TYPELIB_PATH:-}" \
-        LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}" \
-        GST_PLUGIN_SYSTEM_PATH="/usr/lib/aarch64-linux-gnu/gstreamer-1.0" \
-        GST_PLUGIN_PATH="/usr/lib/aarch64-linux-gnu/gstreamer-1.0:${GST_PLUGIN_PATH:-}" \
+        PYTHONNOUSERSITE=1 \
+        PYTHONPATH="${GI_PY_DIR}:${SRC_DIR}:${UTIL_DIR}" \
+        GI_TYPELIB_PATH="${GI_TYPEDIR}:${GI_TYPELIB_PATH:-}" \
+        LD_LIBRARY_PATH="${SYS_LIBDIR}:${LD_LIBRARY_PATH:-}" \
+        GST_PLUGIN_SYSTEM_PATH="${GST_PLUGDIR}" \
+        GST_PLUGIN_PATH="${GST_PLUGDIR}:${GST_PLUGIN_PATH:-}" \
         python "$TX" \
           --host "$PC_IP" --port "$PORT" \
           --width "$WIDTH" --height "$HEIGHT" \
@@ -647,7 +670,8 @@ PY
       # === PC -> Receptor (sin argumentos) ===
       echo "==> Receptor PC (Conda: $ENV_NAME) escuchando en puerto ${PORT}"
       run_in_env env \
-        PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
+        PYTHONNOUSERSITE=1 \
+        PYTHONPATH="${SRC_DIR}:${UTIL_DIR}" \
         python "$RX" --port "$PORT"
     fi
     ;;
