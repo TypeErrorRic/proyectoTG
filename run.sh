@@ -578,7 +578,8 @@ PY
     SRC_DIR="${ROOT_DIR}/src"
     UTIL_DIR="${SRC_DIR}/utilities"
 
-    TX="${UTIL_DIR}/tx_appsrc.py"
+    # Usa el TX FIFO (no el appsrc)
+    TX="${UTIL_DIR}/tx_fifo.py"
     RX="${UTIL_DIR}/rx_view.py"
 
     # --- Parámetros estáticos ---
@@ -587,6 +588,7 @@ PY
     FPS=30
     BITRATE_KBPS=4000
     PORT=5000
+    FIFO="/tmp/frames.rgb"   # FIFO compartido entre Python y GStreamer
 
     # Verificación de archivos
     [[ -f "$TX" ]] || { echo "ERROR: No existe $TX"; exit 2; }
@@ -597,82 +599,56 @@ PY
 
     # ===== Ejecutar SIEMPRE dentro de conda =====
     if [[ "${IS_JETSON:-0}" -eq 1 ]]; then
-      # === Jetson -> Transmisor (solo IP como argumento), SIN gi; usando OpenCV+GStreamer ===
+      # === Jetson -> Transmisor (solo IP como argumento), FIFO + gst-launch ===
       PC_IP="${1:?Uso: $0 link_rgb <PC_IP>}"
 
-      echo "==> Transmisor Jetson (Conda: $ENV_NAME)"
+      echo "==> Transmisor Jetson (FIFO + gst-launch)"
       echo "IP destino: $PC_IP | ${WIDTH}x${HEIGHT} @ ${FPS} fps | ${BITRATE_KBPS} kbps | puerto ${PORT}"
 
-      echo "==> Buscando OpenCV (cv2) del sistema en dist-packages..."
-      CV2_DIST="$(
-        /usr/bin/python3 - <<'PY'
-import sys, os, glob
-cands = [
-  "/usr/lib/python3/dist-packages",
-  "/usr/lib/python3.6/dist-packages",
-  "/usr/lib/python3.7/dist-packages",
-  "/usr/lib/python3.8/dist-packages",
-  "/usr/lib/python3.9/dist-packages",
-  "/usr/lib/python3.10/dist-packages",
-]
-# Candidatos reales existentes que contengan carpeta 'cv2'
-hits = [p for p in cands if os.path.isdir(os.path.join(p, "cv2"))]
-if hits:
-    print(hits[0]); raise SystemExit(0)
+      # Asegura que exista el FIFO
+      if [[ ! -p "$FIFO" ]]; then
+        rm -f "$FIFO"
+        mkfifo -m 666 "$FIFO" || { echo "ERROR: No se pudo crear FIFO $FIFO"; exit 2; }
+      fi
 
-# Último recurso: busca cualquier dist-packages con 'cv2' dentro
-for p in glob.glob("/usr/lib/python3.*/dist-packages"):
-    if os.path.isdir(os.path.join(p, "cv2")):
-        print(p); raise SystemExit(0)
-
-raise SystemExit(1)
-PY
-      )" || {
-        echo "ERROR: No se encontró 'cv2' del sistema. Instala OpenCV del sistema:"
-        echo "  sudo apt-get update && sudo apt-get install -y python3-opencv"
-        exit 2
-      }
-
-      echo "==> Usando CV2_DIST=${CV2_DIST}"
-
-      # Verificación rápida: que ese cv2 tenga GStreamer habilitado (dentro del env conda)
-      echo "==> Comprobando OpenCV + GStreamer dentro del entorno '${ENV_NAME}'..."
-      if ! run_in_env env \
-        PYTHONNOUSERSITE=1 \
-        PYTHONUNBUFFERED=1 \
-        PYTHONIOENCODING=utf-8 \
-        PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
-        python - <<'PY'
-import sys, importlib
-try:
-    import cv2
-    print("cv2 path:", cv2.__file__, flush=True)
-    info = cv2.getBuildInformation()
-    ok = ("GStreamer: YES" in info) or ("GStreamer:                     YES" in info)
-    print("GStreamer enabled:", ok, flush=True)
-    sys.exit(0 if ok else 42)
-except Exception as e:
-    print("ERROR importando cv2 dentro del entorno:", repr(e), flush=True)
-    sys.exit(41)
-PY
-      then
-        echo "ERROR: OpenCV usado dentro del entorno NO tiene GStreamer."
-        echo "Solución: asegúrate de tener 'python3-opencv' instalado y vuelve a lanzar:"
-        echo "  sudo apt-get install -y python3-opencv"
-        echo "Luego ejecuta de nuevo este comando."
+      # Verifica encoder NVENC disponible
+      if ! gst-inspect-1.0 nvv4l2h264enc >/dev/null 2>&1; then
+        echo "ERROR: No se encontró 'nvv4l2h264enc'. Revisa instalación de GStreamer/NVENC en L4T."
         exit 2
       fi
 
-      echo "==> Lanzando transmisor (salida sin buffer; verás logs en vivo del script)..."
+      echo "==> Lanzando GStreamer (lector del FIFO) ..."
+      # Lee RGB crudo del FIFO, convierte a NV12 en NVMM y envía por RTP/UDP (H.264 HW)
+      gst-launch-1.0 -v \
+        filesrc location="$FIFO" do-timestamp=true ! \
+        videoparse width=$WIDTH height=$HEIGHT framerate=$FPS/1 format=rgb ! \
+        videoconvert ! \
+        nvvidconv ! 'video/x-raw(memory:NVMM),format=NV12' ! \
+        nvv4l2h264enc insert-sps-pps=true iframeinterval=$FPS control-rate=1 \
+                       bitrate=$((BITRATE_KBPS*1000)) preset-level=2 profile=high ! \
+        h264parse config-interval=1 ! rtph264pay pt=96 ! \
+        udpsink host="$PC_IP" port="$PORT" sync=false \
+        2> >(sed -u 's/^/[GST] /' >&2) &
+      GST_PID=$!
+
+      # Mata el gst-launch si salimos
+      trap 'kill $GST_PID 2>/dev/null || true' EXIT
+
+      echo "==> Ejecutando TX Python (3.8) escribiendo al FIFO..."
+      # OJO: aquí NO inyectamos cv2 del sistema; tu Python 3.8 solo escribe bytes al FIFO.
       run_in_env env \
-        PYTHONNOUSERSITE=1 \
         PYTHONUNBUFFERED=1 \
         PYTHONIOENCODING=utf-8 \
-        PYTHONPATH="${CV2_DIST}:${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
+        PYTHONPATH="${SRC_DIR}:${UTIL_DIR}:${PYTHONPATH:-}" \
         python "$TX" \
-          --host "$PC_IP" --port "$PORT" \
+          --fifo "$FIFO" \
           --width "$WIDTH" --height "$HEIGHT" \
-          --fps "$FPS" --bitrate "$BITRATE_KBPS"
+          --fps "$FPS" \
+          --pipe-format rgb
+
+      # Espera a que termine gst-launch (si sigue vivo)
+      wait $GST_PID || true
+      exit 0
     else
       # === PC -> Receptor (Windows, FUERA de conda) ===
       echo "==> Receptor PC (Windows, Python 3.13) escuchando en puerto ${PORT}"
