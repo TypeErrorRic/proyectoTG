@@ -1,6 +1,5 @@
 import math
 import numpy as np
-from sklearn.linear_model import RANSACRegressor
 import cv2
 
 try:
@@ -298,38 +297,27 @@ def detect_ground(frames, max_height_threshold=0.5, min_points=100):
     if points_xyz is None:
         return None, None
 
+    # Usar ransac_plane_gpu con orientación vertical de RealSense
+    result = ransac_plane_gpu(
+        points_xyz.reshape(-1, 3),
+        dist_thresh=0.02,
+        max_iters=2000,
+        min_inliers=min_points,
+        up_axis=(0.0, -1.0, 0.0),  # RealSense: Y es hacia abajo
+        max_angle_deg=20.0
+    )
+
+    if result is None:
+        return None, None
+
+    # Convertir máscara a formato de imagen
     H, W = points_xyz.shape[:2]
-
-    # Filtrar puntos por altura y crear conjunto de entrenamiento
-    valid_mask = points_xyz[..., 1] < max_height_threshold  # y es altura en RealSense
-    points_flat = points_xyz[valid_mask]
-
-    if len(points_flat) < min_points:
-        return None, None
-
-    # Preparar datos para RANSAC
-    X = points_flat[:, [0, 2]]  # usar solo x,z
-    y = points_flat[:, 1]      # altura (y) como variable objetivo
-
-    # Aplicar RANSAC
-    ransac = RANSACRegressor(random_state=42)
-    try:
-        ransac.fit(X, y)
-    except:
-        return None, None
-
-    # Generar máscara del suelo
-    Y = points_xyz[..., 1]  # alturas reales
-    XZ = points_xyz[..., [0, 2]]
-    Y_pred = ransac.predict(XZ.reshape(-1, 2)).reshape(H, W)
-
-    # Considerar como suelo puntos cerca del plano predicho
-    ground_mask = np.abs(Y - Y_pred) < 0.1
-
-    # Coeficientes del plano (ax + by + cz + d = 0)
-    coef = ransac.estimator_.coef_
-    intercept = ransac.estimator_.intercept_
-    plane_coef = [coef[0], -1, coef[1], intercept]
+    ground_mask = result['inliers_mask'].reshape(H, W)
+    
+    # Coeficientes del plano
+    n = result['n']
+    d = result['d']
+    plane_coef = [float(n[0]), float(n[1]), float(n[2]), float(d)]
 
     return ground_mask.astype(np.uint8), plane_coef
 
