@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import cv2
-from viewCamera import extract_pointcloud, render_pointcloud
+from viewCamera import extract_pointcloud, render_pointcloud, init_camera
 import cupy as cp
 
 
@@ -316,7 +316,8 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask):
 
 
 def _build_colored_pointcloud(points_np: np.ndarray, inliers_idx_cp: cp.ndarray,
-                              green=(0, 255, 0), base=(200, 200, 200)):
+                              green=(0, 255, 0), base=(200, 200, 200),
+                              base_colors_np: np.ndarray | None = None):
     """
     Devuelve (points_np, colors_np) donde los puntos en 'inliers_idx_cp' se colorean de verde.
     - points_np: np.ndarray (N,3) float32 en metros (no se copia si ya lo es)
@@ -324,7 +325,10 @@ def _build_colored_pointcloud(points_np: np.ndarray, inliers_idx_cp: cp.ndarray,
     - green/base: tuplas BGR
     """
     N = int(points_np.shape[0])
-    colors_gpu = cp.full((N, 3), base, dtype=cp.uint8)
+    if base_colors_np is not None and isinstance(base_colors_np, np.ndarray) and base_colors_np.shape == (N, 3):
+        colors_gpu = cp.asarray(base_colors_np, dtype=cp.uint8)
+    else:
+        colors_gpu = cp.full((N, 3), base, dtype=cp.uint8)
     colors_gpu[inliers_idx_cp] = cp.asarray(green, dtype=cp.uint8)
     colors_np = colors_gpu.get()
     # Asegurar dtype/contiguidad de puntos
@@ -374,12 +378,35 @@ def demo_main_return_colored_pointcloud():
 # Ejemplo de uso mínimo
 # =======================
 if __name__ == "__main__":
-    # Genera y visualiza la nube de puntos coloreada (suelo en verde)
-    pts_np, colors_np = demo_main_return_colored_pointcloud()
-    img = render_pointcloud(pts_np, colors_np, out_size=(720, 720))
-    cv2.namedWindow('PointCloud - Suelo en verde', cv2.WINDOW_NORMAL)
-    cv2.imshow('PointCloud - Suelo en verde', img)
-    print("Backend: GPU (CuPy)")
-    print("Presiona cualquier tecla para cerrar la visualización…")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Visualiza la nube de puntos de la RealSense coloreando el suelo en verde (en vivo)
+    print("Inicializando cámara RealSense…")
+    pipeline = init_camera(640, 480, 640, 480, 30)
+    cv2.namedWindow('PointCloud - Suelo en verde (RealSense)', cv2.WINDOW_NORMAL)
+    try:
+        while True:
+            frames = pipeline.wait_for_frames()
+            points_xyz, colors_bgr = extract_pointcloud(frames, with_colors=True, filter_invalid=True, organized=False)
+            if points_xyz is None or len(points_xyz) == 0:
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:
+                    break
+                continue
+
+            # Detectar suelo en la nube actual (orientación RealSense: Y hacia abajo)
+            res = ransac_plane_gpu(points_xyz, dist_thresh=0.02, max_iters=2000, min_inliers=800,
+                                   up_axis=(0.0, -1.0, 0.0), max_angle_deg=20.0, seed=42)
+            if res is not None:
+                pts_np, colors_np = _build_colored_pointcloud(points_xyz, res['inliers_idx'],
+                                                             base_colors_np=colors_bgr)
+            else:
+                pts_np = np.asarray(points_xyz, dtype=np.float32)
+                colors_np = colors_bgr if colors_bgr is not None else np.full((pts_np.shape[0], 3), (200, 200, 200), dtype=np.uint8)
+
+            img = render_pointcloud(pts_np, colors_np, out_size=(720, 720))
+            cv2.imshow('PointCloud - Suelo en verde (RealSense)', img)
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:  # ESC para salir
+                break
+    finally:
+        pipeline.stop()
+        cv2.destroyAllWindows()
