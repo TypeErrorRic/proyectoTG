@@ -15,8 +15,6 @@ Utilidades añadidas:
 import pyrealsense2 as rs
 import numpy as np
 import cv2
-
-# Uso obligatorio de CuPy para acelerar el cómputo pesado en GPU
 import cupy as cp
 
 # =========================================================

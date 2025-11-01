@@ -1,9 +1,7 @@
 import math
 import numpy as np
 import cv2
-from viewCamera import extract_pointcloud
-
-# Uso obligatorio de CuPy como backend GPU
+from viewCamera import extract_pointcloud, render_pointcloud
 import cupy as cp
 
 
@@ -316,11 +314,30 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask):
     cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
     return result
 
-# =======================
-# Ejemplo de uso mínimo
-# =======================
-if __name__ == "__main__":
-    # Simulación: plano z=0 (suelo) y z=2.5 (techo) con ligero ruido
+
+def _build_colored_pointcloud(points_np: np.ndarray, inliers_idx_cp: cp.ndarray,
+                              green=(0, 255, 0), base=(200, 200, 200)):
+    """
+    Devuelve (points_np, colors_np) donde los puntos en 'inliers_idx_cp' se colorean de verde.
+    - points_np: np.ndarray (N,3) float32 en metros (no se copia si ya lo es)
+    - inliers_idx_cp: cp.ndarray de índices de inliers (GPU)
+    - green/base: tuplas BGR
+    """
+    N = int(points_np.shape[0])
+    colors_gpu = cp.full((N, 3), base, dtype=cp.uint8)
+    colors_gpu[inliers_idx_cp] = cp.asarray(green, dtype=cp.uint8)
+    colors_np = colors_gpu.get()
+    # Asegurar dtype/contiguidad de puntos
+    if not (isinstance(points_np, np.ndarray) and points_np.dtype == np.float32):
+        points_np = np.asarray(points_np, dtype=np.float32)
+    return points_np, colors_np
+
+
+def demo_main_return_colored_pointcloud():
+    """
+    Genera una nube de puntos sintética (suelo + techo), detecta el suelo con RANSAC
+    y retorna (points_np, colors_np) con el suelo coloreado en verde.
+    """
     np.random.seed(0)
     N = 50000
     xy = np.random.uniform(-3, 3, size=(N // 2, 2))
@@ -333,7 +350,7 @@ if __name__ == "__main__":
 
     pts = np.vstack([floor_pts, ceil_pts]).astype(np.float32)
 
-    # Mundo Z-up -> up_axis=(0,0,1)
+    # Detectar suelo/techo (mundo Z-up)
     floor, ceiling = extract_floor_and_ceiling(
         pts,
         dist_thresh=0.02,
@@ -344,25 +361,25 @@ if __name__ == "__main__":
         seed=42,
     )
 
-    print("Backend: GPU (CuPy)")
-
     if floor is not None:
-        print("Floor inliers:", floor['num_inliers'])
-        n = floor['n'].get()
-        d = floor['d'].get()
-        print("Floor plane: n =", np.asarray(n), " d =", float(d))
+        points_out, colors_out = _build_colored_pointcloud(pts, floor['inliers_idx'])
+    else:
+        # Sin suelo detectado: todo gris
+        colors_out = np.full((pts.shape[0], 3), (200, 200, 200), dtype=np.uint8)
+        points_out = pts
 
-    if ceiling is not None:
-        print("Ceiling inliers:", ceiling['num_inliers'])
-        n = ceiling['n'].get()
-        d = ceiling['d'].get()
-        print("Ceiling plane: n =", np.asarray(n), " d =", float(d))
+    return points_out, colors_out
 
-    # Ejemplo (comentado) con RealSense
-    # frames = ...  # Obtener frames de la cámara RealSense
-    # ground_mask, plane_coef = detect_ground(frames)
-    # if ground_mask is not None:
-    #     print("Ground plane coefficients:", plane_coef)
-    #     rgb_image = ...  # Imagen RGB correspondiente
-    #     result_image = apply_ground_mask_to_rgb(rgb_image, ground_mask)
-    #     # Mostrar o guardar result_image según sea necesario
+# =======================
+# Ejemplo de uso mínimo
+# =======================
+if __name__ == "__main__":
+    # Genera y visualiza la nube de puntos coloreada (suelo en verde)
+    pts_np, colors_np = demo_main_return_colored_pointcloud()
+    img = render_pointcloud(pts_np, colors_np, out_size=(720, 720))
+    cv2.namedWindow('PointCloud - Suelo en verde', cv2.WINDOW_NORMAL)
+    cv2.imshow('PointCloud - Suelo en verde', img)
+    print("Backend: GPU (CuPy)")
+    print("Presiona cualquier tecla para cerrar la visualización…")
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
