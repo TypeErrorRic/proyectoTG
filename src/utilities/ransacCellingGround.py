@@ -420,6 +420,7 @@ if __name__ == "__main__":
 
             frame_idx += 1
             pts_np = np.asarray(points_xyz, dtype=np.float32)
+            inds = None  # índices de inliers del suelo para resaltar (puede quedar None)
 
             # Detectar suelo solo cada 'ground_every' frames; entre medias, reusar el plano
             ran_now = (frame_idx % ground_every) == 1 or (last_n_cp is None)
@@ -436,6 +437,7 @@ if __name__ == "__main__":
                 else:
                     last_n_cp = None
                     last_d_cp = None
+                    inds = None
                     colors_np = colors_bgr if colors_bgr is not None else np.full((pts_np.shape[0], 3), (200, 200, 200), dtype=np.uint8)
             else:
                 # Reusar plano previo: máscara rápida en GPU
