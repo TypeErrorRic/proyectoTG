@@ -14,6 +14,7 @@ import numpy as np
 import cv2
 
 from viewCamera import init_camera, extract_rgb  # Debe entregar BGR uint8 (H,W,3)
+from ransacCellingGround import detect_ground, apply_ground_mask_to_rgb
 
 
 def ensure_fifo(path: str, mode: int = 0o666) -> None:
@@ -42,6 +43,11 @@ def get_frames(rs_pipeline, W, H, fmt):
     if bgr.dtype != np.uint8 or bgr.ndim != 3 or bgr.shape[2] != 3:
         print("[WARN] extract_rgb() debe devolver BGR uint8 (H,W,3). Se ignora frame.")
         return None
+
+    # Detectar suelo y aplicar máscara
+    ground_mask, _ = detect_ground(frames)
+    if ground_mask is not None:
+        bgr = apply_ground_mask_to_rgb(bgr, ground_mask)
 
     if bgr.shape[1] != W or bgr.shape[0] != H:
         bgr = cv2.resize(bgr, (W, H), interpolation=cv2.INTER_LINEAR)

@@ -1,5 +1,7 @@
 import math
 import numpy as np
+from sklearn.linear_model import RANSACRegressor
+import cv2
 
 try:
     import cupy as cp
@@ -275,6 +277,90 @@ def extract_floor_and_ceiling(points,
     return floor, ceiling
 
 
+def detect_ground(frames, max_height_threshold=0.5, min_points=100):
+    """
+    Detecta el plano del suelo usando RANSAC y genera una máscara.
+
+    Args:
+        frames: Frames de la cámara RealSense
+        max_height_threshold: Altura máxima esperada para considerar puntos como suelo (metros)
+        min_points: Mínimo número de puntos para realizar RANSAC
+
+    Returns:
+        tuple: (máscara_binaria, coeficientes_plano)
+        - máscara_binaria: np.array de forma (H,W) con True en píxeles del suelo
+        - coeficientes_plano: [a,b,c,d] del plano ax + by + cz + d = 0
+    """
+    # Obtener nube de puntos organizada
+    points_xyz, _ = extract_pointcloud(frames, with_colors=False,
+                                     filter_invalid=True, organized=True)
+
+    if points_xyz is None:
+        return None, None
+
+    H, W = points_xyz.shape[:2]
+
+    # Filtrar puntos por altura y crear conjunto de entrenamiento
+    valid_mask = points_xyz[..., 1] < max_height_threshold  # y es altura en RealSense
+    points_flat = points_xyz[valid_mask]
+
+    if len(points_flat) < min_points:
+        return None, None
+
+    # Preparar datos para RANSAC
+    X = points_flat[:, [0, 2]]  # usar solo x,z
+    y = points_flat[:, 1]      # altura (y) como variable objetivo
+
+    # Aplicar RANSAC
+    ransac = RANSACRegressor(random_state=42)
+    try:
+        ransac.fit(X, y)
+    except:
+        return None, None
+
+    # Generar máscara del suelo
+    Y = points_xyz[..., 1]  # alturas reales
+    XZ = points_xyz[..., [0, 2]]
+    Y_pred = ransac.predict(XZ.reshape(-1, 2)).reshape(H, W)
+
+    # Considerar como suelo puntos cerca del plano predicho
+    ground_mask = np.abs(Y - Y_pred) < 0.1
+
+    # Coeficientes del plano (ax + by + cz + d = 0)
+    coef = ransac.estimator_.coef_
+    intercept = ransac.estimator_.intercept_
+    plane_coef = [coef[0], -1, coef[1], intercept]
+
+    return ground_mask.astype(np.uint8), plane_coef
+
+
+def apply_ground_mask_to_rgb(rgb_image, ground_mask):
+    """
+    Aplica la máscara del suelo a una imagen RGB.
+
+    Args:
+        rgb_image: Imagen RGB/BGR original
+        ground_mask: Máscara binaria del suelo
+
+    Returns:
+        np.array: Imagen con el suelo marcado
+    """
+    if ground_mask is None or rgb_image is None:
+        return rgb_image
+
+    # Crear copia de la imagen
+    result = rgb_image.copy()
+
+    # Aplicar tinte verde semi-transparente al suelo
+    overlay = result.copy()
+    overlay[ground_mask > 0] = [0, 255, 0]  # Verde en BGR
+
+    # Combinar original con overlay
+    cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
+
+    return result
+
+
 # =======================
 # Ejemplo de uso mínimo
 # =======================
@@ -314,3 +400,12 @@ if __name__ == "__main__":
         n = ceiling['n'].get() if GPU else ceiling['n']
         d = ceiling['d'].get() if GPU else ceiling['d']
         print("Ceiling plane: n =", n, " d =", float(d))
+
+    # Ejemplo de uso de detección de suelo en imágenes
+    # frames = ...  # Obtener frames de la cámara RealSense
+    # ground_mask, plane_coef = detect_ground(frames)
+    # if ground_mask is not None:
+    #     print("Ground plane coefficients:", plane_coef)
+    #     rgb_image = ...  # Imagen RGB correspondiente
+    #     result_image = apply_ground_mask_to_rgb(rgb_image, ground_mask)
+    #     # Mostrar o guardar result_image según sea necesario
