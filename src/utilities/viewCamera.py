@@ -110,9 +110,12 @@ def _map_texture_to_colors(color_image: np.ndarray, texcoords: np.ndarray) -> np
     return color_image[v, u, :]
 
 
-def apply_voxel_filter(points_xyz: np.ndarray, 
+def apply_voxel_filter(points_xyz: np.ndarray,
                        colors_bgr: np.ndarray = None,
-                       voxel_size: float = 0.01) -> tuple:
+                       voxel_size: float = 0.01,
+                       min_points_per_voxel: int = 3,
+                       min_neighbors: int = 1,
+                       connectivity: int = 6) -> tuple:
     """
     Aplica un filtro voxel a la nube de puntos para reducir ruido y densidad.
     Optimizado para escenas de interiores.
@@ -120,9 +123,14 @@ def apply_voxel_filter(points_xyz: np.ndarray,
     Parámetros:
       - points_xyz: np.ndarray (N, 3) con coordenadas XYZ en metros
       - colors_bgr: np.ndarray (N, 3) uint8 opcional con colores BGR
-      - voxel_size: tamaño del voxel en metros (default: 0.01m = 1cm)
-                    Para interiores: 0.005-0.01m es bueno para detalle
-                                    0.02-0.05m para mayor velocidad
+    - voxel_size: tamaño del voxel en metros (default: 0.01m = 1cm)
+              Para interiores: 0.005-0.01m es bueno para detalle
+                        0.02-0.05m para mayor velocidad
+    - min_points_per_voxel: descarta voxels con menos puntos que este umbral.
+                     Ayuda a eliminar ruido disperso (default: 3)
+    - min_neighbors: descarta voxels aislados con menos vecinos en la malla
+                 (6-vecindad) que este umbral. 0 desactiva este filtro.
+    - connectivity: 6 o 26 para el conteo de vecinos (default: 6)
     
     Retorna:
       - points_filtered: np.ndarray (M, 3) donde M <= N
@@ -157,7 +165,7 @@ def apply_voxel_filter(points_xyz: np.ndarray,
     
     # Contar puntos por voxel
     counts = cp.zeros(n_voxels, dtype=cp.int32)
-    cp.scatter_add(counts, inverse_indices, cp.ones(len(pts_gpu), dtype=cp.int32))
+    cp.scatter_add(counts, inverse_indices, cp.ones(int(pts_gpu.shape[0]), dtype=cp.int32))
     
     # Promediar para obtener centroides
     filtered_points = filtered_points / counts[:, cp.newaxis]
@@ -171,12 +179,63 @@ def apply_voxel_filter(points_xyz: np.ndarray,
         for i in range(3):  # B, G, R
             cp.scatter_add(filtered_colors_sum[:, i], inverse_indices, colors_gpu[:, i])
         
-        filtered_colors = (filtered_colors_sum / counts[:, cp.newaxis]).astype(cp.uint8)
-        filtered_colors = cp.asnumpy(filtered_colors)
+    filtered_colors = (filtered_colors_sum / counts[:, cp.newaxis]).astype(cp.uint8)
     
+    # Paso 2: Filtros adicionales para reducir ruido en interiores
+    # 2.1) Descarta voxels con pocos puntos
+    keep_mask_counts = (counts >= int(max(1, min_points_per_voxel)))
+
+    # Para el filtro por vecinos necesitamos las coordenadas de cada voxel (enteras)
+    # Calculamos las coords por-voxel reusando inverse_indices (ordenadas por grupo)
+    inv_np = cp.asnumpy(inverse_indices)
+    vox_idx_np = cp.asnumpy(voxel_indices)
+    order = np.argsort(inv_np, kind='mergesort')
+    inv_sorted = inv_np[order]
+    vox_sorted = vox_idx_np[order]
+    # Primer índice de cada grupo 0..n_voxels-1
+    boundaries = np.flatnonzero(np.r_[True, inv_sorted[1:] != inv_sorted[:-1]])
+    voxel_coords_np = vox_sorted[boundaries]  # (n_voxels, 3) alineado con el orden 0..n_voxels-1
+
+    keep_mask = cp.asnumpy(keep_mask_counts)
+
+    # 2.2) Filtro de vecinos (morfología en la malla de voxels)
+    if int(min_neighbors) > 0:
+        if connectivity == 26:
+            shifts = np.array([(dx, dy, dz)
+                               for dx in (-1, 0, 1)
+                               for dy in (-1, 0, 1)
+                               for dz in (-1, 0, 1)
+                               if not (dx == 0 and dy == 0 and dz == 0)], dtype=np.int32)
+        else:  # 6-conectividad por defecto
+            shifts = np.array([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]], dtype=np.int32)
+
+        coords_keep = voxel_coords_np  # ya alineado a 0..n_voxels-1
+        # Estructurado para búsquedas rápidas con np.in1d
+        def to_struct(a):
+            return a.view([('x','<i4'),('y','<i4'),('z','<i4')]).reshape(-1)
+
+        base_struct = to_struct(coords_keep)
+        neighbor_counts = np.zeros(coords_keep.shape[0], dtype=np.int32)
+        for s in shifts:
+            neigh = to_struct(coords_keep + s)
+            neighbor_counts += np.in1d(neigh, base_struct, assume_unique=False)
+
+        keep_neighbors = neighbor_counts >= int(min_neighbors)
+        keep_mask = np.logical_and(keep_mask, keep_neighbors)
+
+    # Aplicar máscaras finales sobre arrays por-voxel (en GPU si están)
+    keep_mask_cp = cp.asarray(keep_mask)
+    filtered_points = filtered_points[keep_mask_cp]
+    if colors_bgr is not None:
+        filtered_colors = filtered_colors[keep_mask]
+    else:
+        filtered_colors = None
+
     # Convertir de vuelta a NumPy
     filtered_points = cp.asnumpy(filtered_points)
-    
+    if filtered_colors is not None and not isinstance(filtered_colors, np.ndarray):
+        filtered_colors = cp.asnumpy(filtered_colors)
+
     return filtered_points, filtered_colors
 
 
