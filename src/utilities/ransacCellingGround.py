@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import cv2
+from typing import Optional
 from viewCamera import extract_pointcloud, render_pointcloud, init_camera
 import cupy as cp
 
@@ -317,7 +318,7 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask):
 
 def _build_colored_pointcloud(points_np: np.ndarray, inliers_idx_cp: cp.ndarray,
                               green=(0, 255, 0), base=(200, 200, 200),
-                              base_colors_np: np.ndarray | None = None):
+                              base_colors_np: Optional[np.ndarray] = None):
     """
     Devuelve (points_np, colors_np) donde los puntos en 'inliers_idx_cp' se colorean de verde.
     - points_np: np.ndarray (N,3) float32 en metros (no se copia si ya lo es)
