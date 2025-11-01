@@ -389,6 +389,18 @@ if __name__ == "__main__":
     max_iters_run = 800          # menos iteraciones para acelerar
     min_inliers_run = 1200
 
+    # Parámetros de visualización (controles interactivos tipo viewCamera)
+    yaw, pitch, roll = -45.0, 25.0, 0.0
+    fov = 60.0
+    point_size = 1
+    add_tz = 0.0
+    pan_tx, pan_ty = 0.0, 0.0
+
+    step_angle = 5.0
+    step_zoom = 0.2   # metros
+    step_pan = 0.05   # metros
+    step_fov = 5.0
+
     last_n_cp = None
     last_d_cp = None
     last_thresh = dist_thresh_run
@@ -434,18 +446,64 @@ if __name__ == "__main__":
                 colors_np = colors_bgr if colors_bgr is not None else np.full((pts_np.shape[0], 3), (200, 200, 200), dtype=np.uint8)
                 _, colors_np = _build_colored_pointcloud(pts_np, inds, base_colors_np=colors_np)
 
-            img = render_pointcloud(pts_np, colors_np, out_size=(720, 720))
+            img = render_pointcloud(pts_np, colors_np,
+                                     out_size=(720, 720),
+                                     yaw_deg=yaw, pitch_deg=pitch, roll_deg=roll,
+                                     fov_deg=fov, point_size=point_size,
+                                     add_tz=add_tz, tx=pan_tx, ty=pan_ty)
             # HUD simple con FPS y estado
             dt = time.perf_counter() - t0
             t0 = time.perf_counter()
             fps = 1.0 / max(dt, 1e-6)
             fps_avg = 0.9 * fps_avg + 0.1 * fps if fps_avg > 0 else fps
-            hud = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  N={pts_np.shape[0]}"
-            cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
+            hud1 = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  N={pts_np.shape[0]}"
+            hud2 = f"Yaw:{yaw:.0f}  Pitch:{pitch:.0f}  Roll:{roll:.0f}  FOV:{fov:.0f}  Size:{point_size}  Zoff:{add_tz:+.2f}  Pan({pan_tx:+.2f},{pan_ty:+.2f})"
+            cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
+            cv2.putText(img, hud2, (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
+            cv2.putText(img, "Controles: WASD rotar | Q/E roll | Z/X FOV | +/- tamaño | I/K/J/L paneo | [/ ] z-off | R reset | ESC salir", (10, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220,220,220), 1, cv2.LINE_AA)
             cv2.imshow('PointCloud - Suelo en verde (RealSense)', img)
             key = cv2.waitKey(1) & 0xFF
             if key == 27:  # ESC para salir
                 break
+            # Controles interactivos de visualización
+            if key == ord('a'):
+                yaw -= step_angle
+            elif key == ord('d'):
+                yaw += step_angle
+            elif key == ord('w'):
+                pitch += step_angle
+            elif key == ord('s'):
+                pitch -= step_angle
+            elif key == ord('q'):
+                roll -= step_angle
+            elif key == ord('e'):
+                roll += step_angle
+            elif key == ord('z'):
+                fov = max(20.0, fov - step_fov)
+            elif key == ord('x'):
+                fov = min(120.0, fov + step_fov)
+            elif key in (ord('+'), ord('=')):
+                point_size = min(6, point_size + 1)
+            elif key in (ord('-'), ord('_')):
+                point_size = max(1, point_size - 1)
+            elif key == ord('i'):
+                pan_ty -= step_pan
+            elif key == ord('k'):
+                pan_ty += step_pan
+            elif key == ord('j'):
+                pan_tx -= step_pan
+            elif key == ord('l'):
+                pan_tx += step_pan
+            elif key == ord(']'):
+                add_tz += step_zoom
+            elif key == ord('['):
+                add_tz -= step_zoom
+            elif key == ord('r'):
+                yaw, pitch, roll = -45.0, 25.0, 0.0
+                fov = 60.0
+                point_size = 1
+                add_tz = 0.0
+                pan_tx, pan_ty = 0.0, 0.0
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
