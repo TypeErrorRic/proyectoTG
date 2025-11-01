@@ -110,11 +110,83 @@ def _map_texture_to_colors(color_image: np.ndarray, texcoords: np.ndarray) -> np
     return color_image[v, u, :]
 
 
+def apply_voxel_filter(points_xyz: np.ndarray, 
+                       colors_bgr: np.ndarray = None,
+                       voxel_size: float = 0.01) -> tuple:
+    """
+    Aplica un filtro voxel a la nube de puntos para reducir ruido y densidad.
+    Optimizado para escenas de interiores.
+    
+    Parámetros:
+      - points_xyz: np.ndarray (N, 3) con coordenadas XYZ en metros
+      - colors_bgr: np.ndarray (N, 3) uint8 opcional con colores BGR
+      - voxel_size: tamaño del voxel en metros (default: 0.01m = 1cm)
+                    Para interiores: 0.005-0.01m es bueno para detalle
+                                    0.02-0.05m para mayor velocidad
+    
+    Retorna:
+      - points_filtered: np.ndarray (M, 3) donde M <= N
+      - colors_filtered: np.ndarray (M, 3) uint8 o None
+    """
+    if points_xyz is None or len(points_xyz) == 0:
+        return points_xyz, colors_bgr
+    
+    # Usa CuPy para acelerar el proceso
+    pts_gpu = cp.asarray(points_xyz, dtype=cp.float32)
+    
+    # Cuantización: asignar cada punto a su voxel
+    voxel_indices = cp.floor(pts_gpu / voxel_size).astype(cp.int32)
+    
+    # Crear un hash único para cada voxel
+    # Usamos un hash simple: x + y*factor + z*factor^2
+    hash_factor = 100000  # suficiente para interiores típicos
+    voxel_hash = (voxel_indices[:, 0] + 
+                  voxel_indices[:, 1] * hash_factor + 
+                  voxel_indices[:, 2] * hash_factor * hash_factor)
+    
+    # Encontrar voxels únicos y sus índices
+    unique_hashes, inverse_indices = cp.unique(voxel_hash, return_inverse=True)
+    
+    # Calcular centroide de puntos en cada voxel
+    n_voxels = len(unique_hashes)
+    filtered_points = cp.zeros((n_voxels, 3), dtype=cp.float32)
+    
+    # Sumar puntos por voxel
+    for i in range(3):  # x, y, z
+        cp.scatter_add(filtered_points[:, i], inverse_indices, pts_gpu[:, i])
+    
+    # Contar puntos por voxel
+    counts = cp.zeros(n_voxels, dtype=cp.int32)
+    cp.scatter_add(counts, inverse_indices, cp.ones(len(pts_gpu), dtype=cp.int32))
+    
+    # Promediar para obtener centroides
+    filtered_points = filtered_points / counts[:, cp.newaxis]
+    
+    # Procesar colores si existen
+    filtered_colors = None
+    if colors_bgr is not None:
+        colors_gpu = cp.asarray(colors_bgr, dtype=cp.float32)
+        filtered_colors_sum = cp.zeros((n_voxels, 3), dtype=cp.float32)
+        
+        for i in range(3):  # B, G, R
+            cp.scatter_add(filtered_colors_sum[:, i], inverse_indices, colors_gpu[:, i])
+        
+        filtered_colors = (filtered_colors_sum / counts[:, cp.newaxis]).astype(cp.uint8)
+        filtered_colors = cp.asnumpy(filtered_colors)
+    
+    # Convertir de vuelta a NumPy
+    filtered_points = cp.asnumpy(filtered_points)
+    
+    return filtered_points, filtered_colors
+
+
 def extract_pointcloud(
     frames: rs.composite_frame,
     with_colors: bool = True,
     filter_invalid: bool = True,
     organized: bool = False,
+    voxel_filter: bool = False,
+    voxel_size: float = 0.01,
 ):
     """
     Genera una nube de puntos a partir de los frames actuales.
@@ -123,7 +195,11 @@ def extract_pointcloud(
       - with_colors: si True, intenta mapear colores desde el frame RGB.
       - filter_invalid: si True, filtra puntos con z <= 0 (inválidos).
       - organized: si True, devuelve puntos (y colores) en forma (H, W, 3)
-                   en lugar de (N, 3) plano.
+                   en lugar de (N, 3) plano. (incompatible con voxel_filter)
+      - voxel_filter: si True, aplica filtro voxel para reducir ruido y densidad.
+                     Recomendado para interiores. Incompatible con organized=True.
+      - voxel_size: tamaño del voxel en metros (default: 0.01m = 1cm).
+                   Para interiores: 0.005-0.01m (detalle), 0.02-0.05m (velocidad)
 
     Retorna:
       - Si organized == False:
@@ -162,6 +238,10 @@ def extract_pointcloud(
         verts = verts[valid]
         if colors is not None:
             colors = colors[valid]
+
+    # Aplicar filtro voxel si se solicita (solo en modo no organizado)
+    if voxel_filter and not organized:
+        verts, colors = apply_voxel_filter(verts, colors, voxel_size)
 
     if organized:
         vsprof = depth_frame.get_profile().as_video_stream_profile()
@@ -384,11 +464,16 @@ if __name__ == "__main__":
         point_size = 1
         add_tz = 0.0
         pan_tx, pan_ty = 0.0, 0.0
+        
+        # Filtro voxel (activado por defecto para interiores)
+        use_voxel_filter = True
+        voxel_size = 0.01  # 1cm - buen balance entre detalle y velocidad
 
         step_angle = 5.0
         step_zoom = 0.2   # metros
         step_pan = 0.05   # metros
         step_fov = 5.0
+        step_voxel = 0.005  # ajuste de tamaño de voxel
 
         cv2.namedWindow('RealSense PointCloud', cv2.WINDOW_NORMAL)
 
@@ -397,7 +482,14 @@ if __name__ == "__main__":
             frames = pipeline.wait_for_frames()
 
             # Nube de puntos y render 2D con ángulo/posición ajustables
-            points_xyz, colors_bgr = extract_pointcloud(frames, with_colors=True, filter_invalid=True, organized=False)
+            points_xyz, colors_bgr = extract_pointcloud(
+                frames, 
+                with_colors=True, 
+                filter_invalid=True, 
+                organized=False,
+                voxel_filter=use_voxel_filter,
+                voxel_size=voxel_size
+            )
             if points_xyz is None:
                 continue
 
@@ -407,10 +499,14 @@ if __name__ == "__main__":
                                     fov_deg=fov, point_size=point_size,
                                     add_tz=add_tz, tx=pan_tx, ty=pan_ty)
 
-            # HUD
+            # HUD con información del filtro voxel
+            voxel_status = f"ON ({voxel_size*1000:.1f}mm)" if use_voxel_filter else "OFF"
             hud = f"Yaw:{yaw:.0f}  Pitch:{pitch:.0f}  Roll:{roll:.0f}  FOV:{fov:.0f}  Size:{point_size}  Zoff:{add_tz:+.2f}  Pan({pan_tx:+.2f},{pan_ty:+.2f})"
+            hud2 = f"Voxel: {voxel_status}  Puntos: {len(points_xyz)}"
             cv2.putText(pc_img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
-            cv2.putText(pc_img, "Controles: WASD rotar | Q/E roll | Z/X FOV | +/- tamaño | I/K/J/L paneo | [/ ] z-off | R reset | ESC salir", (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220,220,220), 1, cv2.LINE_AA)
+            cv2.putText(pc_img, hud2, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
+            cv2.putText(pc_img, "WASD rotar | Q/E roll | Z/X FOV | +/- tam | I/K/J/L pan | [/] z-off | V voxel | ,/. tam-voxel | R reset | ESC", 
+                       (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220,220,220), 1, cv2.LINE_AA)
 
             # Muestra
             cv2.imshow('RealSense PointCloud', pc_img)
@@ -451,12 +547,23 @@ if __name__ == "__main__":
                 add_tz += step_zoom
             elif key == ord('['):
                 add_tz -= step_zoom
+            elif key == ord('v'):
+                use_voxel_filter = not use_voxel_filter
+                print(f"Filtro voxel: {'ACTIVADO' if use_voxel_filter else 'DESACTIVADO'}")
+            elif key == ord(','):
+                voxel_size = max(0.001, voxel_size - step_voxel)
+                print(f"Tamaño voxel: {voxel_size*1000:.1f}mm")
+            elif key == ord('.'):
+                voxel_size = min(0.1, voxel_size + step_voxel)
+                print(f"Tamaño voxel: {voxel_size*1000:.1f}mm")
             elif key == ord('r'):
                 yaw, pitch, roll = -45.0, 25.0, 0.0
                 fov = 60.0
                 point_size = 1
                 add_tz = 0.0
                 pan_tx, pan_ty = 0.0, 0.0
+                use_voxel_filter = True
+                voxel_size = 0.01
 
     finally:
         # Limpieza
