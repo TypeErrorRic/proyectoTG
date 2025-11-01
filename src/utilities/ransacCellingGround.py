@@ -16,6 +16,23 @@ def _to_xp(a):
     return xp.asarray(a) if not isinstance(a, (xp.ndarray,)) else a
 
 
+def _to_numpy(a):
+    """Convierte a NumPy sin copias innecesarias; maneja CuPy si está activo."""
+    # Si es None o ya es ndarray de NumPy
+    if a is None or isinstance(a, np.ndarray):
+        return a
+    # Si hay GPU y es un arreglo de CuPy
+    if GPU:
+        try:
+            if 'cupy' in str(type(a)):
+                # Evita import estático de cp aquí para no fallar cuando no esté disponible
+                return a.get()
+        except Exception:
+            pass
+    # Fallback genérico
+    return np.asarray(a)
+
+
 def plane_from_3pts(a, b, c, eps=1e-9):
     """
     a,b,c: (...,3)
@@ -311,15 +328,15 @@ def detect_ground(frames, max_height_threshold=0.5, min_points=100):
     if result is None:
         return None, None
 
-    # Convertir máscara a formato de imagen
+    # Convertir máscara a formato de imagen (NumPy)
     H, W = points_xyz.shape[:2]
-    ground_mask = result['inliers_mask'].reshape(H, W)
+    ground_mask = _to_numpy(result['inliers_mask']).reshape(H, W)
     
     # Coeficientes del plano
-    n = result['n']
-    d = result['d']
+    n = _to_numpy(result['n'])
+    d = _to_numpy(result['d'])
     plane_coef = [float(n[0]), float(n[1]), float(n[2]), float(d)]
-
+    
     return ground_mask.astype(np.uint8), plane_coef
 
 
@@ -336,11 +353,29 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask):
     """
     if ground_mask is None or rgb_image is None:
         return rgb_image
-    # Crear copia de la imagen
-    result = rgb_image.copy()
-    # Aplicar tinte verde semi-transparente al suelo
+    # Asegurar arrays NumPy
+    result = _to_numpy(rgb_image)
+    mask = _to_numpy(ground_mask)
+
+    if result is None:
+        return rgb_image
+
+    # Normalizar máscara a 2D y tipo booleano
+    if mask is None:
+        return result
+    if mask.ndim == 3 and mask.shape[-1] in (1, 3):
+        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if mask.shape[-1] == 3 else mask.squeeze(-1)
+    if mask.ndim == 1 and mask.size == result.shape[0] * result.shape[1]:
+        mask = mask.reshape(result.shape[:2])
+    if mask.shape[:2] != result.shape[:2]:
+        # Intentar redimensionar de forma segura (nearest) para máscaras
+        mask = cv2.resize(mask, (result.shape[1], result.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    mask_bool = (mask > 0)
+
+    # Crear overlay verde sobre el suelo
     overlay = result.copy()
-    overlay[ground_mask > 0] = (0, 255, 0)  # Verde en BGR
+    overlay[mask_bool] = (0, 255, 0)  # Verde en BGR
     # Combinar original con overlay
     cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
     return result
