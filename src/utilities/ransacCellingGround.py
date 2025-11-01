@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 from typing import Optional
 from viewCamera import extract_pointcloud, render_pointcloud, init_camera
+import time
 import cupy as cp
 
 
@@ -382,6 +383,18 @@ if __name__ == "__main__":
     # Visualiza la nube de puntos de la RealSense coloreando el suelo en verde (en vivo)
     print("Inicializando cámara RealSense…")
     pipeline = init_camera(640, 480, 640, 480, 30)
+    # Parámetros runtime para mantener FPS
+    ground_every = 10            # calcular RANSAC cada N frames
+    dist_thresh_run = 0.03       # tolerancia algo mayor para robustez
+    max_iters_run = 800          # menos iteraciones para acelerar
+    min_inliers_run = 1200
+
+    last_n_cp = None
+    last_d_cp = None
+    last_thresh = dist_thresh_run
+    frame_idx = 0
+    t0 = time.perf_counter()
+    fps_avg = 0.0
     cv2.namedWindow('PointCloud - Suelo en verde (RealSense)', cv2.WINDOW_NORMAL)
     try:
         while True:
@@ -393,17 +406,42 @@ if __name__ == "__main__":
                     break
                 continue
 
-            # Detectar suelo en la nube actual (orientación RealSense: Y hacia abajo)
-            res = ransac_plane_gpu(points_xyz, dist_thresh=0.02, max_iters=2000, min_inliers=800,
-                                   up_axis=(0.0, -1.0, 0.0), max_angle_deg=20.0, seed=42)
-            if res is not None:
-                pts_np, colors_np = _build_colored_pointcloud(points_xyz, res['inliers_idx'],
-                                                             base_colors_np=colors_bgr)
+            frame_idx += 1
+            pts_np = np.asarray(points_xyz, dtype=np.float32)
+
+            # Detectar suelo solo cada 'ground_every' frames; entre medias, reusar el plano
+            ran_now = (frame_idx % ground_every) == 1 or (last_n_cp is None)
+            if ran_now:
+                res = ransac_plane_gpu(pts_np, dist_thresh=dist_thresh_run, max_iters=max_iters_run,
+                                       min_inliers=min_inliers_run, up_axis=(0.0, -1.0, 0.0),
+                                       max_angle_deg=20.0, seed=42)
+                if res is not None:
+                    last_n_cp = res['n']
+                    last_d_cp = res['d']
+                    last_thresh = dist_thresh_run
+                    inds = res['inliers_idx']
+                    pts_np, colors_np = _build_colored_pointcloud(pts_np, inds, base_colors_np=colors_bgr)
+                else:
+                    last_n_cp = None
+                    last_d_cp = None
+                    colors_np = colors_bgr if colors_bgr is not None else np.full((pts_np.shape[0], 3), (200, 200, 200), dtype=np.uint8)
             else:
-                pts_np = np.asarray(points_xyz, dtype=np.float32)
+                # Reusar plano previo: máscara rápida en GPU
+                Pc = cp.asarray(pts_np, dtype=cp.float32)
+                dists = cp.abs(last_n_cp[None, :] @ Pc.T + last_d_cp)[0]
+                mask = dists <= last_thresh
+                inds = cp.flatnonzero(mask)
                 colors_np = colors_bgr if colors_bgr is not None else np.full((pts_np.shape[0], 3), (200, 200, 200), dtype=np.uint8)
+                _, colors_np = _build_colored_pointcloud(pts_np, inds, base_colors_np=colors_np)
 
             img = render_pointcloud(pts_np, colors_np, out_size=(720, 720))
+            # HUD simple con FPS y estado
+            dt = time.perf_counter() - t0
+            t0 = time.perf_counter()
+            fps = 1.0 / max(dt, 1e-6)
+            fps_avg = 0.9 * fps_avg + 0.1 * fps if fps_avg > 0 else fps
+            hud = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  N={pts_np.shape[0]}"
+            cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             cv2.imshow('PointCloud - Suelo en verde (RealSense)', img)
             key = cv2.waitKey(1) & 0xFF
             if key == 27:  # ESC para salir
