@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import cv2
+from viewCamera import extract_pointcloud
 
 try:
     import cupy as cp
@@ -335,61 +336,59 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask):
     """
     if ground_mask is None or rgb_image is None:
         return rgb_image
-
     # Crear copia de la imagen
     result = rgb_image.copy()
-
     # Aplicar tinte verde semi-transparente al suelo
     overlay = result.copy()
-    overlay[ground_mask > 0] = [0, 255, 0]  # Verde en BGR
-
+    overlay[ground_mask > 0] = (0, 255, 0)  # Verde en BGR
     # Combinar original con overlay
     cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
-
     return result
-
 
 # =======================
 # Ejemplo de uso mínimo
 # =======================
 if __name__ == "__main__":
-    # Simulación rápida: plano z=0 (suelo) y z=2.5 (techo) + ruido
+    # Simulación: plano z=0 (suelo) y z=2.5 (techo) con ligero ruido
     np.random.seed(0)
     N = 50000
-    xy = np.random.uniform(-3, 3, size=(N//2, 2))
-    z_floor = np.zeros((N//2, 1)) + np.random.normal(0, 0.005, size=(N//2, 1))
+    xy = np.random.uniform(-3, 3, size=(N // 2, 2))
+    z_floor = np.random.normal(0.0, 0.005, size=(N // 2, 1))
     floor_pts = np.hstack([xy, z_floor])
 
-    xy2 = np.random.uniform(-3, 3, size=(N//2, 2))
-    z_ceil = np.full((N//2, 1), 2.5) + np.random.normal(0, 0.005, size=(N//2, 1))
+    xy2 = np.random.uniform(-3, 3, size=(N // 2, 2))
+    z_ceil = np.full((N // 2, 1), 2.5) + np.random.normal(0.0, 0.005, size=(N // 2, 1))
     ceil_pts = np.hstack([xy2, z_ceil])
 
     pts = np.vstack([floor_pts, ceil_pts]).astype(np.float32)
 
-    # Aquí asumimos mundo Z-up -> up_axis=(0,0,1)
+    # Mundo Z-up -> up_axis=(0,0,1)
     floor, ceiling = extract_floor_and_ceiling(
         pts,
         dist_thresh=0.02,
         max_iters=1500,
         min_inliers=1500,
         up_axis=(0.0, 0.0, 1.0),
-        max_angle_deg=15.0
+        max_angle_deg=15.0,
+        seed=42,
     )
 
     backend = "GPU (CuPy)" if GPU else "CPU (NumPy)"
     print(f"Backend: {backend}")
-    if floor:
+
+    if floor is not None:
         print("Floor inliers:", floor['num_inliers'])
         n = floor['n'].get() if GPU else floor['n']
         d = floor['d'].get() if GPU else floor['d']
-        print("Floor plane: n =", n, " d =", float(d))
-    if ceiling:
+        print("Floor plane: n =", np.asarray(n), " d =", float(d))
+
+    if ceiling is not None:
         print("Ceiling inliers:", ceiling['num_inliers'])
         n = ceiling['n'].get() if GPU else ceiling['n']
         d = ceiling['d'].get() if GPU else ceiling['d']
-        print("Ceiling plane: n =", n, " d =", float(d))
+        print("Ceiling plane: n =", np.asarray(n), " d =", float(d))
 
-    # Ejemplo de uso de detección de suelo en imágenes
+    # Ejemplo (comentado) con RealSense
     # frames = ...  # Obtener frames de la cámara RealSense
     # ground_mask, plane_coef = detect_ground(frames)
     # if ground_mask is not None:
