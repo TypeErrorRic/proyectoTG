@@ -458,7 +458,8 @@ if __name__ == "__main__":
             inl = int(np.sum(ground_mask > 0)) if ground_mask is not None else 0
             
             hud1 = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  Inliers:{inl}"
-            cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
+            # Mostrar la tasa de FPS en color negro
+            cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2, cv2.LINE_AA)
             cv2.putText(img, "Suelo detectado en verde | ESC para salir", (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
             cv2.imshow('Detección de Suelo - RealSense', img)
             key = cv2.waitKey(1) & 0xFF
