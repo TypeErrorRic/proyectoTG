@@ -249,7 +249,9 @@ def render_pointcloud(points_xyz: np.ndarray,
                       point_size: int = 1,
                       add_tz: float = 0.0,
                       tx: float = 0.0,
-                      ty: float = 0.0) -> np.ndarray:
+                      ty: float = 0.0,
+                      highlight_idx: np.ndarray = None,
+                      highlight_color: tuple = (0, 255, 0)) -> np.ndarray:
     """
     Renderiza una nube de puntos como proyección en 2D con una rotación fija
     para percibir profundidad.
@@ -271,6 +273,8 @@ def render_pointcloud(points_xyz: np.ndarray,
 
     # Computación pesada en GPU con CuPy (obligatoria)
     pts = cp.asarray(points_xyz, dtype=cp.float32)
+    # Índices originales para poder resaltar subconjuntos específicos tras el filtrado
+    orig_idx = cp.arange(pts.shape[0], dtype=cp.int32)
     # Centrar la nube para visualización más estable
     center = cp.median(pts, axis=0)
     pts_centered = pts - center
@@ -306,6 +310,7 @@ def render_pointcloud(points_xyz: np.ndarray,
         return img
 
     u, v, Z = u[mask], v[mask], Z[mask]
+    orig_idx_masked = orig_idx[mask]
     col = None
     if colors_bgr is not None and len(colors_bgr) == len(points_xyz):
         col = (cp.asarray(colors_bgr, dtype=cp.uint8))[mask]
@@ -315,14 +320,39 @@ def render_pointcloud(points_xyz: np.ndarray,
     if int(u.size) > max_pts:
         step = int(np.ceil(int(u.size) / max_pts))
         u, v, Z = u[::step], v[::step], Z[::step]
+        orig_idx_masked = orig_idx_masked[::step]
         if col is not None:
             col = col[::step]
 
     # Z-buffer básico: pintamos del fondo al frente para que el frente quede visible
     order = cp.argsort(-Z)  # de mayor Z a menor Z, así el frente (menor Z) se dibuja encima
     u, v = u[order], v[order]
+    orig_idx_masked = orig_idx_masked[order]
     if col is not None:
         col = col[order]
+
+    # Si hay índices a resaltar, aplícalos después de todo el pipeline de filtrado/ordenado
+    if highlight_idx is not None:
+        try:
+            hi = cp.asarray(highlight_idx, dtype=cp.int32)
+            # Creamos colores base si no existen
+            if col is None:
+                col = cp.full((u.size, 3), (200, 200, 200), dtype=cp.uint8)
+            # Marcamos con una máscara booleana los puntos a resaltar
+            hl_mask = cp.isin(orig_idx_masked, hi)
+            if int(cp.count_nonzero(hl_mask)) > 0:
+                col[hl_mask] = cp.asarray(highlight_color, dtype=cp.uint8)
+        except Exception:
+            # En caso de que falle cp.isin por versión, hacemos un fallback básico en CPU
+            idx_cpu = cp.asnumpy(orig_idx_masked)
+            hi_cpu = np.asarray(highlight_idx, dtype=np.int32)
+            if col is None:
+                col = cp.full((u.size, 3), (200, 200, 200), dtype=cp.uint8)
+            mask_cpu = np.isin(idx_cpu, hi_cpu)
+            if mask_cpu.any():
+                col_cpu = cp.asnumpy(col)
+                col_cpu[mask_cpu] = np.array(highlight_color, dtype=np.uint8)
+                col = cp.asarray(col_cpu)
 
     # Descargar índices/colores a NumPy para el dibujado final
     u = cp.asnumpy(u)

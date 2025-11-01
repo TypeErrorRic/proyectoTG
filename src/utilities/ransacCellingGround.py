@@ -385,9 +385,9 @@ if __name__ == "__main__":
     pipeline = init_camera(640, 480, 640, 480, 30)
     # Parámetros runtime para mantener FPS
     ground_every = 10            # calcular RANSAC cada N frames
-    dist_thresh_run = 0.03       # tolerancia algo mayor para robustez
-    max_iters_run = 800          # menos iteraciones para acelerar
-    min_inliers_run = 1200
+    dist_thresh_run = 0.05       # tolerancia mayor para robustez en escenas reales
+    max_iters_run = 1000         # un poco más de iteraciones para estabilizar
+    min_inliers_run = 800        # umbral más permisivo
 
     # Parámetros de visualización (controles interactivos tipo viewCamera)
     yaw, pitch, roll = -45.0, 25.0, 0.0
@@ -450,13 +450,18 @@ if __name__ == "__main__":
                                      out_size=(720, 720),
                                      yaw_deg=yaw, pitch_deg=pitch, roll_deg=roll,
                                      fov_deg=fov, point_size=point_size,
-                                     add_tz=add_tz, tx=pan_tx, ty=pan_ty)
+                                     add_tz=add_tz, tx=pan_tx, ty=pan_ty,
+                                     highlight_idx=inds, highlight_color=(0, 255, 0))
             # HUD simple con FPS y estado
             dt = time.perf_counter() - t0
             t0 = time.perf_counter()
             fps = 1.0 / max(dt, 1e-6)
             fps_avg = 0.9 * fps_avg + 0.1 * fps if fps_avg > 0 else fps
-            hud1 = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  N={pts_np.shape[0]}"
+            try:
+                inl = int(inds.size) if hasattr(inds, 'size') else (len(inds) if inds is not None else 0)
+            except Exception:
+                inl = 0
+            hud1 = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  N={pts_np.shape[0]}  inliers:{inl}"
             hud2 = f"Yaw:{yaw:.0f}  Pitch:{pitch:.0f}  Roll:{roll:.0f}  FOV:{fov:.0f}  Size:{point_size}  Zoff:{add_tz:+.2f}  Pan({pan_tx:+.2f},{pan_ty:+.2f})"
             cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             cv2.putText(img, hud2, (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
