@@ -32,6 +32,28 @@ def ensure_fifo(path: str, mode: int = 0o666) -> None:
             raise
 
 
+def get_frames(rs_pipeline, W, H, fmt):
+    """Obtiene y procesa los fotogramas desde la cámara."""
+    frames = rs_pipeline.wait_for_frames()
+    bgr = extract_rgb(frames)  # Se asume BGR uint8 (H,W,3)
+
+    if bgr is None:
+        return None
+    if bgr.dtype != np.uint8 or bgr.ndim != 3 or bgr.shape[2] != 3:
+        print("[WARN] extract_rgb() debe devolver BGR uint8 (H,W,3). Se ignora frame.")
+        return None
+
+    if bgr.shape[1] != W or bgr.shape[0] != H:
+        bgr = cv2.resize(bgr, (W, H), interpolation=cv2.INTER_LINEAR)
+
+    if fmt == "rgb":
+        # Convierte a RGB si el videoparse espera RGB
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).tobytes()
+    else:
+        # Escribe BGR tal cual (y usa format=bgr en videoparse)
+        return bgr.tobytes()
+
+
 def main():
     ap = argparse.ArgumentParser(description="Transmisor Jetson por FIFO (RTP/UDP H.264 via gst-launch externo).")
     ap.add_argument("--fifo", default="/tmp/frames.rgb", help="Ruta del FIFO compartido con gst-launch.")
@@ -90,24 +112,9 @@ def main():
 
     try:
         while True:
-            frames = rs_pipeline.wait_for_frames()
-            bgr = extract_rgb(frames)  # Se asume BGR uint8 (H,W,3)
-
-            if bgr is None:
+            buf = get_frames(rs_pipeline, W, H, fmt)
+            if buf is None:
                 continue
-            if bgr.dtype != np.uint8 or bgr.ndim != 3 or bgr.shape[2] != 3:
-                print("[WARN] extract_rgb() debe devolver BGR uint8 (H,W,3). Se ignora frame.")
-                continue
-
-            if bgr.shape[1] != W or bgr.shape[0] != H:
-                bgr = cv2.resize(bgr, (W, H), interpolation=cv2.INTER_LINEAR)
-
-            if fmt == "rgb":
-                # Convierte a RGB si el videoparse espera RGB
-                buf = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).tobytes()
-            else:
-                # Escribe BGR tal cual (y usa format=bgr en videoparse)
-                buf = bgr.tobytes()
 
             try:
                 f.write(buf)  # EXACTAMENTE H*W*3 bytes por frame
