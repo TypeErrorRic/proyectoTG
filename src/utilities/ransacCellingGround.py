@@ -3,66 +3,26 @@ import numpy as np
 import cv2
 from viewCamera import extract_pointcloud
 
-try:
-    import cupy as cp
-    xp = cp  # backend: GPU
-    GPU = True
-except Exception:
-    xp = np  # backend: CPU
-    GPU = False
+# Uso obligatorio de CuPy como backend GPU
+import cupy as cp
 
 
 def _to_xp(a):
-    return xp.asarray(a) if not isinstance(a, (xp.ndarray,)) else a
+    """Asegura arreglo en GPU (CuPy)."""
+    return cp.asarray(a)
 
 
 def _to_numpy(a):
-    """Convierte a NumPy sin copias innecesarias; maneja CuPy si está activo."""
-    # Si es None o ya es ndarray de NumPy
+    """Convierte un arreglo (posiblemente CuPy) a NumPy, evitando copias innecesarias."""
     if a is None or isinstance(a, np.ndarray):
         return a
-    # Si hay GPU y es un arreglo de CuPy
-    if GPU:
-        try:
-            if 'cupy' in str(type(a)):
-                # Evita import estático de cp aquí para no fallar cuando no esté disponible
-                return a.get()
-        except Exception:
-            pass
-    # Fallback genérico
+    try:
+        # Arreglo CuPy -> NumPy
+        if 'cupy' in str(type(a)):
+            return a.get()
+    except Exception:
+        pass
     return np.asarray(a)
-
-
-def plane_from_3pts(a, b, c, eps=1e-9):
-    """
-    a,b,c: (...,3)
-    Return: n (...,3) unit normal, d (...,) so that n·x + d = 0
-    """
-    ab = b - a
-    ac = c - a
-    n = xp.cross(ab, ac)
-    norm = xp.linalg.norm(n, axis=-1, keepdims=True) + eps
-    n = n / norm
-    d = -xp.sum(n * a, axis=-1)
-    return n, d
-
-
-def point_plane_dist(n, d, pts):
-    """
-    n: (...,3), d: (...,)
-    pts: (N,3)
-    Return: ( ... , N ) absolute distances
-    """
-    # Broadcast: (k,3)·(N,3) -> (k,N)
-    return xp.abs(n @ pts.T + d[..., None])
-
-
-def angle_between(u, v, eps=1e-9):
-    u = u / (xp.linalg.norm(u, axis=-1, keepdims=True) + eps)
-    v = v / (xp.linalg.norm(v, axis=-1, keepdims=True) + eps)
-    cosang = xp.clip(xp.sum(u * v, axis=-1), -1.0, 1.0)
-    return xp.arccos(cosang)  # rad
-
 
 def ransac_plane_gpu(points,
                      dist_thresh=0.02,
@@ -97,82 +57,58 @@ def ransac_plane_gpu(points,
 
     Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
     """
-    P = _to_xp(points).astype(xp.float32)
+    P = _to_xp(points).astype(cp.float32)
     N = int(P.shape[0])
     if N < 3:
         return None
 
-    # Heurísticas por backend y tamaño de GPU
+    # Heurística por tamaño de GPU
     small_gpu = False
-    if GPU:
-        try:
-            props = cp.cuda.runtime.getDeviceProperties(0)
-            mp = int(props.get('multiProcessorCount', 0))
-            mem = int(props.get('totalGlobalMem', 0))
-            # Jetson Nano ~ 1-2 SM y < 4GB
-            small_gpu = (mp <= 4) or (mem and mem < 4 * 1024**3)
-        except Exception:
-            small_gpu = True  # conservador
+    try:
+        props = cp.cuda.runtime.getDeviceProperties(0)
+        mp = int(props.get('multiProcessorCount', 0))
+        mem = int(props.get('totalGlobalMem', 0))
+        # Jetson Nano ~ 1-2 SM y < 4GB
+        small_gpu = (mp <= 4) or (mem and mem < 4 * 1024**3)
+    except Exception:
+        small_gpu = True  # conservador
 
     if batch_size is None:
-        if GPU and not small_gpu:
-            batch_size = 1024
-        elif GPU and small_gpu:
-            batch_size = 128
-        else:
-            batch_size = 64
+        batch_size = 128 if small_gpu else 1024
 
     if point_chunk is None:
-        if GPU and not small_gpu:
-            point_chunk = 16384
-        elif GPU and small_gpu:
-            point_chunk = 8192
-        else:
-            point_chunk = 8192
+        point_chunk = 8192 if small_gpu else 16384
 
     if score_subset is None:
-        if GPU and not small_gpu:
-            score_subset = min(16384, N)
-        elif GPU and small_gpu:
-            score_subset = min(4096, N)
-        else:
-            score_subset = min(8192, N)
+        score_subset = min(4096 if small_gpu else 16384, N)
     else:
         score_subset = min(int(score_subset), N)
 
     # Normaliza up una vez
-    up = xp.asarray(up_axis, dtype=xp.float32)
-    up = up / (xp.linalg.norm(up) + 1e-9)
+    up = cp.asarray(up_axis, dtype=cp.float32)
+    up = up / (cp.linalg.norm(up) + 1e-9)
     cos_thresh = math.cos(math.radians(float(max_angle_deg)))
 
-    # RNG: permitir en GPU si disponible
-    if GPU:
-        rng_state = cp.random.RandomState(seed)
-        rand_fn = lambda shape: rng_state.randint(0, N, size=shape, dtype=cp.int32)
-    else:
-        rng_state = np.random.default_rng(seed)
-        rand_fn = lambda shape: rng_state.integers(0, N, size=shape, dtype=np.int32)
+    # RNG en GPU
+    rng_state = cp.random.RandomState(seed)
+    rand_fn = lambda shape: rng_state.randint(0, N, size=shape, dtype=cp.int32)
 
     best_count = -1
     best_n = None
     best_d = None
 
-    # Subconjunto fijo para puntuar modelos por lote
-    if GPU:
-        try:
-            samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(cp.int32)
-        except Exception:
-            # Fallback si choice falla: usa randint y recorta únicos simples
-            tmp = rng_state.randint(0, N, size=score_subset * 2, dtype=cp.int32)
-            samp_idx = cp.unique(tmp)[:score_subset]
-            if samp_idx.size < score_subset:
-                # rellena si faltan
-                pad = score_subset - int(samp_idx.size)
-                samp_idx = cp.concatenate([samp_idx, tmp[:pad]])
-        P_samp = P[samp_idx]
-    else:
-        samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(np.int32)
-        P_samp = P[samp_idx]
+    # Subconjunto fijo para puntuar modelos por lote (GPU)
+    try:
+        samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(cp.int32)
+    except Exception:
+        # Fallback si choice falla: usa randint y recorta únicos simples
+        tmp = rng_state.randint(0, N, size=score_subset * 2, dtype=cp.int32)
+        samp_idx = cp.unique(tmp)[:score_subset]
+        if samp_idx.size < score_subset:
+            # rellena si faltan
+            pad = score_subset - int(samp_idx.size)
+            samp_idx = cp.concatenate([samp_idx, tmp[:pad]])
+    P_samp = P[samp_idx]
 
     remaining = int(max_iters)
     while remaining > 0:
@@ -188,29 +124,29 @@ def ransac_plane_gpu(points,
         # 2) Modelo por lote
         ab = b - a
         ac = c - a
-        n = xp.cross(ab, ac)  # (K,3)
-        norm = xp.linalg.norm(n, axis=1)  # (K,)
+        n = cp.cross(ab, ac)  # (K,3)
+        norm = cp.linalg.norm(n, axis=1)  # (K,)
         valid = norm > 1e-8
         # Evitar división por cero
-        n_unit = xp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0)
-        d = -xp.sum(n_unit * a, axis=1)
+        n_unit = cp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0)
+        d = -cp.sum(n_unit * a, axis=1)
 
         # 3) Filtro de orientación mediante coseno
-        cosang = xp.abs(n_unit @ up)  # (K,)
-        valid = xp.logical_and(valid, cosang >= cos_thresh)
+        cosang = cp.abs(n_unit @ up)  # (K,)
+        valid = cp.logical_and(valid, cosang >= cos_thresh)
 
         # 4) Conteo de inliers sobre SUBMUESTRA para elegir mejor modelo del lote
         #    Mucho más eficiente en Jetson que KxN directo.
-        counts = xp.zeros((K,), dtype=xp.int32)
-        dists_s = xp.abs(n_unit @ P_samp.T + d[:, None])  # (K,S)
-        counts = xp.sum(dists_s <= dist_thresh, axis=1)
+        counts = cp.zeros((K,), dtype=cp.int32)
+        dists_s = cp.abs(n_unit @ P_samp.T + d[:, None])  # (K,S)
+        counts = cp.sum(dists_s <= dist_thresh, axis=1)
 
         # Invalida modelos no válidos
-        counts = xp.where(valid, counts, -xp.ones_like(counts))
+        counts = cp.where(valid, counts, -cp.ones_like(counts))
 
         # 5) Mejor del lote
-        batch_best_idx = int((xp.argmax(counts)).get() if GPU else int(xp.argmax(counts)))
-        batch_best_count = int((counts[batch_best_idx]).get() if GPU else int(counts[batch_best_idx]))
+        batch_best_idx = int(cp.argmax(counts).get())
+        batch_best_count = int(counts[batch_best_idx].get())
 
         if batch_best_count > best_count and batch_best_count >= min_inliers:
             best_count = batch_best_count
@@ -221,9 +157,9 @@ def ransac_plane_gpu(points,
         return None
 
     # 6) Recalcular máscara de inliers del mejor modelo sobre TODOS los puntos (una vez)
-    mask = xp.zeros((N,), dtype=bool)
+    mask = cp.zeros((N,), dtype=bool)
     if N <= point_chunk:
-        dists = xp.abs(best_n[None, :] @ P.T + best_d)
+        dists = cp.abs(best_n[None, :] @ P.T + best_d)
         mask = (dists[0] <= dist_thresh)
     else:
         # por bloques
@@ -231,18 +167,18 @@ def ransac_plane_gpu(points,
         for start in range(0, N, point_chunk):
             end = min(N, start + point_chunk)
             Pc = P[start:end]
-            dists = xp.abs(best_n[None, :] @ Pc.T + best_d)[0]
+            dists = cp.abs(best_n[None, :] @ Pc.T + best_d)[0]
             out.append(dists <= dist_thresh)
-        mask = xp.concatenate(out, axis=0)
-    inliers_idx = xp.flatnonzero(mask)
+        mask = cp.concatenate(out, axis=0)
+    inliers_idx = cp.flatnonzero(mask)
 
-    final_count = int((mask.sum()).get() if GPU else int(mask.sum()))
+    final_count = int(mask.sum().get())
 
     return {
-        'n': xp.asarray(best_n),
-        'd': xp.asarray(best_d),
-        'inliers_mask': xp.asarray(mask),
-        'inliers_idx': xp.asarray(inliers_idx),
+        'n': cp.asarray(best_n),
+        'd': cp.asarray(best_d),
+        'inliers_mask': cp.asarray(mask),
+        'inliers_idx': cp.asarray(inliers_idx),
         'num_inliers': final_count,
     }
 
@@ -259,8 +195,8 @@ def extract_floor_and_ceiling(points,
     2) Elimina sus inliers y vuelve a buscar el segundo.
     3) Clasifica como 'floor' (menor proyección sobre +up) y 'ceiling' (mayor).
     """
-    P = _to_xp(points).astype(xp.float32)
-    up = xp.asarray(up_axis, dtype=xp.float32)
+    P = _to_xp(points).astype(cp.float32)
+    up = cp.asarray(up_axis, dtype=cp.float32)
 
     res1 = ransac_plane_gpu(P, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
     if res1 is None:
@@ -276,17 +212,17 @@ def extract_floor_and_ceiling(points,
         # Clasificación por “altura” media de inliers
         pts1 = P[res1['inliers_idx']]
         # proyección escalar sobre +up
-        h1 = xp.mean(pts1 @ up)
-        floor, ceiling = (res1, None) if (h1.get() if GPU else h1) < 0 else (None, res1)
+        h1 = cp.mean(pts1 @ up)
+        floor, ceiling = (res1, None) if float(h1.get()) < 0 else (None, res1)
         return floor, ceiling
 
     # Clasificar por altura (proyección sobre +up)
     pts1 = P[res1['inliers_idx']]
     pts2 = P2[res2['inliers_idx']]
-    h1 = xp.mean(pts1 @ up)
-    h2 = xp.mean(pts2 @ up)
+    h1 = cp.mean(pts1 @ up)
+    h2 = cp.mean(pts2 @ up)
 
-    if (h1.get() if GPU else h1) < (h2.get() if GPU else h2):
+    if float(h1.get()) < float(h2.get()):
         floor, ceiling = res1, res2
     else:
         floor, ceiling = res2, res1
@@ -408,19 +344,18 @@ if __name__ == "__main__":
         seed=42,
     )
 
-    backend = "GPU (CuPy)" if GPU else "CPU (NumPy)"
-    print(f"Backend: {backend}")
+    print("Backend: GPU (CuPy)")
 
     if floor is not None:
         print("Floor inliers:", floor['num_inliers'])
-        n = floor['n'].get() if GPU else floor['n']
-        d = floor['d'].get() if GPU else floor['d']
+        n = floor['n'].get()
+        d = floor['d'].get()
         print("Floor plane: n =", np.asarray(n), " d =", float(d))
 
     if ceiling is not None:
         print("Ceiling inliers:", ceiling['num_inliers'])
-        n = ceiling['n'].get() if GPU else ceiling['n']
-        d = ceiling['d'].get() if GPU else ceiling['d']
+        n = ceiling['n'].get()
+        d = ceiling['d'].get()
         print("Ceiling plane: n =", np.asarray(n), " d =", float(d))
 
     # Ejemplo (comentado) con RealSense

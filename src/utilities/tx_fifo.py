@@ -44,20 +44,32 @@ def get_frames(rs_pipeline, W, H, fmt):
         print("[WARN] extract_rgb() debe devolver BGR uint8 (H,W,3). Se ignora frame.")
         return None
 
-    # Detectar suelo y aplicar máscara
-    ground_mask, _ = detect_ground(frames)
-    if ground_mask is not None:
-        bgr = apply_ground_mask_to_rgb(bgr, ground_mask)
+    # Detectar suelo y aplicar máscara cada N frames para reducir carga
+    # Cachea último resultado para reusar entre detecciones
+    if not hasattr(get_frames, "_frame_idx"):
+        get_frames._frame_idx = 0
+        get_frames._last_mask = None
+    get_frames._frame_idx += 1
+
+    if get_frames._frame_idx % 10 == 1:  # detectar 1 de cada 10 frames
+        ground_mask, _ = detect_ground(frames)
+        if ground_mask is not None:
+            get_frames._last_mask = ground_mask
+    if get_frames._last_mask is not None:
+        bgr = apply_ground_mask_to_rgb(bgr, get_frames._last_mask)
 
     if bgr.shape[1] != W or bgr.shape[0] != H:
+        # Redimensionar (CPU): cv2.resize es rápido y evita transferencias GPU
         bgr = cv2.resize(bgr, (W, H), interpolation=cv2.INTER_LINEAR)
 
     if fmt == "rgb":
-        # Convierte a RGB si el videoparse espera RGB
-        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB).tobytes()
+        # Convierte a RGB si el videoparse espera RGB (evitar cvtColor: swap de canales)
+        rgb = np.ascontiguousarray(bgr[:, :, ::-1])
+        return memoryview(rgb)
     else:
         # Escribe BGR tal cual (y usa format=bgr en videoparse)
-        return bgr.tobytes()
+        bgr = np.ascontiguousarray(bgr)
+        return memoryview(bgr)
 
 
 def main():

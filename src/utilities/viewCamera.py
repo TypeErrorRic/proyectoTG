@@ -16,6 +16,9 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 
+# Uso obligatorio de CuPy para acelerar el cómputo pesado en GPU
+import cupy as cp
+
 # =========================================================
 # ===============  U T I L I D A D E S  ===================
 # =========================================================
@@ -268,51 +271,67 @@ def render_pointcloud(points_xyz: np.ndarray,
     H, W = out_size
     img = np.zeros((H, W, 3), dtype=np.uint8)
 
-    pts = points_xyz.astype(np.float32)
+    # Computación pesada en GPU con CuPy (obligatoria)
+    pts = cp.asarray(points_xyz, dtype=cp.float32)
     # Centrar la nube para visualización más estable
-    center = np.median(pts, axis=0)
+    center = cp.median(pts, axis=0)
     pts_centered = pts - center
 
     # Rotación
-    R = _rotation_matrix(yaw_deg, pitch_deg, roll_deg)
-    pts_rot = pts_centered @ R.T
+    R = _rotation_matrix(yaw_deg, pitch_deg, roll_deg).astype(np.float32)
+    R_cp = cp.asarray(R)
+    pts_rot = pts_centered @ R_cp.T
 
     # Aleja la 'cámara' un poco para que todo quede delante (z>0)
     z = pts_rot[:, 2]
-    z_min = np.percentile(z, 5)
+    # percentil en CuPy (si la versión no lo soporta, usar camino manual)
+    try:
+        z_min = float(cp.percentile(z, 5))
+    except Exception:
+        zs = cp.sort(z)
+        idx = int(0.05 * (zs.size - 1))
+        z_min = float(zs[idx].get())
     tz = max(0.5, -z_min + 1.5)  # offset para asegurar z positiva
-    pts_cam = pts_rot + np.array([tx, ty, tz + add_tz], dtype=np.float32)
+    pts_cam = pts_rot + cp.asarray([tx, ty, tz + add_tz], dtype=cp.float32)
 
     # Proyección perspectiva
     f = 0.5 * H / np.tan(np.deg2rad(fov_deg) * 0.5)
-    Z = np.clip(pts_cam[:, 2], 1e-3, None)
+    Z = cp.clip(pts_cam[:, 2], 1e-3, None)
     x_proj = (pts_cam[:, 0] * f) / Z
     y_proj = (pts_cam[:, 1] * f) / Z
-    u = (W * 0.5 + x_proj).astype(np.int32)
-    v = (H * 0.5 - y_proj).astype(np.int32)
+    u = (W * 0.5 + x_proj).astype(cp.int32)
+    v = (H * 0.5 - y_proj).astype(cp.int32)
 
     # Filtro: puntos dentro de la pantalla
     mask = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-    if not np.any(mask):
+    if int(mask.size - cp.count_nonzero(mask)) == mask.size:
         return img
 
     u, v, Z = u[mask], v[mask], Z[mask]
-    col = colors_bgr[mask] if (colors_bgr is not None and len(colors_bgr) == len(points_xyz)) else None
+    col = None
+    if colors_bgr is not None and len(colors_bgr) == len(points_xyz):
+        col = (cp.asarray(colors_bgr, dtype=cp.uint8))[mask]
 
     # Para rendimiento, muestreamos si hay demasiados puntos
     max_pts = 120000
-    if u.size > max_pts:
-        step = int(np.ceil(u.size / max_pts))
+    if int(u.size) > max_pts:
+        step = int(np.ceil(int(u.size) / max_pts))
         u, v, Z = u[::step], v[::step], Z[::step]
         if col is not None:
             col = col[::step]
 
     # Z-buffer básico: pintamos del fondo al frente para que el frente quede visible
-    order = np.argsort(-Z)  # de mayor Z a menor Z, así el frente (menor Z) se dibuja encima
+    order = cp.argsort(-Z)  # de mayor Z a menor Z, así el frente (menor Z) se dibuja encima
     u, v = u[order], v[order]
     if col is not None:
         col = col[order]
 
+    # Descargar índices/colores a NumPy para el dibujado final
+    u = cp.asnumpy(u)
+    v = cp.asnumpy(v)
+    if col is not None:
+        col = cp.asnumpy(col)
+    # Dibujado
     if point_size <= 1:
         if col is None:
             img[v, u] = (200, 200, 200)
