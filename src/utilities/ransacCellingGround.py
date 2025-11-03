@@ -54,6 +54,8 @@ def ransac_plane_gpu(points,
         idx_sample = cp.random.choice(N, max_points, replace=False)
         P = P[idx_sample]
         N = max_points
+    else:
+        idx_sample = cp.arange(N)
     up = cp.asarray(up_axis, dtype=cp.float32)
     up = up / (cp.linalg.norm(up) + 1e-9)
     cos_thresh = math.cos(math.radians(float(max_angle_deg)))
@@ -87,7 +89,10 @@ def ransac_plane_gpu(points,
             best_mask = mask
     if best_count < 0:
         return None
-    return best_mask
+    # Crear máscara del tamaño original
+    mask_full = cp.zeros(points.shape[0], dtype=bool)
+    mask_full[idx_sample.get()] = best_mask.get()
+    return mask_full
 
 def visualizar_resultado():
     """
