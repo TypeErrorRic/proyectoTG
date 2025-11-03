@@ -33,6 +33,7 @@ _runtime = {
     'frame_idx': 0,
     'result_dict': {'processed_img': None, 'processed_base': None},
     'rgb_thread': None,
+    'fps_t0': None,
 }
 
 # Parámetros por defecto para mantener FPS aceptable
@@ -426,6 +427,17 @@ def get_ground() -> Optional[np.ndarray]:
     # Imagen base procesada para pintar
     processed_base = _runtime['result_dict'].get('processed_base')
     img = apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base)
+
+    # Calcular y pegar FPS en blanco sobre la imagen
+    now = time.perf_counter()
+    if _runtime['fps_t0'] is None:
+        _runtime['fps_t0'] = now
+        fps = 0.0
+    else:
+        dt = now - _runtime['fps_t0']
+        _runtime['fps_t0'] = now
+        fps = 1.0 / max(dt, 1e-6)
+    cv2.putText(img, f"FPS: {fps:4.1f}", (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
     return img
 
 
@@ -442,11 +454,6 @@ if __name__ == "__main__":
                 if key == 27:
                     break
                 continue
-
-            # Ventana opcional del procesado paralelo
-            proc = _runtime['result_dict'].get('processed_img')
-            if proc is not None:
-                cv2.imshow('Procesamiento RGB paralelo', proc)
             cv2.imshow('Detección de Suelo - RealSense', img)
             key = cv2.waitKey(1) & 0xFF
             if key == 27:
