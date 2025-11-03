@@ -15,55 +15,68 @@ import cupy as cp  # Requiere GPU/CUDA; no se agrega fallback a CPU por solicitu
 
 # Pipeline global opcional para asegurar inicialización desde utilidades
 _PIPELINE = None
+# Reutilizar objetos de RealSense para evitar costos por frame
+_RS_PC = rs.pointcloud()
+_RS_DEC = rs.decimation_filter()
+_RS_DEC.set_option(rs.option.filter_magnitude, 2)
 
 def extract_pointcloud(frames: rs.composite_frame) -> np.ndarray:
-    """Extrae la nube de puntos (Nx3) del frame de RealSense."""
+    """Extrae la nube de puntos (Nx3) del frame de RealSense con decimation.
+
+    Devuelve NumPy (N,3) en metros, sólo Z>0.
+    """
     depth_frame = frames.get_depth_frame()
     if not depth_frame:
         return None
-    pc = rs.pointcloud()
-    points = pc.calculate(depth_frame)
+    # Decimation para reducir resolución del depth (acelera pointcloud + voxel)
+    try:
+        d2 = _RS_DEC.process(depth_frame)
+        depth_frame = d2.as_depth_frame()
+    except Exception:
+        pass
+    points = _RS_PC.calculate(depth_frame)
     verts = np.asanyarray(points.get_vertices()).view(np.float32).reshape(-1, 3)
     valid = verts[:, 2] > 0
     verts = verts[valid]
     return verts
 
 def voxel_grid(points_xyz: np.ndarray, voxel_size: float = 0.01, min_points_per_voxel: int = 3) -> np.ndarray:
-    """Filtro voxel simple en GPU con CuPy: reduce densidad y ruido de la nube de puntos.
+    """Filtro voxel en GPU (CuPy) con reducción por segmentos (rápido).
 
-    Agrupa por voxel y promedia los puntos por celda, descartando celdas con pocos puntos.
+    - Cuantiza puntos a celdas de tamaño 'voxel_size'.
+    - Ordena por clave de vóxel y usa reduceat para sumar por segmento.
+    - Devuelve centros de vóxel con >= min_points_per_voxel.
     """
     if points_xyz is None or len(points_xyz) == 0:
         return points_xyz
 
-    hash_factor = 100_000  # evitar colisiones; usar enteros de 64 bits para prevenir overflow
+    hash_factor = 100_000  # evitar colisiones; usar int64
 
     pts_gpu = cp.asarray(points_xyz, dtype=cp.float32)
-    voxel_indices = cp.floor(pts_gpu / voxel_size).astype(cp.int64)
-    voxel_hash = (
-        voxel_indices[:, 0]
-        + voxel_indices[:, 1] * hash_factor
-        + voxel_indices[:, 2] * hash_factor * hash_factor
-    ).astype(cp.int64)
+    vox = cp.floor(pts_gpu / voxel_size).astype(cp.int64)
+    voxel_hash = (vox[:, 0] + vox[:, 1] * hash_factor + vox[:, 2] * hash_factor * hash_factor).astype(cp.int64)
 
-    unique_hashes, inverse_indices = cp.unique(voxel_hash, return_inverse=True)
-    n_voxels = int(unique_hashes.shape[0])
+    # Ordenar por hash
+    order = cp.argsort(voxel_hash)
+    h_sorted = voxel_hash[order]
+    pts_sorted = pts_gpu[order]
 
-    # Sumas por voxel con bincount (compatible con versiones antiguas de CuPy)
-    sums = cp.stack([
-        cp.bincount(inverse_indices, weights=pts_gpu[:, 0], minlength=n_voxels),
-        cp.bincount(inverse_indices, weights=pts_gpu[:, 1], minlength=n_voxels),
-        cp.bincount(inverse_indices, weights=pts_gpu[:, 2], minlength=n_voxels),
-    ], axis=1).astype(cp.float32)
+    # Inicios de segmento
+    start_mask = cp.concatenate([cp.array([True]), h_sorted[1:] != h_sorted[:-1]])
+    group_starts = cp.nonzero(start_mask)[0]
 
-    counts = cp.bincount(inverse_indices, minlength=n_voxels).astype(cp.int32)
+    # Sumas por segmento
+    sums = cp.add.reduceat(pts_sorted, group_starts, axis=0)
 
-    # Promedio por voxel y filtro por mínimo de puntos
-    filtered_points = sums / counts[:, cp.newaxis]
-    keep_mask = (counts >= int(max(1, min_points_per_voxel)))
-    filtered_points = filtered_points[keep_mask]
-    # Mantener en GPU para evitar ida/vuelta CPU<->GPU
-    return filtered_points
+    # Conteos por segmento
+    group_ends = cp.concatenate([group_starts[1:], cp.array([pts_sorted.shape[0]])])
+    counts = (group_ends - group_starts).astype(cp.int32)
+
+    # Promedio y filtro
+    means = sums / counts[:, None]
+    keep_mask = counts >= int(max(1, min_points_per_voxel))
+    means = means[keep_mask]
+    return means
 
 def ensure_camera(color_w=640, color_h=480, depth_w=640, depth_h=480, fps=30):
     """Asegura que haya un pipeline inicializado (global)."""
@@ -195,7 +208,6 @@ def init_camera(
 if __name__ == "__main__":
     pipeline = init_camera()
     print("Presiona ESC para salir...")
-    import ransacCellingGround
     try:
         cv2.namedWindow('RANSAC PointCloud', cv2.WINDOW_NORMAL)
         # Estado de cámara para navegación
@@ -206,7 +218,6 @@ if __name__ == "__main__":
         voxel_size = 0.01
         min_pts = 3
         # Rendimiento / logging
-        ransac_every = 1
         max_render_pts = 150_000
         frame_idx = 0
         last_log = time.perf_counter()
@@ -215,13 +226,11 @@ if __name__ == "__main__":
             t0 = time.perf_counter()
             frames = pipeline.wait_for_frames()
             t1 = time.perf_counter()
-            points_voxel = get_voxel_for_ransac(frames, voxel_size=voxel_size, min_points_per_voxel=min_pts)
+            points_xyz = extract_pointcloud(frames)
             t2 = time.perf_counter()
-            ransac_result = None
-            frame_idx += 1
-            if points_voxel is not None and (frame_idx % ransac_every == 0):
-                ransac_result = ransacCellingGround.ransac_plane_gpu(points_voxel)
+            points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
             t3 = time.perf_counter()
+            frame_idx += 1
             img = render_pointcloud(points_voxel,
                                      out_size=(720, 720),
                                      yaw_deg=yaw_deg,
@@ -233,25 +242,22 @@ if __name__ == "__main__":
                                      fov_deg=fov_deg,
                                      max_points=max_render_pts)
             t4 = time.perf_counter()
-            hud = f"Adquisición: {(t1 - t0) * 1000:.1f} ms | Voxel: {(t2 - t1) * 1000:.1f} ms | RANSAC: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms"
+            hud = f"Adquisición: {(t1 - t0) * 1000:.1f} ms | Extract: {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms"
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
-            if ransac_result is not None:
-                hud2 = f"RANSAC inliers: {int(ransac_result['num_inliers'])}"
-                cv2.putText(img, hud2, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2, cv2.LINE_AA)
             # Log a consola (rate-limited)
             now = time.perf_counter()
             if (now - last_log) >= log_interval:
                 total_ms = (t4 - t0) * 1000.0
                 fps = 1000.0 / max(total_ms, 1e-3)
                 n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else 0
-                inliers = int(ransac_result['num_inliers']) if ransac_result is not None else -1
+                n_extract = int(points_xyz.shape[0]) if points_xyz is not None else 0
                 print(
-                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Voxel: {(t2 - t1) * 1000:.1f} ms | RANSAC: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(voxel): {n_voxel} | inliers: {inliers} | r_every: {ransac_every} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts}",
+                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract: {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts}",
                     flush=True,
                 )
                 last_log = now
             # Ayuda de teclas
-            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  N/M: RANSAC cada N  9/0: render pts"
+            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  9/0: render pts"
             cv2.putText(img, help1, (10, img.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180,180,180), 1, cv2.LINE_AA)
             cv2.imshow('RANSAC PointCloud', img)
             key = cv2.waitKey(1) & 0xFF
@@ -262,8 +268,6 @@ if __name__ == "__main__":
             step_pan = 0.05
             step_fov = 2.0
             # Estado persistente adicional
-            if 'ransac_every' not in locals():
-                ransac_every = 1
             if 'max_render_pts' not in locals():
                 max_render_pts = 150_000
             if 'frame_idx' not in locals():
@@ -308,10 +312,6 @@ if __name__ == "__main__":
                 min_pts = max(1, min_pts - 1)
             elif key == ord('\''):
                 min_pts = min(20, min_pts + 1)
-            elif key in (ord('n'), ord('N')):
-                ransac_every = max(1, int(ransac_every - 1))
-            elif key in (ord('m'), ord('M')):
-                ransac_every = min(60, int(ransac_every + 1))
             elif key == ord('9'):
                 max_render_pts = max(20_000, int(max_render_pts * 0.8))
             elif key == ord('0'):
