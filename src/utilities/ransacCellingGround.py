@@ -1,470 +1,130 @@
-import math
+
 import numpy as np
 import cv2
-from typing import Optional
-from viewCamera import extract_pointcloud, render_pointcloud, init_camera
 import time
 import cupy as cp
+from viewCamera import extract_pointcloud_gpu, init_camera, extract_rgb
 
-
-def _to_xp(a):
-    """Asegura arreglo en GPU (CuPy)."""
-    return cp.asarray(a)
-
-
-def _to_numpy(a):
-    """Convierte un arreglo (posiblemente CuPy) a NumPy, evitando copias innecesarias."""
-    if a is None or isinstance(a, np.ndarray):
-        return a
-    try:
-        # Arreglo CuPy -> NumPy
-        if 'cupy' in str(type(a)):
-            return a.get()
-    except Exception:
-        pass
-    return np.asarray(a)
-
-def ransac_plane_gpu(points,
-                     dist_thresh=0.02,
-                     max_iters=2000,
-                     min_inliers=500,
-                     up_axis=(0.0, -1.0, 0.0),
-                     max_angle_deg=20.0,
-                     seed=42,
-                     batch_size=None,
-                     point_chunk=None,
-                     score_subset=None):
+def obtener_nube_puntos(frames, stride=1, skip_top_ratio=0.25, max_distance_m=3.5):
     """
-    RANSAC de un plano 'horizontal' (suelo/techo) optimizado para GPU.
-
-    Cambios clave de rendimiento:
-    - Evalúa muchos modelos por lote (vectorizado) para reducir lanzamientos de kernel.
-    - Evita sincronizaciones Host<->GPU en cada iteración; sólo por lote.
-    - Usa criterio de orientación sin arccos (umbral en coseno) para ahorrar cómputo.
-
-    Parámetros:
-    - points: (N,3) (xp array o numpy; se convierte)
-    - dist_thresh: tolerancia (m)
-    - max_iters: iteraciones RANSAC totales (aprox. modelos evaluados)
-    - min_inliers: inliers mínimos para aceptar
-    - up_axis: vector 'vertical' del mundo (p.ej. (0,-1,0) RealSense; (0,0,1) mundo Z-up)
-    - max_angle_deg: |ángulo(n, up_axis)| <= umbral (se implementa con coseno)
-    - seed: semilla RNG
-    - batch_size: tamaño de lote de modelos (auto)
-    - point_chunk: tamaño de bloque de puntos para contar inliers (auto)
-    - score_subset: número de puntos para puntuar modelos por lote (luego se
-      valida el mejor con TODOS los puntos). Reduce K*N en Jetson.
-
-    Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
+    Extrae la nube de puntos usando extract_pointcloud_gpu de viewCamera.
     """
-    P = _to_xp(points).astype(cp.float32)
-    N = int(P.shape[0])
-    if N < 3:
-        return None
+    pts_gpu = extract_pointcloud_gpu(frames, stride=stride, skip_top_ratio=skip_top_ratio, max_distance_m=max_distance_m)
+    return pts_gpu
 
-    # Heurística por tamaño de GPU
-    small_gpu = False
-    try:
-        props = cp.cuda.runtime.getDeviceProperties(0)
-        mp = int(props.get('multiProcessorCount', 0))
-        mem = int(props.get('totalGlobalMem', 0))
-        # Jetson Nano ~ 1-2 SM y < 4GB
-        small_gpu = (mp <= 4) or (mem and mem < 4 * 1024**3)
-    except Exception:
-        small_gpu = True  # conservador
-
-    if batch_size is None:
-        batch_size = 128 if small_gpu else 1024
-
-    if point_chunk is None:
-        point_chunk = 8192 if small_gpu else 16384
-
-    if score_subset is None:
-        score_subset = min(4096 if small_gpu else 16384, N)
-    else:
-        score_subset = min(int(score_subset), N)
-
-    # Normaliza up una vez
-    up = cp.asarray(up_axis, dtype=cp.float32)
-    up = up / (cp.linalg.norm(up) + 1e-9)
-    cos_thresh = math.cos(math.radians(float(max_angle_deg)))
-
-    # RNG en GPU
-    rng_state = cp.random.RandomState(seed)
-    rand_fn = lambda shape: rng_state.randint(0, N, size=shape, dtype=cp.int32)
-
-    best_count = -1
-    best_n = None
-    best_d = None
-
-    # Subconjunto fijo para puntuar modelos por lote (GPU)
-    try:
-        samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(cp.int32)
-    except Exception:
-        # Fallback si choice falla: usa randint y recorta únicos simples
-        tmp = rng_state.randint(0, N, size=score_subset * 2, dtype=cp.int32)
-        samp_idx = cp.unique(tmp)[:score_subset]
-        if samp_idx.size < score_subset:
-            # rellena si faltan
-            pad = score_subset - int(samp_idx.size)
-            samp_idx = cp.concatenate([samp_idx, tmp[:pad]])
-    P_samp = P[samp_idx]
-
-    remaining = int(max_iters)
-    while remaining > 0:
-        K = int(min(batch_size, remaining))
-        remaining -= K
-
-        # 1) Muestreo de índices (con reemplazo; degenerados se filtran por norma)
-        idxs = rand_fn((K, 3))
-        a = P[idxs[:, 0]]
-        b = P[idxs[:, 1]]
-        c = P[idxs[:, 2]]
-
-        # 2) Modelo por lote
-        ab = b - a
-        ac = c - a
-        n = cp.cross(ab, ac)  # (K,3)
-        norm = cp.linalg.norm(n, axis=1)  # (K,)
-        valid = norm > 1e-8
-        # Evitar división por cero
-        n_unit = cp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0)
-        d = -cp.sum(n_unit * a, axis=1)
-
-        # 3) Filtro de orientación mediante coseno
-        cosang = cp.abs(n_unit @ up)  # (K,)
-        valid = cp.logical_and(valid, cosang >= cos_thresh)
-
-        # 4) Conteo de inliers sobre SUBMUESTRA para elegir mejor modelo del lote
-        #    Mucho más eficiente en Jetson que KxN directo.
-        counts = cp.zeros((K,), dtype=cp.int32)
-        dists_s = cp.abs(n_unit @ P_samp.T + d[:, None])  # (K,S)
-        counts = cp.sum(dists_s <= dist_thresh, axis=1)
-
-        # Invalida modelos no válidos
-        counts = cp.where(valid, counts, -cp.ones_like(counts))
-
-        # 5) Mejor del lote
-        batch_best_idx = int(cp.argmax(counts).get())
-        batch_best_count = int(counts[batch_best_idx].get())
-
-        if batch_best_count > best_count and batch_best_count >= min_inliers:
-            best_count = batch_best_count
-            best_n = n_unit[batch_best_idx]
-            best_d = d[batch_best_idx]
-
-    if best_count < 0:
-        return None
-
-    # 6) Recalcular máscara de inliers del mejor modelo sobre TODOS los puntos (una vez)
-    mask = cp.zeros((N,), dtype=bool)
-    if N <= point_chunk:
-        dists = cp.abs(best_n[None, :] @ P.T + best_d)
-        mask = (dists[0] <= dist_thresh)
-    else:
-        # por bloques
-        out = []
-        for start in range(0, N, point_chunk):
-            end = min(N, start + point_chunk)
-            Pc = P[start:end]
-            dists = cp.abs(best_n[None, :] @ Pc.T + best_d)[0]
-            out.append(dists <= dist_thresh)
-        mask = cp.concatenate(out, axis=0)
-    inliers_idx = cp.flatnonzero(mask)
-
-    final_count = int(mask.sum().get())
-
-    return {
-        'n': cp.asarray(best_n),
-        'd': cp.asarray(best_d),
-        'inliers_mask': cp.asarray(mask),
-        'inliers_idx': cp.asarray(inliers_idx),
-        'num_inliers': final_count,
-    }
-
-
-def extract_floor_and_ceiling(points,
-                              dist_thresh=0.02,
-                              max_iters=3000,
-                              min_inliers=800,
-                              up_axis=(0.0, -1.0, 0.0),
-                              max_angle_deg=20.0,
-                              seed=42):
+def pintar_mascara_suelo(rgb_image, ground_mask):
     """
-    1) Encuentra primer plano horizontal (suelo o techo).
-    2) Elimina sus inliers y vuelve a buscar el segundo.
-    3) Clasifica como 'floor' (menor proyección sobre +up) y 'ceiling' (mayor).
-    """
-    P = _to_xp(points).astype(cp.float32)
-    up = cp.asarray(up_axis, dtype=cp.float32)
-
-    res1 = ransac_plane_gpu(P, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed)
-    if res1 is None:
-        return None, None
-
-    # Quitar inliers del primer plano
-    mask1 = res1['inliers_mask']
-    keep = ~mask1
-    P2 = P[keep]
-    res2 = ransac_plane_gpu(P2, dist_thresh, max_iters, min_inliers, up_axis, max_angle_deg, seed + 1)
-    if res2 is None:
-        # Sólo un plano encontrado: intenta clasificarlo como 'floor' y deja 'ceiling' en None
-        # Clasificación por “altura” media de inliers
-        pts1 = P[res1['inliers_idx']]
-        # proyección escalar sobre +up
-        h1 = cp.mean(pts1 @ up)
-        floor, ceiling = (res1, None) if float(h1.get()) < 0 else (None, res1)
-        return floor, ceiling
-
-    # Clasificar por altura (proyección sobre +up)
-    pts1 = P[res1['inliers_idx']]
-    pts2 = P2[res2['inliers_idx']]
-    h1 = cp.mean(pts1 @ up)
-    h2 = cp.mean(pts2 @ up)
-
-    if float(h1.get()) < float(h2.get()):
-        floor, ceiling = res1, res2
-    else:
-        floor, ceiling = res2, res1
-
-    return floor, ceiling
-
-
-def detect_ground(frames, max_height_threshold=0.5, min_points=100):
-    """
-    Detecta el plano del suelo usando RANSAC y genera una máscara.
-
-    Args:
-        frames: Frames de la cámara RealSense
-        max_height_threshold: Altura máxima esperada para considerar puntos como suelo (metros)
-        min_points: Mínimo número de puntos para realizar RANSAC
-
-    Returns:
-        tuple: (máscara_binaria, coeficientes_plano)
-        - máscara_binaria: np.array de forma (H,W) con True en píxeles del suelo
-        - coeficientes_plano: [a,b,c,d] del plano ax + by + cz + d = 0
-    """
-    # Obtener nube de puntos organizada
-    points_xyz, _ = extract_pointcloud(frames, with_colors=False,
-                                     filter_invalid=True, organized=True)
-
-    if points_xyz is None:
-        return None, None
-
-    # Usar ransac_plane_gpu con orientación vertical de RealSense
-    result = ransac_plane_gpu(
-        points_xyz.reshape(-1, 3),
-        dist_thresh=0.02,
-        max_iters=2000,
-        min_inliers=min_points,
-        up_axis=(0.0, -1.0, 0.0),  # RealSense: Y es hacia abajo
-        max_angle_deg=20.0
-    )
-
-    if result is None:
-        return None, None
-
-    # Convertir máscara a formato de imagen (NumPy)
-    H, W = points_xyz.shape[:2]
-    ground_mask = _to_numpy(result['inliers_mask']).reshape(H, W)
-    
-    # Coeficientes del plano
-    n = _to_numpy(result['n'])
-    d = _to_numpy(result['d'])
-    plane_coef = [float(n[0]), float(n[1]), float(n[2]), float(d)]
-    
-    return ground_mask.astype(np.uint8), plane_coef
-
-
-def apply_ground_mask_to_rgb(rgb_image, ground_mask):
-    """
-    Aplica la máscara del suelo a una imagen RGB.
-
-    Args:
-        rgb_image: Imagen RGB/BGR original
-        ground_mask: Máscara binaria del suelo
-
-    Returns:
-        np.array: Imagen con el suelo marcado
+    Pinta la máscara sobre la imagen RGB.
     """
     if ground_mask is None or rgb_image is None:
         return rgb_image
-    # Asegurar arrays NumPy
-    result = _to_numpy(rgb_image)
-    mask = _to_numpy(ground_mask)
-
-    if result is None:
-        return rgb_image
-
-    # Normalizar máscara a 2D y tipo booleano
-    if mask is None:
-        return result
-    if mask.ndim == 3 and mask.shape[-1] in (1, 3):
-        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if mask.shape[-1] == 3 else mask.squeeze(-1)
-    if mask.ndim == 1 and mask.size == result.shape[0] * result.shape[1]:
-        mask = mask.reshape(result.shape[:2])
+    result = rgb_image.copy()
+    mask = ground_mask
     if mask.shape[:2] != result.shape[:2]:
-        # Intentar redimensionar de forma segura (nearest) para máscaras
         mask = cv2.resize(mask, (result.shape[1], result.shape[0]), interpolation=cv2.INTER_NEAREST)
-
     mask_bool = (mask > 0)
-
-    # Crear overlay verde sobre el suelo
     overlay = result.copy()
-    overlay[mask_bool] = (0, 255, 0)  # Verde en BGR
-    # Combinar original con overlay
+    overlay[mask_bool] = (0, 255, 0)
     cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
     return result
 
 
-def _build_colored_pointcloud(points_np: np.ndarray, inliers_idx_cp: cp.ndarray,
-                              green=(0, 255, 0), base=(200, 200, 200),
-                              base_colors_np: Optional[np.ndarray] = None):
+def ransac_plane_gpu(points,
+                     dist_thresh=0.02,
+                     max_iters=1000,
+                     min_inliers=500,
+                     up_axis=(0.0, -1.0, 0.0),
+                     max_angle_deg=20.0,
+                     seed=42):
     """
-    Devuelve (points_np, colors_np) donde los puntos en 'inliers_idx_cp' se colorean de verde.
-    - points_np: np.ndarray (N,3) float32 en metros (no se copia si ya lo es)
-    - inliers_idx_cp: cp.ndarray de índices de inliers (GPU)
-    - green/base: tuplas BGR
+    Aplica RANSAC para encontrar el plano del suelo en la nube de puntos.
+    Retorna una máscara booleana de los puntos que pertenecen al plano.
     """
-    N = int(points_np.shape[0])
-    if base_colors_np is not None and isinstance(base_colors_np, np.ndarray) and base_colors_np.shape == (N, 3):
-        colors_gpu = cp.asarray(base_colors_np, dtype=cp.uint8)
-    else:
-        colors_gpu = cp.full((N, 3), base, dtype=cp.uint8)
-    colors_gpu[inliers_idx_cp] = cp.asarray(green, dtype=cp.uint8)
-    colors_np = colors_gpu.get()
-    # Asegurar dtype/contiguidad de puntos
-    if not (isinstance(points_np, np.ndarray) and points_np.dtype == np.float32):
-        points_np = np.asarray(points_np, dtype=np.float32)
-    return points_np, colors_np
+    import math
+    P = cp.asarray(points).astype(cp.float32)
+    N = int(P.shape[0])
+    if N < 3:
+        return None
+    up = cp.asarray(up_axis, dtype=cp.float32)
+    up = up / (cp.linalg.norm(up) + 1e-9)
+    cos_thresh = math.cos(math.radians(float(max_angle_deg)))
+    rng_state = cp.random.RandomState(seed)
+    rand_fn = lambda shape: rng_state.randint(0, N, size=shape, dtype=cp.int32)
+    best_count = -1
+    best_n = None
+    best_d = None
+    for _ in range(max_iters):
+        idxs = rand_fn((3,))
+        a, b, c = P[idxs[0]], P[idxs[1]], P[idxs[2]]
+        ab = b - a
+        ac = c - a
+        n = cp.cross(ab, ac)
+        norm = cp.linalg.norm(n)
+        if norm < 1e-8:
+            continue
+        n_unit = n / (norm + 1e-12)
+        d = -cp.sum(n_unit * a)
+        cosang = cp.abs(n_unit @ up)
+        if cosang < cos_thresh:
+            continue
+        dists = cp.abs(n_unit[None, :] @ P.T + d)[0]
+        mask = dists <= dist_thresh
+        count = int(cp.sum(mask).get())
+        if count > best_count and count >= min_inliers:
+            best_count = count
+            best_n = n_unit
+            best_d = d
+            best_mask = mask
+    if best_count < 0:
+        return None
+    return best_mask
 
-
-def demo_main_return_colored_pointcloud():
+def visualizar_resultado():
     """
-    Genera una nube de puntos sintética (suelo + techo), detecta el suelo con RANSAC
-    y retorna (points_np, colors_np) con el suelo coloreado en verde.
+    Visualiza el resultado de la máscara aplicada en la imagen RGB y muestra retardos.
     """
-    np.random.seed(0)
-    N = 50000
-    xy = np.random.uniform(-3, 3, size=(N // 2, 2))
-    z_floor = np.random.normal(0.0, 0.005, size=(N // 2, 1))
-    floor_pts = np.hstack([xy, z_floor])
-
-    xy2 = np.random.uniform(-3, 3, size=(N // 2, 2))
-    z_ceil = np.full((N // 2, 1), 2.5) + np.random.normal(0.0, 0.005, size=(N // 2, 1))
-    ceil_pts = np.hstack([xy2, z_ceil])
-
-    pts = np.vstack([floor_pts, ceil_pts]).astype(np.float32)
-
-    # Detectar suelo/techo (mundo Z-up)
-    floor, ceiling = extract_floor_and_ceiling(
-        pts,
-        dist_thresh=0.02,
-        max_iters=1500,
-        min_inliers=1500,
-        up_axis=(0.0, 0.0, 1.0),
-        max_angle_deg=15.0,
-        seed=42,
-    )
-
-    if floor is not None:
-        points_out, colors_out = _build_colored_pointcloud(pts, floor['inliers_idx'])
-    else:
-        # Sin suelo detectado: todo gris
-        colors_out = np.full((pts.shape[0], 3), (200, 200, 200), dtype=np.uint8)
-        points_out = pts
-
-    return points_out, colors_out
-
-# =======================
-# Ejemplo de uso mínimo
-# =======================
-if __name__ == "__main__":
-    # Visualiza la nube de puntos de la RealSense coloreando el suelo en verde (en vivo)
     print("Inicializando cámara RealSense…")
     pipeline = init_camera(640, 480, 640, 480, 30)
-    # Parámetros runtime para mantener FPS
-    ground_every = 10            # calcular RANSAC cada N frames
-    dist_thresh_run = 0.05       # tolerancia mayor para robustez en escenas reales
-    max_iters_run = 1000         # un poco más de iteraciones para estabilizar
-    min_inliers_run = 800        # umbral más permisivo
-
-    last_n_cp = None
-    last_d_cp = None
-    last_thresh = dist_thresh_run
-    frame_idx = 0
-    t0 = time.perf_counter()
-    fps_avg = 0.0
-    cv2.namedWindow('Detección de Suelo - RealSense', cv2.WINDOW_NORMAL)
+    cv2.namedWindow('Visualización Suelo', cv2.WINDOW_NORMAL)
     try:
         while True:
-            frames = pipeline.wait_for_frames()
-            
-            # Extraer RGB para visualización
-            from viewCamera import extract_rgb
-            rgb_image = extract_rgb(frames)
-            if rgb_image is None:
-                key = cv2.waitKey(1) & 0xFF
-                if key == 27:
-                    break
-                continue
-            
-            # Extraer nube de puntos SIN colores (más eficiente)
-            points_xyz, _ = extract_pointcloud(frames, with_colors=False, filter_invalid=True, organized=True)
-            if points_xyz is None:
-                key = cv2.waitKey(1) & 0xFF
-                if key == 27:
-                    break
-                continue
-
-            frame_idx += 1
-            H, W = points_xyz.shape[:2]
-            pts_np = points_xyz.reshape(-1, 3).astype(np.float32)
-            ground_mask = None
-
-            # Detectar suelo solo cada 'ground_every' frames; entre medias, reusar el plano
-            ran_now = (frame_idx % ground_every) == 1 or (last_n_cp is None)
-            if ran_now:
-                res = ransac_plane_gpu(pts_np, dist_thresh=dist_thresh_run, max_iters=max_iters_run,
-                                       min_inliers=min_inliers_run, up_axis=(0.0, -1.0, 0.0),
-                                       max_angle_deg=20.0, seed=42)
-                if res is not None:
-                    last_n_cp = res['n']
-                    last_d_cp = res['d']
-                    last_thresh = dist_thresh_run
-                    ground_mask = _to_numpy(res['inliers_mask']).reshape(H, W).astype(np.uint8)
-                else:
-                    last_n_cp = None
-                    last_d_cp = None
-                    ground_mask = np.zeros((H, W), dtype=np.uint8)
-            else:
-                # Reusar plano previo: máscara rápida en GPU
-                if last_n_cp is not None:
-                    Pc = cp.asarray(pts_np, dtype=cp.float32)
-                    dists = cp.abs(last_n_cp[None, :] @ Pc.T + last_d_cp)[0]
-                    mask = dists <= last_thresh
-                    ground_mask = _to_numpy(mask).reshape(H, W).astype(np.uint8)
-                else:
-                    ground_mask = np.zeros((H, W), dtype=np.uint8)
-
-            # Aplicar máscara a la imagen RGB
-            img = apply_ground_mask_to_rgb(rgb_image, ground_mask)
-            
-            # HUD simple con FPS y estado
-            dt = time.perf_counter() - t0
             t0 = time.perf_counter()
-            fps = 1.0 / max(dt, 1e-6)
-            fps_avg = 0.9 * fps_avg + 0.1 * fps if fps_avg > 0 else fps
-            inl = int(np.sum(ground_mask > 0)) if ground_mask is not None else 0
-            
-            hud1 = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  Inliers:{inl}"
-            # Mostrar la tasa de FPS en color negro
-            cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2, cv2.LINE_AA)
-            cv2.putText(img, "Suelo detectado en verde | ESC para salir", (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
-            cv2.imshow('Detección de Suelo - RealSense', img)
+            frames = pipeline.wait_for_frames()
+            t1 = time.perf_counter()
+
+            # Extraer imagen RGB
+            rgb_image = extract_rgb(frames)
+            t2 = time.perf_counter()
+
+            # Extraer nube de puntos (GPU)
+            pts_gpu = obtener_nube_puntos(frames)
+            t3 = time.perf_counter()
+
+            # Calcular plano suelo usando RANSAC
+            ground_mask = None
+            if pts_gpu is not None and pts_gpu.shape[0] > 0:
+                try:
+                    mask = ransac_plane_gpu(pts_gpu, dist_thresh=0.02, max_iters=1000, min_inliers=500)
+                    if mask is not None:
+                        ground_mask = cp.asnumpy(mask).astype(np.uint8)
+                except Exception:
+                    ground_mask = None
+            t4 = time.perf_counter()
+
+            # Pintar máscara sobre imagen
+            img = pintar_mascara_suelo(rgb_image, ground_mask) if ground_mask is not None else rgb_image
+            t5 = time.perf_counter()
+
+            # Mostrar retardos
+            print(f"Adquisición: {(t1-t0)*1000:.1f} ms | RGB: {(t2-t1)*1000:.1f} ms | Nube: {(t3-t2)*1000:.1f} ms | RANSAC: {(t4-t3)*1000:.1f} ms | Pintar: {(t5-t4)*1000:.1f} ms", flush=True)
+
+            cv2.imshow('Visualización Suelo', img)
             key = cv2.waitKey(1) & 0xFF
-            if key == 27:  # ESC para salir
+            if key == 27:
                 break
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    visualizar_resultado()

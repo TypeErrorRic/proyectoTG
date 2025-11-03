@@ -22,6 +22,17 @@ _RS_DEC.set_option(rs.option.filter_magnitude, 3)  # 2=default, 3-4=más FPS, me
 _DEPTH_SCALE = None  # metros por unidad en z16
 _PIXGRID_CACHE = {}  # clave: (W,H) -> (Ugrid, Vgrid) en GPU
 
+def extract_rgb(frames):
+    """
+    Extrae la imagen RGB del frame de RealSense.
+    Retorna un array NumPy (H, W, 3) en formato BGR.
+    """
+    color_frame = frames.get_color_frame() if hasattr(frames, 'get_color_frame') else None
+    if color_frame is None:
+        return None
+    rgb_image = np.asanyarray(color_frame.get_data())
+    return rgb_image
+
 def _ensure_depth_scale() -> float:
     """Devuelve el depth_scale cacheado si existe; si no, retorna 0.001 por defecto.
 
