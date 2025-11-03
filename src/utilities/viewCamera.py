@@ -312,7 +312,7 @@ def init_camera(
     depth_width: int = 640,
     depth_height: int = 480,
     fps: int = 30,
-    stride: int = 1,
+    stride: int = 2,
     yaw: float = -45.0,
     pitch: float = 25.0,
     roll: float = 0.0,

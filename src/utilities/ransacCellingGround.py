@@ -27,6 +27,7 @@ _runtime = {
     'H': None,
     'W': None,
     'align_depth_fn': None,
+    'params': None,
     'last_n_cp': None,
     'last_d_cp': None,
     'last_thresh': None,
@@ -34,6 +35,7 @@ _runtime = {
     'result_dict': {'processed_img': None, 'processed_base': None},
     'rgb_thread': None,
     'fps_t0': None,
+    'subsample_stride': None,
 }
 
 # Parámetros por defecto para mantener FPS aceptable
@@ -304,23 +306,17 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base=None):
     Returns:
         np.array: Imagen con el suelo marcado
     """
-    if ground_mask is None:
-        return processed_base if processed_base is not None else rgb_image
-    
-    # Usar imagen procesada si está disponible, sino usar RGB original
-    if processed_base is not None:
-        result = _to_numpy(processed_base)
-    else:
-        result = _to_numpy(rgb_image)
-    
-    mask = _to_numpy(ground_mask)
-
+    # Base SIEMPRE: imagen RGB original
+    result = _to_numpy(rgb_image)
     if result is None:
-        return rgb_image
+        return None
+
+    # Asegurar máscara válida; si viene None, usar máscara vacía
+    mask = _to_numpy(ground_mask)
+    if mask is None:
+        mask = np.zeros(result.shape[:2], dtype=np.uint8)
 
     # Normalizar máscara a 2D y tipo booleano
-    if mask is None:
-        return result
     if mask.ndim == 3 and mask.shape[-1] in (1, 3):
         mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if mask.shape[-1] == 3 else mask.squeeze(-1)
     if mask.ndim == 1 and mask.size == result.shape[0] * result.shape[1]:
@@ -343,14 +339,32 @@ def _lazy_init():
     if _runtime['initialized']:
         return
     print("Inicializando cámara RealSense…")
-    pipeline, _params = init_camera(640, 480, 640, 480, 30)
+    pipeline, params = init_camera(
+        color_width=640,
+        color_height=480,
+        depth_width=640,
+        depth_height=480,
+        fps=30,
+        stride=2,        # submuestreo para nube
+        yaw=-45.0,
+        pitch=25.0,
+        roll=0.0,
+        fov=60.0,
+        point_size=1
+    )
     rays_np, H, W, align_depth_fn = precompute_rays_for_stream(pipeline, rs.stream.color)
     _runtime['pipeline'] = pipeline
     _runtime['rays_cp'] = cp.asarray(rays_np)
     _runtime['H'] = H
     _runtime['W'] = W
     _runtime['align_depth_fn'] = align_depth_fn
+    _runtime['params'] = params
     _runtime['last_thresh'] = DIST_THRESH_RUN
+    # Usar el stride de params para el submuestreo de RANSAC si viene configurado
+    try:
+        _runtime['subsample_stride'] = int(params.get('stride', SUBSAMPLE_STRIDE))
+    except Exception:
+        _runtime['subsample_stride'] = SUBSAMPLE_STRIDE
     _runtime['initialized'] = True
 
 
@@ -395,8 +409,9 @@ def get_ground() -> Optional[np.ndarray]:
     ransac_ms = 0.0
     if ran_now:
         # Submuestreo para RANSAC
-        Dsub = depth_cp[::SUBSAMPLE_STRIDE, ::SUBSAMPLE_STRIDE]
-        Rsub = _runtime['rays_cp'][::SUBSAMPLE_STRIDE, ::SUBSAMPLE_STRIDE]
+        sub_stride = _runtime['subsample_stride'] or SUBSAMPLE_STRIDE
+        Dsub = depth_cp[::sub_stride, ::sub_stride]
+        Rsub = _runtime['rays_cp'][::sub_stride, ::sub_stride]
         valid = Dsub > 0
         if int(cp.sum(valid)) >= MIN_INLIERS_RUN:
             Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
