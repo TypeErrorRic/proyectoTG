@@ -52,12 +52,16 @@ def _gpu_pixel_grids(width: int, height: int):
         grids = (U, V)
     return grids
 
-def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1, skip_top_ratio: float = 0.25) -> cp.ndarray:
+def extract_pointcloud_gpu(frames: rs.composite_frame,
+                           stride: int = 1,
+                           skip_top_ratio: float = 0.25,
+                           max_distance_m: float = 3.5) -> cp.ndarray:
     """Extrae nube de puntos (Nx3) en GPU a partir del depth (z16) con intrínsecos.
 
     - Usa decimation (ya configurado globalmente) sobre el depth_frame.
     - Vectoriza la deproyección en CuPy y aplica muestreo por 'stride' previo.
     - skip_top_ratio: fracción superior de la imagen a ignorar (típicamente techo/cielo).
+    - max_distance_m: filtra por distancia de profundidad (Z) en metros (<= max_distance_m).
     - Retorna un arreglo CuPy (N,3) en metros con Z>0.
     """
     depth_frame = frames.get_depth_frame()
@@ -111,7 +115,10 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1, skip_top
     U, V = _gpu_pixel_grids(W, H)
 
     # Deproyección vectorizada fusionada (menos operaciones intermedias)
-    mask = depth_m > 0
+    if max_distance_m is not None and max_distance_m > 0:
+        mask = (depth_m > 0) & (depth_m <= cp.float32(max_distance_m))
+    else:
+        mask = depth_m > 0
     if not cp.any(mask):
         return cp.empty((0, 3), dtype=cp.float32)
     
@@ -292,6 +299,7 @@ if __name__ == "__main__":
         fov_deg = 60.0
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         skip_top_ratio = 0.25  # ignorar fracción superior de la imagen (techo/cielo)
+        max_distance_m = 3.5   # limitar distancia de profundidad para acelerar
         # Rendimiento / logging
         max_render_pts = 150_000
         frame_idx = 0
@@ -303,7 +311,10 @@ if __name__ == "__main__":
             t0 = time.perf_counter()
             frames = pipeline.wait_for_frames()
             t1 = time.perf_counter()
-            points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride, skip_top_ratio=skip_top_ratio)
+            points_xyz = extract_pointcloud_gpu(frames,
+                                               stride=extract_stride,
+                                               skip_top_ratio=skip_top_ratio,
+                                               max_distance_m=max_distance_m)
             t2 = time.perf_counter()
             frame_idx += 1
             
@@ -327,7 +338,7 @@ if __name__ == "__main__":
                 f"Adquisición: {(t1 - t0) * 1000:.1f} ms | "
                 f"Extract(GPU): {(t2 - t1) * 1000:.1f} ms | "
                 f"Render: {(t3 - t2) * 1000:.1f} ms | "
-                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f}"
+                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f} | maxD: {max_distance_m:.1f}m"
             )
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             # Log a consola (rate-limited)
