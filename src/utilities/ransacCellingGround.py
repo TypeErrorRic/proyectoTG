@@ -36,7 +36,8 @@ def ransac_plane_gpu(points,
                      min_inliers=500,
                      up_axis=(0.0, -1.0, 0.0),
                      max_angle_deg=20.0,
-                     seed=42):
+                     seed=42,
+                     **kwargs):
     """
     Aplica RANSAC para encontrar el plano del suelo en la nube de puntos.
     Retorna una máscara booleana de los puntos que pertenecen al plano.
@@ -46,14 +47,24 @@ def ransac_plane_gpu(points,
     N = int(P.shape[0])
     if N < 3:
         return None
-    # Parámetros extremos para velocidad
-    max_points = 2000
-    iteraciones = min(max_iters, 100)
-    # Muestreo aleatorio si hay demasiados puntos
+    # Parámetros configurables para velocidad/calidad
+    max_points = kwargs.get('max_points', 2000) if 'max_points' in kwargs else 2000
+    iteraciones = min(max_iters, kwargs.get('max_iters', 100)) if 'max_iters' in kwargs else min(max_iters, 100)
+    # Muestreo estratificado si hay demasiados puntos
     if N > max_points:
-        idx_sample = cp.random.choice(N, max_points, replace=False)
+        # Estratificar por X (horizontal)
+        x = cp.asnumpy(P[:, 0])
+        bins = np.linspace(np.min(x), np.max(x), 10)
+        idx_sample = []
+        for i in range(len(bins)-1):
+            idx_bin = np.where((x >= bins[i]) & (x < bins[i+1]))[0]
+            if len(idx_bin) > 0:
+                n_bin = max(1, int(max_points/9))
+                idx_sample.extend(list(np.random.choice(idx_bin, min(n_bin, len(idx_bin)), replace=False)))
+        idx_sample = np.array(idx_sample)
         P = P[idx_sample]
-        N = max_points
+        N = P.shape[0]
+        idx_sample = cp.asarray(idx_sample)
     else:
         idx_sample = cp.arange(N)
     up = cp.asarray(up_axis, dtype=cp.float32)
