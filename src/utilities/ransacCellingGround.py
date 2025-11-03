@@ -52,11 +52,12 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con un pipeline ligero (Sobel):
+    Procesa la imagen RGB con un pipeline ligero (Sobel + unsharp para reforzar bordes):
     1) Blanco y negro
     2) CLAHE (clip=2.0, tiles=24x24)
-    3) Sobel (ksize=3) en X e Y
-    4) Magnitud normalizada y salida BGR
+    3) Unsharp (ligero) para realzar bordes
+    4) Sobel (ksize=5) en X e Y (gradiente más fuerte)
+    5) Magnitud normalizada y salida BGR
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -77,13 +78,19 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(24, 24))
     enhanced = clahe.apply(gray)
 
-    # 3. Gradientes Sobel en X e Y (ksize=3)
-    gx = cv2.Sobel(enhanced, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(enhanced, cv2.CV_32F, 0, 1, ksize=3)
+    # 3. Unsharp mask ligero para resaltar bordes antes de Sobel
+    #    sharp = enhanced * (1 + amount) - gauss(enhanced) * amount
+    amount = 1.6  # realce moderado y rápido
+    blur_us = cv2.GaussianBlur(enhanced, (0, 0), sigmaX=1.0, sigmaY=1.0)
+    sharp_enh = cv2.addWeighted(enhanced, 1.0 + amount, blur_us, -amount, 0)
+
+    # 4. Gradientes Sobel en X e Y (ksize=5) para gradiente más fuerte
+    gx = cv2.Sobel(sharp_enh, cv2.CV_32F, 1, 0, ksize=5)
+    gy = cv2.Sobel(sharp_enh, cv2.CV_32F, 0, 1, ksize=5)
     mag = cv2.magnitude(gx, gy)
     mag_u8 = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
-    # 4. Salida BGR directa de la magnitud de Sobel
+    # 5. Salida BGR directa de la magnitud de Sobel
     processed_base = cv2.cvtColor(mag_u8, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
