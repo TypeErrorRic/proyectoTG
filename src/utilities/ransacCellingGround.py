@@ -39,8 +39,8 @@ _runtime = {
 }
 
 # Parámetros por defecto para mantener FPS aceptable
-GROUND_EVERY = 5            # calcular RANSAC cada N frames
-DIST_THRESH_RUN = 0.04      # tolerancia ligeramente mayor
+GROUND_EVERY = 3            # calcular RANSAC cada N frames (más frecuente)
+DIST_THRESH_RUN = 0.03      # tolerancia más estricta
 MAX_ITERS_RUN = 500         # menos iteraciones para reducir retardo
 MIN_INLIERS_RUN = 600       # umbral acorde a subsampling
 SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
@@ -412,6 +412,11 @@ def get_ground() -> Optional[np.ndarray]:
         sub_stride = _runtime['subsample_stride'] or SUBSAMPLE_STRIDE
         Dsub = depth_cp[::sub_stride, ::sub_stride]
         Rsub = _runtime['rays_cp'][::sub_stride, ::sub_stride]
+        # Limitar al 50% inferior para sesgar hacia el suelo
+        sub_h = Dsub.shape[0]
+        if sub_h >= 2:
+            Dsub = Dsub[sub_h//2:, :]
+            Rsub = Rsub[sub_h//2:, :]
         valid = Dsub > 0
         if int(cp.sum(valid)) >= MIN_INLIERS_RUN:
             Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
@@ -424,7 +429,7 @@ def get_ground() -> Optional[np.ndarray]:
                 max_iters=MAX_ITERS_RUN,
                 min_inliers=MIN_INLIERS_RUN,
                 up_axis=(0.0, -1.0, 0.0),
-                max_angle_deg=20.0,
+                max_angle_deg=45.0,
                 seed=42,
                 score_subset=4096,
                 orientation='ground',
