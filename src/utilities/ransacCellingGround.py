@@ -57,7 +57,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     2) Filtro bilateral (d=7)
     3) CLAHE (clip=2.0, tiles=24x24)
     4) Sobel (ksize=5) y magnitud de gradiente
-    5) Cierre morfológico (7x7)
+    5) Cierre morfológico (más fuerte)
+    6) Unsharp mask para realzar
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -88,44 +89,18 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     mag_u8 = mag.astype(np.uint8)
 
-    # 5. Cierre morfológico (sin recorte)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel)
+    # 5. Cierre morfológico reforzado (kernel mayor + 2 iteraciones)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-    # 6. Limpieza de manchas:
-    #    - Suavizado mediano para granos aislados
-    #    - Umbralización Otsu para segmentar
-    #    - Eliminación de componentes pequeños por área
-    median = cv2.medianBlur(closed, 3)
-    _, bw = cv2.threshold(median, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # 6. Unsharp mask para realzar detalles sin introducir manchas
+    #    sharp = closed * (1 + amount) - gauss(closed) * amount
+    amount = 1.2  # intensidad del realce; ajustable
+    blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
+    sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # Conectividad 8 para componentes; filtrar por tamaño mínimo
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(bw, connectivity=8)
-    min_area = 80  # píxeles; ajustable según escena
-    mask_clean = np.zeros_like(bw)
-    for i in range(1, num_labels):  # saltar etiqueta 0 (fondo)
-        if stats[i, cv2.CC_STAT_AREA] >= min_area:
-            mask_clean[labels == i] = 255
-
-    # 7. Realce de bordes con Canny (umbrales automáticos por sigma) y ligera dilatación
-    v = float(np.median(median))
-    sigma = 0.33
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    edges = cv2.Canny(median, lower, upper, L2gradient=True)
-
-    # Mantener solo bordes dentro de regiones limpias para evitar manchas residuales
-    edges = cv2.bitwise_and(edges, mask_clean)
-
-    # Dilatar un poco para resaltar más los bordes (sin exagerar)
-    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.dilate(edges, edge_kernel, iterations=1)
-
-    # Construir visualización final: base en gris mejorado + bordes en blanco
-    base_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-    edge_bgr = np.zeros_like(base_bgr)
-    edge_bgr[edges > 0] = (255, 255, 255)
-    processed_base = cv2.addWeighted(base_bgr, 0.7, edge_bgr, 0.9, 0)
+    # Salida en BGR (3 canales)
+    processed_base = cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
