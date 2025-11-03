@@ -20,6 +20,37 @@ _RS_PC = rs.pointcloud()
 _RS_DEC = rs.decimation_filter()
 _RS_DEC.set_option(rs.option.filter_magnitude, 2)
 
+# Cache de parámetros para extracción acelerada
+_DEPTH_SCALE = None  # metros por unidad en z16
+_PIXGRID_CACHE = {}  # clave: (W,H) -> (Ugrid, Vgrid) en GPU
+
+def _ensure_depth_scale() -> float:
+    """Obtiene y cachea depth_scale (z16 a metros) usando el pipeline global."""
+    global _DEPTH_SCALE
+    if _DEPTH_SCALE is not None:
+        return _DEPTH_SCALE
+    pipe = ensure_camera()
+    prof = pipe.get_active_profile()
+    try:
+        depth_sensor = prof.get_device().first_depth_sensor()
+        _DEPTH_SCALE = float(depth_sensor.get_depth_scale())
+    except Exception:
+        # Fallback típico de D4xx: 0.001 m (mm)
+        _DEPTH_SCALE = 0.001
+    return _DEPTH_SCALE
+
+def _gpu_pixel_grids(width: int, height: int):
+    """Devuelve mallas U,V en GPU cacheadas para (W,H)."""
+    key = (width, height)
+    grids = _PIXGRID_CACHE.get(key)
+    if grids is None:
+        u = cp.arange(width, dtype=cp.float32)
+        v = cp.arange(height, dtype=cp.float32)
+        U, V = cp.meshgrid(u, v)  # shape (H,W)
+        _PIXGRID_CACHE[key] = (U, V)
+        grids = (U, V)
+    return grids
+
 def extract_pointcloud(frames: rs.composite_frame) -> np.ndarray:
     """Extrae la nube de puntos (Nx3) del frame de RealSense con decimation.
 
@@ -39,6 +70,63 @@ def extract_pointcloud(frames: rs.composite_frame) -> np.ndarray:
     valid = verts[:, 2] > 0
     verts = verts[valid]
     return verts
+
+def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.ndarray:
+    """Extrae nube de puntos (Nx3) en GPU a partir del depth (z16) con intrínsecos.
+
+    - Usa decimation (ya configurado globalmente) sobre el depth_frame.
+    - Vectoriza la deproyección en CuPy y aplica muestreo por 'stride' previo.
+    - Retorna un arreglo CuPy (N,3) en metros con Z>0.
+    """
+    depth_frame = frames.get_depth_frame()
+    if not depth_frame:
+        return None
+
+    # Aplicar decimation (reduce HxW y acelera la deproyección)
+    try:
+        d2 = _RS_DEC.process(depth_frame)
+        depth_frame = d2.as_depth_frame()
+    except Exception:
+        pass
+
+    # Intrínsecos del frame depth actual
+    prof = depth_frame.get_profile().as_video_stream_profile()
+    intr = prof.get_intrinsics()
+    W, H = intr.width, intr.height
+    fx, fy = float(intr.fx), float(intr.fy)
+    ppx, ppy = float(intr.ppx), float(intr.ppy)
+
+    # Profundidad a GPU (en metros)
+    depth_np = np.asanyarray(depth_frame.get_data())  # uint16 (z16)
+    depth_m = cp.asarray(depth_np, dtype=cp.float32) * _ensure_depth_scale()
+
+    # Muestreo por stride previo (opcional) para acelerar
+    s = max(1, int(stride))
+    if s > 1:
+        depth_m = depth_m[::s, ::s]
+        # Ajustar intrínsecos al muestreo: ppx/ppy y focos escalan por s
+        fx /= s
+        fy /= s
+        ppx /= s
+        ppy /= s
+        W = int(np.ceil(W / s))
+        H = int(np.ceil(H / s))
+
+    # Grillas de pixeles en GPU (H,W)
+    U, V = _gpu_pixel_grids(W, H)
+
+    # Deproyección vectorizada: X = (u-ppx)*Z/fx, Y = (v-ppy)*Z/fy, Z = Z
+    Z = depth_m
+    mask = Z > 0
+    if not mask.any():
+        return cp.empty((0, 3), dtype=cp.float32)
+    u = U[mask]
+    v = V[mask]
+    z = Z[mask]
+    x = (u - ppx) * z / fx
+    y = (v - ppy) * z / fy
+    pts = cp.stack((x, y, z), axis=1).astype(cp.float32, copy=False)
+    return pts
 
 def voxel_grid(points_xyz: np.ndarray, voxel_size: float = 0.01, min_points_per_voxel: int = 3) -> np.ndarray:
     """Filtro voxel en GPU (CuPy) con reducción por segmentos (rápido).
@@ -89,13 +177,16 @@ def ensure_camera(color_w=640, color_h=480, depth_w=640, depth_h=480, fps=30):
             depth_height=depth_h,
             fps=fps,
         )
+        # Asegurar depth_scale en caché
+        _ensure_depth_scale()
     return _PIPELINE
 
 
 def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
                          voxel_size: float = 0.01,
                          min_points_per_voxel: int = 3,
-                         pipeline: Optional[rs.pipeline] = None):
+                         pipeline: Optional[rs.pipeline] = None,
+                         extract_stride: int = 1):
     """Extrae la nube de puntos, aplica filtro voxel y la retorna lista para RANSAC.
 
     - Si no se proveen frames, asegura e impulsa la inicialización de la cámara y toma un frame.
@@ -105,7 +196,8 @@ def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
         pipe = pipeline if pipeline is not None else ensure_camera()
         frames = pipe.wait_for_frames()
 
-    points_xyz = extract_pointcloud(frames)
+    # Ruta acelerada en GPU
+    points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride)
     if points_xyz is None:
         return None
     points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_points_per_voxel)
@@ -217,6 +309,7 @@ if __name__ == "__main__":
         fov_deg = 60.0
         voxel_size = 0.01
         min_pts = 3
+        extract_stride = 1  # muestreo previo a la deproyección (1=full)
         # Rendimiento / logging
         max_render_pts = 150_000
         frame_idx = 0
@@ -226,7 +319,7 @@ if __name__ == "__main__":
             t0 = time.perf_counter()
             frames = pipeline.wait_for_frames()
             t1 = time.perf_counter()
-            points_xyz = extract_pointcloud(frames)
+            points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride)
             t2 = time.perf_counter()
             points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
             t3 = time.perf_counter()
@@ -242,7 +335,7 @@ if __name__ == "__main__":
                                      fov_deg=fov_deg,
                                      max_points=max_render_pts)
             t4 = time.perf_counter()
-            hud = f"Adquisición: {(t1 - t0) * 1000:.1f} ms | Extract: {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms"
+            hud = f"Adquisición: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | stride: {extract_stride}"
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             # Log a consola (rate-limited)
             now = time.perf_counter()
@@ -252,12 +345,12 @@ if __name__ == "__main__":
                 n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else 0
                 n_extract = int(points_xyz.shape[0]) if points_xyz is not None else 0
                 print(
-                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract: {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts}",
+                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts} | stride: {extract_stride}",
                     flush=True,
                 )
                 last_log = now
             # Ayuda de teclas
-            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  9/0: render pts"
+            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  9/0: render pts  O/P: stride"
             cv2.putText(img, help1, (10, img.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180,180,180), 1, cv2.LINE_AA)
             cv2.imshow('RANSAC PointCloud', img)
             key = cv2.waitKey(1) & 0xFF
@@ -316,6 +409,10 @@ if __name__ == "__main__":
                 max_render_pts = max(20_000, int(max_render_pts * 0.8))
             elif key == ord('0'):
                 max_render_pts = min(1_000_000, int(max_render_pts * 1.25))
+            elif key in (ord('o'), ord('O')):  # aumentar stride (más rápido, menos puntos)
+                extract_stride = min(8, extract_stride + 1)
+            elif key in (ord('p'), ord('P')):  # disminuir stride (más denso)
+                extract_stride = max(1, extract_stride - 1)
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
