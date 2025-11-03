@@ -49,16 +49,17 @@ def voxel_grid(points_xyz: np.ndarray, voxel_size: float = 0.01, min_points_per_
     unique_hashes, inverse_indices = cp.unique(voxel_hash, return_inverse=True)
     n_voxels = int(unique_hashes.shape[0])
 
-    filtered_points = cp.zeros((n_voxels, 3), dtype=cp.float32)
-    # Acumular sumas por voxel
-    for i in range(3):
-        cp.scatter_add(filtered_points[:, i], inverse_indices, pts_gpu[:, i])
+    # Sumas por voxel con bincount (compatible con versiones antiguas de CuPy)
+    sums = cp.stack([
+        cp.bincount(inverse_indices, weights=pts_gpu[:, 0], minlength=n_voxels),
+        cp.bincount(inverse_indices, weights=pts_gpu[:, 1], minlength=n_voxels),
+        cp.bincount(inverse_indices, weights=pts_gpu[:, 2], minlength=n_voxels),
+    ], axis=1).astype(cp.float32)
 
-    counts = cp.zeros(n_voxels, dtype=cp.int32)
-    cp.scatter_add(counts, inverse_indices, cp.ones(int(pts_gpu.shape[0]), dtype=cp.int32))
+    counts = cp.bincount(inverse_indices, minlength=n_voxels).astype(cp.int32)
 
     # Promedio por voxel y filtro por mínimo de puntos
-    filtered_points = filtered_points / counts[:, cp.newaxis]
+    filtered_points = sums / counts[:, cp.newaxis]
     keep_mask = (counts >= int(max(1, min_points_per_voxel)))
     filtered_points = filtered_points[keep_mask]
     return cp.asnumpy(filtered_points)
