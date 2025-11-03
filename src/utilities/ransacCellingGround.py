@@ -52,16 +52,14 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con XDoG (DoG extendido) para una salida tipo boceto:
-    1) Convertir a Y (luma)
-    2) GaussianBlur con σ1≈1.0 y σ2=1.6·σ1
-    3) DoG: D = G(σ1) − τ·G(σ2), τ≈0.98
-    4) XDoG: suavizado no lineal con tanh (ϕ≈10) y umbral ε≈−0.01
-    5) Binarización (Otsu)
-    6) Apertura 3x3 y filtrado por área (< 150 px)
-    7) Cierre 3x3 (1 iter) para unir cortes pequeños
-    8) Thinning (esqueleto morfológico) para líneas de 1 px
-    9) Salida BGR tipo boceto: líneas negras sobre fondo blanco
+    Procesa la imagen RGB con el nuevo enfoque:
+    1) Blanco y negro
+    2) Filtro bilateral (d=7)
+    3) CLAHE (clip=2.0, tiles=24x24)
+    4) Sobel (ksize=5) y magnitud de gradiente
+    5) Cierre morfológico (medio)
+    6) Unsharp mask para realzar
+    7) Detección de líneas (Canny + dilatación), interior negro
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -75,69 +73,48 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
                 pass
         return
 
-    # 1. Luma Y
-    ycrcb = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2YCrCb)
-    Y = ycrcb[:, :, 0].astype(np.float32) / 255.0
+    # 1. Escala de grises (sin recorte)
+    gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
 
-    # 2. Gauss σ1 y σ2
-    sigma1 = 1.0
-    sigma2 = sigma1 * 1.6
-    G1 = cv2.GaussianBlur(Y, (0, 0), sigmaX=sigma1, sigmaY=sigma1)
-    G2 = cv2.GaussianBlur(Y, (0, 0), sigmaX=sigma2, sigmaY=sigma2)
+    # 2. Filtro bilateral (sin recorte)
+    bilateral = cv2.bilateralFilter(gray, d=7, sigmaColor=75, sigmaSpace=75)
 
-    # 3. DoG: D = G1 - tau*G2
-    tau = 0.98
-    D = G1 - tau * G2
+    # 3. CLAHE antes de Sobel (sin recorte)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(24, 24))
+    enhanced = clahe.apply(bilateral)
 
-    # 4. XDoG: no lineal
-    eps = -0.01
-    phi = 10.0
-    X = np.ones_like(D, dtype=np.float32)
-    mask = D < eps
-    X[mask] = 1.0 + np.tanh(phi * (D[mask] - eps))
-    X = np.clip(X, 0.0, 1.0)
+    # 4. Gradiente Sobel (sin recorte)
+    gx = cv2.Sobel(enhanced, cv2.CV_64F, 1, 0, ksize=5)
+    gy = cv2.Sobel(enhanced, cv2.CV_64F, 0, 1, ksize=5)
+    mag = cv2.magnitude(gx, gy)
+    mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    mag_u8 = mag.astype(np.uint8)
 
-    # 5. Binarización (Otsu) sobre invertido para líneas oscuras
-    X_u8 = (X * 255.0).astype(np.uint8)
-    _, edges = cv2.threshold(255 - X_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # 5. Cierre morfológico medio (kernel 9x9, 1 iteración)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-    # 6. Apertura y filtrado por área
-    k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, k, iterations=1)
-    # Filtrado por área (elimina componentes muy pequeños)
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(edges, connectivity=8)
-    min_area = 150
-    keep = np.zeros_like(edges)
-    for i in range(1, num_labels):
-        if stats[i, cv2.CC_STAT_AREA] >= min_area:
-            keep[labels == i] = 255
-    edges = keep
+    # 6. Unsharp mask para realzar detalles sin introducir manchas
+    #    sharp = closed * (1 + amount) - gauss(closed) * amount
+    amount = 4.0  # intensidad del realce; ajustable (más fuerte)
+    blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
+    sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # 7. Cierre para unir cortes pequeños
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, k, iterations=1)
+    # Salida base en BGR (3 canales)
+    processed_base = cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
 
-    # 8. Thinning (esqueleto morfológico)
-    def _morph_skeleton(bin_img: np.ndarray) -> np.ndarray:
-        bin_img = (bin_img > 0).astype(np.uint8) * 255
-        skel = np.zeros_like(bin_img)
-        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-        done = False
-        img_copy = bin_img.copy()
-        while not done:
-            eroded = cv2.erode(img_copy, element)
-            temp = cv2.dilate(eroded, element)
-            temp = cv2.subtract(img_copy, temp)
-            skel = cv2.bitwise_or(skel, temp)
-            img_copy = eroded
-            if cv2.countNonZero(img_copy) == 0:
-                done = True
-        return skel
+    # 7. Detección de líneas: Canny + dilatación; interior en negro
+    v = float(np.median(sharp))
+    sigma = 0.33
+    lower = int(max(0, (1.0 - sigma) * v))
+    upper = int(min(255, (1.0 + sigma) * v))
+    edges = cv2.Canny(sharp, lower, upper, L2gradient=True)
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, edge_kernel, iterations=1)
 
-    edges_thin = _morph_skeleton(edges)
-
-    # 9. Salida tipo boceto invertida: fondo negro, líneas blancas
-    processed_base = np.zeros((edges_thin.shape[0], edges_thin.shape[1], 3), dtype=np.uint8)
-    processed_base[edges_thin > 0] = (255, 255, 255)
+    lines_bgr = np.zeros_like(processed_base)
+    lines_bgr[edges > 0] = (255, 255, 255)
+    processed_base = lines_bgr
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
