@@ -52,14 +52,14 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con el nuevo enfoque:
+    Procesa la imagen RGB con un pipeline ligero para resaltar bordes como líneas:
     1) Blanco y negro
-    2) Filtro bilateral (d=7)
-    3) CLAHE (clip=2.0, tiles=24x24)
-    4) Sobel (ksize=5) y magnitud de gradiente
-    5) Cierre morfológico (medio)
-    6) Unsharp mask para realzar
-    7) Detección de líneas (Canny + dilatación), interior negro
+    2) CLAHE (clip=2.0, tiles=24x24)
+    3) Suavizado Gauss (sigma≈1.0)
+    4) Laplaciano (ksize=3) en CV_16S + convertScaleAbs(|·|)
+    5) Umbral (Otsu) para máscara de bordes
+    6) Dilatación 1× (3×3) para engrosar
+    7) Salida BGR: líneas blancas, fondo negro
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -76,45 +76,27 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 1. Escala de grises (sin recorte)
     gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
 
-    # 2. Filtro bilateral (sin recorte)
-    bilateral = cv2.bilateralFilter(gray, d=7, sigmaColor=75, sigmaSpace=75)
-
-    # 3. CLAHE antes de Sobel (sin recorte)
+    # 2. CLAHE sobre gris (sin recorte)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(24, 24))
-    enhanced = clahe.apply(bilateral)
+    enhanced = clahe.apply(gray)
 
-    # 4. Gradiente Sobel (sin recorte)
-    gx = cv2.Sobel(enhanced, cv2.CV_64F, 1, 0, ksize=5)
-    gy = cv2.Sobel(enhanced, cv2.CV_64F, 0, 1, ksize=5)
-    mag = cv2.magnitude(gx, gy)
-    mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    mag_u8 = mag.astype(np.uint8)
+    # 3. Suavizado Gauss ligero para estabilizar el Laplaciano
+    gauss = cv2.GaussianBlur(enhanced, (0, 0), sigmaX=1.0, sigmaY=1.0)
 
-    # 5. Cierre morfológico medio (kernel 9x9, 1 iteración)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
+    # 4. Laplaciano (ksize=3) en 16 bits con magnitud absoluta
+    lap = cv2.Laplacian(gauss, cv2.CV_16S, ksize=3)
+    lap_abs = cv2.convertScaleAbs(lap)
 
-    # 6. Unsharp mask para realzar detalles sin introducir manchas
-    #    sharp = closed * (1 + amount) - gauss(closed) * amount
-    amount = 4.0  # intensidad del realce; ajustable (más fuerte)
-    blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
-    sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
+    # 5. Umbral Otsu para extraer bordes
+    _, edges = cv2.threshold(lap_abs, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # Salida base en BGR (3 canales)
-    processed_base = cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
-
-    # 7. Detección de líneas: Canny + dilatación; interior en negro
-    v = float(np.median(sharp))
-    sigma = 0.33
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    edges = cv2.Canny(sharp, lower, upper, L2gradient=True)
+    # 6. Dilatar una vez para engrosar líneas
     edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     edges = cv2.dilate(edges, edge_kernel, iterations=1)
 
-    lines_bgr = np.zeros_like(processed_base)
-    lines_bgr[edges > 0] = (255, 255, 255)
-    processed_base = lines_bgr
+    # 7. Salida BGR: líneas blancas (255), fondo negro
+    processed_base = np.zeros((edges.shape[0], edges.shape[1], 3), dtype=np.uint8)
+    processed_base[edges > 0] = (255, 255, 255)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
