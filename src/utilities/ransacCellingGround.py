@@ -11,7 +11,7 @@ from viewCamera import (
 import time
 import cupy as cp
 import threading
-from typing import Optional, Tuple
+from typing import Optional
 
 # (Alineación GPU Depth->Color movida a viewCamera.make_depth_to_color_aligner)
 
@@ -92,8 +92,40 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel)
 
-    # Salidas (sin recorte)
-    processed_base = cv2.cvtColor(closed, cv2.COLOR_GRAY2BGR)
+    # 6. Limpieza de manchas:
+    #    - Suavizado mediano para granos aislados
+    #    - Umbralización Otsu para segmentar
+    #    - Eliminación de componentes pequeños por área
+    median = cv2.medianBlur(closed, 3)
+    _, bw = cv2.threshold(median, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Conectividad 8 para componentes; filtrar por tamaño mínimo
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(bw, connectivity=8)
+    min_area = 80  # píxeles; ajustable según escena
+    mask_clean = np.zeros_like(bw)
+    for i in range(1, num_labels):  # saltar etiqueta 0 (fondo)
+        if stats[i, cv2.CC_STAT_AREA] >= min_area:
+            mask_clean[labels == i] = 255
+
+    # 7. Realce de bordes con Canny (umbrales automáticos por sigma) y ligera dilatación
+    v = float(np.median(median))
+    sigma = 0.33
+    lower = int(max(0, (1.0 - sigma) * v))
+    upper = int(min(255, (1.0 + sigma) * v))
+    edges = cv2.Canny(median, lower, upper, L2gradient=True)
+
+    # Mantener solo bordes dentro de regiones limpias para evitar manchas residuales
+    edges = cv2.bitwise_and(edges, mask_clean)
+
+    # Dilatar un poco para resaltar más los bordes (sin exagerar)
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, edge_kernel, iterations=1)
+
+    # Construir visualización final: base en gris mejorado + bordes en blanco
+    base_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+    edge_bgr = np.zeros_like(base_bgr)
+    edge_bgr[edges > 0] = (255, 255, 255)
+    processed_base = cv2.addWeighted(base_bgr, 0.7, edge_bgr, 0.9, 0)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
@@ -424,8 +456,7 @@ def _lazy_init():
 def get_ground() -> Optional[np.ndarray]:
     """
     Obtiene un frame, detecta el plano de suelo (RANSAC) y devuelve la imagen RGB
-    con la máscara del suelo pintada en verde. Dentro de la función se imprime
-    el retardo (tiempo) de RANSAC en milisegundos cuando se ejecuta.
+    con la máscara del suelo pintada en verde.
 
     Returns:
         np.ndarray | None: imagen BGR con el suelo pintado o None si no hay frame.
@@ -467,7 +498,6 @@ def get_ground() -> Optional[np.ndarray]:
 
     # Decidir si ejecutar RANSAC ahora (y medir retardo)
     ran_now = (_runtime['frame_idx'] % GROUND_EVERY) == 1 or (_runtime['last_n_cp'] is None)
-    ransac_ms = 0.0
     if ran_now:
         # Submuestreo para RANSAC
         sub_stride = _runtime['subsample_stride'] or SUBSAMPLE_STRIDE
@@ -483,7 +513,6 @@ def get_ground() -> Optional[np.ndarray]:
             Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
             Psub = Psub[valid.reshape(-1)]
 
-            t0 = time.perf_counter()
             res = ransac_plane_gpu(
                 Psub,
                 dist_thresh=DIST_THRESH_RUN,
@@ -498,8 +527,6 @@ def get_ground() -> Optional[np.ndarray]:
                 early_stop_ratio=0.92,
                 batch_size=256,
             )
-            ransac_ms = (time.perf_counter() - t0) * 1000.0
-            print(f"Retardo RANSAC: {ransac_ms:.1f} ms")
 
             if res is not None:
                 _runtime['last_n_cp'] = res['n']
@@ -510,7 +537,7 @@ def get_ground() -> Optional[np.ndarray]:
                 _runtime['last_d_cp'] = None
         else:
             # Datos insuficientes, no se ejecuta RANSAC este frame
-            print("Retardo RANSAC: 0.0 ms (datos insuficientes)")
+            pass
 
     # Construir máscara del mejor plano actual (si existe)
     H, W = _runtime['H'], _runtime['W']
