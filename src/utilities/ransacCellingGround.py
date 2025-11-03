@@ -102,14 +102,20 @@ def visualizar_resultado():
 
             # Calcular plano suelo usando RANSAC
             ground_mask = None
+            puntos_ransac = None
             if pts_gpu is not None and pts_gpu.shape[0] > 0:
-                try:
-                    mask = ransac_plane_gpu(pts_gpu, dist_thresh=0.02, max_iters=1000, min_inliers=500)
-                    if mask is not None:
-                        ground_mask = cp.asnumpy(mask).astype(np.uint8)
-                except Exception:
-                    ground_mask = None
+                mask = ransac_plane_gpu(pts_gpu, dist_thresh=0.02, max_iters=1000, min_inliers=500)
+                if mask is not None:
+                    ground_mask = cp.asnumpy(mask).astype(np.uint8)
+                    puntos_ransac = cp.asnumpy(pts_gpu)[mask.get()]
             t4 = time.perf_counter()
+
+            # Visualizar nube de puntos frontal del resultado RANSAC
+            if puntos_ransac is not None and puntos_ransac.shape[0] > 0:
+                # Visualización frontal: yaw=0, pitch=0, roll=0
+                from viewCamera import render_pointcloud
+                nube_img = render_pointcloud(puntos_ransac, out_size=(480, 480), yaw_deg=0.0, pitch_deg=0.0, roll_deg=0.0)
+                cv2.imshow('Nube RANSAC Frontal', nube_img)
 
             # Pintar máscara sobre imagen
             img = pintar_mascara_suelo(rgb_image, ground_mask) if ground_mask is not None else rgb_image
