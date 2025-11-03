@@ -305,9 +305,9 @@ if __name__ == "__main__":
             t0 = time.perf_counter()
             frames = pipeline.wait_for_frames()
             t1 = time.perf_counter()
-            points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride, skip_top_ratio=skip_top_ratio)
+            points_voxel = extract_pointcloud_gpu(frames, stride=extract_stride, skip_top_ratio=skip_top_ratio)
             t2 = time.perf_counter()
-            points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
+            #points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
             t3 = time.perf_counter()
             frame_idx += 1
             
