@@ -124,8 +124,8 @@ def compute_rays_from_intrinsics(intr) -> np.ndarray:
 #   1 = sin submuestreo (máxima calidad), 2 = 1/4 de píxeles (~4x más rápido), etc.
 # - ALIGN_MAX_DEPTH_M: descarta puntos más lejanos que este valor (en metros) para reducir trabajo.
 #   Usa None o <=0 para desactivar.
-ALIGN_DOWNSAMPLE: int = 1
-ALIGN_MAX_DEPTH_M: Optional[float] = None
+ALIGN_DOWNSAMPLE: int = 2
+ALIGN_MAX_DEPTH_M: Optional[float] = 6
 
 # Kernel CUDA para alineación (idéntico al usado previamente)
 _ALIGN_KERNEL_SRC = r"""
