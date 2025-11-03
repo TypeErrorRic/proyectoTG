@@ -119,8 +119,8 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.nd
     return pts
 
 def voxel_grid(points_xyz: np.ndarray,
-               voxel_size: float = 0.008,
-               min_points_per_voxel: int = 2) -> np.ndarray:
+               voxel_size: float = 0.012,
+               min_points_per_voxel: int = 1) -> np.ndarray:
     """Voxel super-rápido en GPU para denoise y preservación de planos.
 
     - Usa hashing de vóxeles y cp.unique para elegir 1 representante por vóxel.
@@ -279,8 +279,8 @@ if __name__ == "__main__":
         tx, ty = 0.0, 0.0
         tz = None  # auto al inicio
         fov_deg = 60.0
-        voxel_size = 0.006
-        min_pts = 2
+        voxel_size = 0.012
+        min_pts = 1
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         # Rendimiento / logging
         max_render_pts = 150_000
