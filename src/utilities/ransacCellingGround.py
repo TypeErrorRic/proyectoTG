@@ -258,8 +258,8 @@ def ransac_plane_gpu(points,
         # Early-stop por calidad del modelo (en la submuestra)
         if score_subset and batch_best_count >= int(early_stop_ratio * int(score_subset)):
             break
-        # Time budget (si aplica), garantiza al menos 1-2 lotes
-        if time_budget_ms is not None and processed_batches >= 2:
+        # Time budget (si aplica): cortar si se excede, sin esperar a 2 lotes
+        if time_budget_ms is not None:
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             if elapsed_ms >= time_budget_ms:
                 break
@@ -431,10 +431,11 @@ def get_ground() -> Optional[np.ndarray]:
                 up_axis=(0.0, -1.0, 0.0),
                 max_angle_deg=45.0,
                 seed=42,
-                score_subset=4096,
+                score_subset=2048,
                 orientation='ground',
                 time_budget_ms=RANSAC_TIME_BUDGET_MS,
                 early_stop_ratio=0.92,
+                batch_size=256,
             )
             ransac_ms = (time.perf_counter() - t0) * 1000.0
             print(f"Retardo RANSAC: {ransac_ms:.1f} ms")
