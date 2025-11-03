@@ -62,7 +62,8 @@ def voxel_grid(points_xyz: np.ndarray, voxel_size: float = 0.01, min_points_per_
     filtered_points = sums / counts[:, cp.newaxis]
     keep_mask = (counts >= int(max(1, min_points_per_voxel)))
     filtered_points = filtered_points[keep_mask]
-    return cp.asnumpy(filtered_points)
+    # Mantener en GPU para evitar ida/vuelta CPU<->GPU
+    return filtered_points
 
 def ensure_camera(color_w=640, color_h=480, depth_w=640, depth_h=480, fps=30):
     """Asegura que haya un pipeline inicializado (global)."""
@@ -105,7 +106,8 @@ def render_pointcloud(points_xyz: np.ndarray,
                       tz: Optional[float] = None,
                       tx: float = 0.0,
                       ty: float = 0.0,
-                      fov_deg: float = 60.0) -> np.ndarray:
+                      fov_deg: float = 60.0,
+                      max_points: int = 150_000) -> np.ndarray:
     """Renderiza la nube de puntos en 2D (sin colores) usando GPU (CuPy).
 
     Permite navegar con parámetros de cámara: yaw/pitch/roll (grados), traslación (tx, ty, tz) y FOV.
@@ -135,13 +137,20 @@ def render_pointcloud(points_xyz: np.ndarray,
     R = (Rz @ Ry @ Rx).astype(np.float32)
 
     pts = cp.asarray(points_xyz, dtype=cp.float32)
-    center = cp.median(pts, axis=0)
+    # Submuestreo para render si hay demasiados puntos
+    N = int(pts.shape[0])
+    if N > max_points:
+        idx = cp.random.randint(0, N, size=(max_points,), dtype=cp.int32)
+        pts = pts[idx]
+    # Media en lugar de mediana (más rápido)
+    center = cp.mean(pts, axis=0)
     pts_centered = pts - center
     R_cp = cp.asarray(R)
     pts_rot = pts_centered @ R_cp.T
     z = pts_rot[:, 2]
     if tz is None:
-        tz = max(0.5, -float(cp.percentile(z, 5)) + 1.5)
+        # Aproximación rápida: usa min en vez de percentil (ahorra cómputo)
+        tz = max(0.5, -float(cp.min(z)) + 1.5)
     pts_cam = pts_rot + cp.asarray([tx, ty, tz], dtype=cp.float32)
     f = 0.5 * H / np.tan(np.deg2rad(fov_deg) * 0.5)
     Z = cp.clip(pts_cam[:, 2], 1e-3, None)
@@ -196,6 +205,12 @@ if __name__ == "__main__":
         fov_deg = 60.0
         voxel_size = 0.01
         min_pts = 3
+        # Rendimiento / logging
+        ransac_every = 1
+        max_render_pts = 150_000
+        frame_idx = 0
+        last_log = time.perf_counter()
+        log_interval = 1.0  # segundos
         while True:
             t0 = time.perf_counter()
             frames = pipeline.wait_for_frames()
@@ -203,7 +218,8 @@ if __name__ == "__main__":
             points_voxel = get_voxel_for_ransac(frames, voxel_size=voxel_size, min_points_per_voxel=min_pts)
             t2 = time.perf_counter()
             ransac_result = None
-            if points_voxel is not None:
+            frame_idx += 1
+            if points_voxel is not None and (frame_idx % ransac_every == 0):
                 ransac_result = ransacCellingGround.ransac_plane_gpu(points_voxel)
             t3 = time.perf_counter()
             img = render_pointcloud(points_voxel,
@@ -214,15 +230,28 @@ if __name__ == "__main__":
                                      tz=tz,
                                      tx=tx,
                                      ty=ty,
-                                     fov_deg=fov_deg)
+                                     fov_deg=fov_deg,
+                                     max_points=max_render_pts)
             t4 = time.perf_counter()
             hud = f"Adquisición: {(t1 - t0) * 1000:.1f} ms | Voxel: {(t2 - t1) * 1000:.1f} ms | RANSAC: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms"
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             if ransac_result is not None:
                 hud2 = f"RANSAC inliers: {int(ransac_result['num_inliers'])}"
                 cv2.putText(img, hud2, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2, cv2.LINE_AA)
+            # Log a consola (rate-limited)
+            now = time.perf_counter()
+            if (now - last_log) >= log_interval:
+                total_ms = (t4 - t0) * 1000.0
+                fps = 1000.0 / max(total_ms, 1e-3)
+                n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else 0
+                inliers = int(ransac_result['num_inliers']) if ransac_result is not None else -1
+                print(
+                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Voxel: {(t2 - t1) * 1000:.1f} ms | RANSAC: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(voxel): {n_voxel} | inliers: {inliers} | r_every: {ransac_every} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts}",
+                    flush=True,
+                )
+                last_log = now
             # Ayuda de teclas
-            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts"
+            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  N/M: RANSAC cada N  9/0: render pts"
             cv2.putText(img, help1, (10, img.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180,180,180), 1, cv2.LINE_AA)
             cv2.imshow('RANSAC PointCloud', img)
             key = cv2.waitKey(1) & 0xFF
@@ -232,6 +261,13 @@ if __name__ == "__main__":
             step_ang = 3.0
             step_pan = 0.05
             step_fov = 2.0
+            # Estado persistente adicional
+            if 'ransac_every' not in locals():
+                ransac_every = 1
+            if 'max_render_pts' not in locals():
+                max_render_pts = 150_000
+            if 'frame_idx' not in locals():
+                frame_idx = 0
             if key in (ord('w'), ord('W')):
                 pitch_deg += step_ang
             elif key in (ord('s'), ord('S')):
@@ -272,6 +308,14 @@ if __name__ == "__main__":
                 min_pts = max(1, min_pts - 1)
             elif key == ord('\''):
                 min_pts = min(20, min_pts + 1)
+            elif key in (ord('n'), ord('N')):
+                ransac_every = max(1, int(ransac_every - 1))
+            elif key in (ord('m'), ord('M')):
+                ransac_every = min(60, int(ransac_every + 1))
+            elif key == ord('9'):
+                max_render_pts = max(20_000, int(max_render_pts * 0.8))
+            elif key == ord('0'):
+                max_render_pts = min(1_000_000, int(max_render_pts * 1.25))
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
