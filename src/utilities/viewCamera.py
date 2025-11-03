@@ -117,11 +117,26 @@ def compute_rays_from_intrinsics(intr) -> np.ndarray:
 
 def precompute_rays_from_pipeline(pipeline: rs.pipeline) -> Tuple[np.ndarray, int, int]:
     """
-    Helper para obtener los rayos (H,W,3) desde el pipeline activo.
-    Retorna (rays_np, H, W).
+    Helper para obtener los rayos (H,W,3) desde el pipeline activo usando
+    el stream de profundidad por defecto. Retorna (rays_np, H, W).
     """
     depth_profile = pipeline.get_active_profile().get_stream(rs.stream.depth).as_video_stream_profile()
     intr = depth_profile.get_intrinsics()
+    rays_np = compute_rays_from_intrinsics(intr)
+    H, W = intr.height, intr.width
+    return rays_np, H, W
+
+
+def precompute_rays_for_stream(pipeline: rs.pipeline, stream: rs.stream = rs.stream.depth) -> Tuple[np.ndarray, int, int]:
+    """
+    Igual que precompute_rays_from_pipeline, pero permitiendo elegir el stream
+    (p.ej. rs.stream.color) para que los rayos estén en el mismo espacio de píxeles
+    que el frame con el que se quiera correlacionar por píxel.
+
+    Retorna (rays_np, H, W) según las intrínsecas del stream indicado.
+    """
+    prof = pipeline.get_active_profile().get_stream(stream).as_video_stream_profile()
+    intr = prof.get_intrinsics()
     rays_np = compute_rays_from_intrinsics(intr)
     H, W = intr.height, intr.width
     return rays_np, H, W
@@ -135,6 +150,12 @@ def init_camera(
     depth_width: int = 640,
     depth_height: int = 480,
     fps: int = 30,
+    stride: int = 1,
+    yaw: float = -45.0,
+    pitch: float = 25.0,
+    roll: float = 0.0,
+    fov: float = 60.0,
+    point_size: int = 1,
 ):
     """
     Inicializa el pipeline de Intel RealSense con streams de color y profundidad.
@@ -143,9 +164,14 @@ def init_camera(
       - color_width/height: resolución para el stream de color.
       - depth_width/height: resolución para el stream de profundidad.
       - fps: cuadros por segundo para ambos streams.
+      - stride: submuestreo para la nube de puntos (1=máxima densidad, >1=menos puntos).
+      - yaw/pitch/roll: ángulos iniciales de visualización de la nube de puntos (grados).
+      - fov: campo de visión para la proyección de la nube (grados).
+      - point_size: tamaño de los puntos en el render (píxeles).
 
     Retorna:
       - pipeline inicializado y en ejecución.
+      - diccionario con parámetros de configuración.
     """
     pipeline = rs.pipeline()
     config = rs.config()
@@ -156,7 +182,18 @@ def init_camera(
 
     pipeline.start(config)
     _depth_scale = get_depth_scale(pipeline)
-    return pipeline
+    
+    # Parámetros de procesamiento
+    params = {
+        'stride': stride,
+        'yaw': yaw,
+        'pitch': pitch,
+        'roll': roll,
+        'fov': fov,
+        'point_size': point_size,
+    }
+    
+    return pipeline, params
 
 # =========================================================
 # ============  M A I N   D E   V I S U A L I Z A C I Ó N
@@ -164,15 +201,36 @@ def init_camera(
 
 if __name__ == "__main__":
     from helpers import *
-    pipeline = init_camera(640, 480, 640, 480, 30)
+    
+    # Configuración centralizada en init_camera
+    pipeline, params = init_camera(
+        color_width=640,
+        color_height=480,
+        depth_width=640,
+        depth_height=480,
+        fps=30,
+        stride=2,        # submuestreo: 1=máxima densidad, 2-4=menos puntos
+        yaw=-45.0,       # rotación horizontal
+        pitch=25.0,      # rotación vertical
+        roll=0.0,        # rotación en eje Z
+        fov=60.0,        # campo de visión
+        point_size=1     # tamaño de puntos en render
+    )
+    
     print("Demo: Nube de puntos desde rayos y profundidad (ESC para salir)")
     try:
         rays_np, H, W = precompute_rays_from_pipeline(pipeline)
-        stride_demo = 3  # submuestreo para la nube (1=máxima densidad)
+        
+        # Extraer parámetros de configuración
+        stride_demo = params['stride']
+        yaw = params['yaw']
+        pitch = params['pitch']
+        roll = params['roll']
+        fov = params['fov']
+        point_size = params['point_size']
+        
         cv2.namedWindow('RGB', cv2.WINDOW_NORMAL)
         cv2.namedWindow('PointCloud', cv2.WINDOW_NORMAL)
-        yaw, pitch, roll = -45.0, 25.0, 0.0
-        fov, point_size = 60.0, 1
         
         # Variables para medición de tiempos
         frame_count = 0

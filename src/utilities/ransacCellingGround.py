@@ -1,7 +1,14 @@
 import math
 import numpy as np
 import cv2
-from viewCamera import init_camera, extract_rgb, extract_depth_meters, precompute_rays_from_pipeline
+import pyrealsense2 as rs
+from viewCamera import (
+    init_camera,
+    extract_rgb,
+    extract_depth_meters,
+    precompute_rays_from_pipeline,
+    precompute_rays_for_stream,
+)
 import time
 import cupy as cp
 import threading
@@ -82,7 +89,8 @@ def ransac_plane_gpu(points,
                      seed=42,
                      batch_size=None,
                      point_chunk=None,
-                     score_subset=None):
+                     score_subset=None,
+                     orientation: str = 'any'):
     """
     RANSAC de un plano 'horizontal' (suelo/techo) optimizado para GPU.
 
@@ -101,8 +109,10 @@ def ransac_plane_gpu(points,
     - seed: semilla RNG
     - batch_size: tamaño de lote de modelos (auto)
     - point_chunk: tamaño de bloque de puntos para contar inliers (auto)
-    - score_subset: número de puntos para puntuar modelos por lote (luego se
+        - score_subset: número de puntos para puntuar modelos por lote (luego se
       valida el mejor con TODOS los puntos). Reduce K*N en Jetson.
+        - orientation: 'any' (suelo o techo), 'ground' (preferir normal opuesta a up),
+            'ceiling' (normal alineada con up)
 
     Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
     """
@@ -180,9 +190,17 @@ def ransac_plane_gpu(points,
         n_unit = cp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0)
         d = -cp.sum(n_unit * a, axis=1)
 
-        # 3) Filtro de orientación mediante coseno
-        cosang = cp.abs(n_unit @ up)  # (K,)
-        valid = cp.logical_and(valid, cosang >= cos_thresh)
+        # 3) Filtro de orientación mediante coseno con preferencia opcional
+        dot_up = n_unit @ up  # (K,)
+        if orientation == 'ground':
+            # normal opuesta a up (~-1)
+            cond = dot_up <= -cos_thresh
+        elif orientation == 'ceiling':
+            # normal alineada con up (~+1)
+            cond = dot_up >= cos_thresh
+        else:  # 'any'
+            cond = cp.abs(dot_up) >= cos_thresh
+        valid = cp.logical_and(valid, cond)
 
         # 4) Conteo de inliers sobre SUBMUESTRA para elegir mejor modelo del lote
         #    Mucho más eficiente en Jetson que KxN directo.
@@ -284,10 +302,14 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base=None):
 if __name__ == "__main__":
     # Visualiza la imagen RGB con el suelo segmentado (en vivo)
     print("Inicializando cámara RealSense…")
-    pipeline = init_camera(640, 480, 640, 480, 30)
+    pipeline, _params = init_camera(640, 480, 640, 480, 30)
 
-    # Precomputar rayos (una sola vez) usando utilidades de viewCamera
-    rays_np, H, W = precompute_rays_from_pipeline(pipeline)
+    # Alinear DEPTH al espacio de COLOR para correlación por píxel exacta
+    align_to_color = rs.align(rs.stream.color)
+
+    # Precomputar rayos (una sola vez) en el espacio de COLOR para que (u,v)
+    # del RGB y el DEPTH alineado correspondan al mismo rayo
+    rays_np, H, W = precompute_rays_for_stream(pipeline, rs.stream.color)
     rays_cp = cp.asarray(rays_np)  # (H,W,3)
 
     # Parámetros runtime para mantener FPS
@@ -309,10 +331,11 @@ if __name__ == "__main__":
         rgb_thread = None
         while True:
             frames = pipeline.wait_for_frames()
+            aligned_frames = align_to_color.process(frames)
 
             # Extraer RGB y Depth (m) de forma ligera
-            rgb_image = extract_rgb(frames)
-            depth_m = extract_depth_meters(frames)
+            rgb_image = extract_rgb(aligned_frames)
+            depth_m = extract_depth_meters(aligned_frames)
             if rgb_image is None or depth_m is None:
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:
@@ -348,10 +371,15 @@ if __name__ == "__main__":
                     Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
                     Psub = Psub[valid.reshape(-1)]
                     Psub_np = Psub
-                    res = ransac_plane_gpu(Psub_np, dist_thresh=dist_thresh_run, max_iters=max_iters_run,
-                                           min_inliers=min_inliers_run, up_axis=(0.0, -1.0, 0.0),
-                                           max_angle_deg=20.0, seed=42,
-                                           score_subset=8192)
+                    res = ransac_plane_gpu(Psub_np,
+                                           dist_thresh=dist_thresh_run,
+                                           max_iters=max_iters_run,
+                                           min_inliers=min_inliers_run,
+                                           up_axis=(0.0, -1.0, 0.0),
+                                           max_angle_deg=20.0,
+                                           seed=42,
+                                           score_subset=8192,
+                                           orientation='ground')
                     if res is not None:
                         last_n_cp = res['n']
                         last_d_cp = res['d']
