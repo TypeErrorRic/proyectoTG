@@ -52,12 +52,13 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con un pipeline ligero (Sobel + unsharp para reforzar bordes):
-    1) Blanco y negro
-    2) CLAHE (clip=2.0, tiles=24x24)
-    3) Unsharp (ligero) para realzar bordes
-    4) Sobel (ksize=5) en X e Y (gradiente más fuerte)
-    5) Magnitud normalizada y salida BGR
+    Procesa la imagen RGB con YCrCb + Canny + morfología (rápido):
+    1) Convertir a YCrCb y tomar el canal Y
+    2) GaussianBlur 3x3 (sigma≈0.9)
+    3) Canny (low=60, high=180, apertureSize=3, L2gradient=True)
+    4) Apertura morfológica 3x3 (1 iteración)
+    5) Cierre morfológico 3x3 (1 iteración)
+    6) Salida BGR: líneas blancas, fondo negro
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -71,27 +72,26 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
                 pass
         return
 
-    # 1. Escala de grises (sin recorte)
-    gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+    # 1. Convertir a Y (luma) de YCrCb
+    ycrcb = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2YCrCb)
+    Y = ycrcb[:, :, 0]
 
-    # 2. CLAHE sobre gris (sin recorte)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(24, 24))
-    enhanced = clahe.apply(gray)
+    # 2. GaussianBlur 3x3 (sigma ~0.9)
+    Y_blur = cv2.GaussianBlur(Y, (3, 3), sigmaX=0.9, sigmaY=0.9)
 
-    # 3. Unsharp mask ligero para resaltar bordes antes de Sobel
-    #    sharp = enhanced * (1 + amount) - gauss(enhanced) * amount
-    amount = 3.0  # realce fuerte
-    blur_us = cv2.GaussianBlur(enhanced, (0, 0), sigmaX=1.0, sigmaY=1.0)
-    sharp_enh = cv2.addWeighted(enhanced, 1.0 + amount, blur_us, -amount, 0)
+    # 3. Canny con umbrales fijos, L2, aperture 3
+    edges = cv2.Canny(Y_blur, 60, 180, apertureSize=3, L2gradient=True)
 
-    # 4. Gradientes Sobel en X e Y (ksize=5) para gradiente más fuerte
-    gx = cv2.Sobel(sharp_enh, cv2.CV_32F, 1, 0, ksize=5)
-    gy = cv2.Sobel(sharp_enh, cv2.CV_32F, 0, 1, ksize=5)
-    mag = cv2.magnitude(gx, gy)
-    mag_u8 = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    # 4. Apertura 3x3 para limpiar puntos
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, k, iterations=1)
 
-    # 5. Salida BGR directa de la magnitud de Sobel
-    processed_base = cv2.cvtColor(mag_u8, cv2.COLOR_GRAY2BGR)
+    # 5. Cierre 3x3 para unir pequeños cortes
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, k, iterations=1)
+
+    # 6. Salida BGR: líneas blancas sobre fondo negro
+    processed_base = np.zeros((edges.shape[0], edges.shape[1], 3), dtype=np.uint8)
+    processed_base[edges > 0] = (255, 255, 255)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
