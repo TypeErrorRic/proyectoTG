@@ -13,8 +13,6 @@ import cv2
 import time
 import cupy as cp  # Requiere GPU/CUDA; no se agrega fallback a CPU por solicitud
 
-# Pipeline global opcional para asegurar inicialización desde utilidades
-_PIPELINE = None
 # Reutilizar objetos de RealSense para evitar costos por frame
 _RS_PC = rs.pointcloud()
 _RS_DEC = rs.decimation_filter()
@@ -25,19 +23,22 @@ _DEPTH_SCALE = None  # metros por unidad en z16
 _PIXGRID_CACHE = {}  # clave: (W,H) -> (Ugrid, Vgrid) en GPU
 
 def _ensure_depth_scale() -> float:
-    """Obtiene y cachea depth_scale (z16 a metros) usando el pipeline global."""
+    """Devuelve el depth_scale cacheado si existe; si no, retorna 0.001 por defecto.
+
+    Importante: no intenta inicializar la cámara para evitar conflictos con pipelines existentes.
+    """
+    return _DEPTH_SCALE if _DEPTH_SCALE is not None else 0.001
+
+def _update_depth_scale_from_profile(video_profile: rs.video_stream_profile):
+    """Actualiza el depth_scale global a partir de un perfil de stream de profundidad."""
     global _DEPTH_SCALE
-    if _DEPTH_SCALE is not None:
-        return _DEPTH_SCALE
-    pipe = ensure_camera()
-    prof = pipe.get_active_profile()
     try:
-        depth_sensor = prof.get_device().first_depth_sensor()
+        depth_sensor = video_profile.get_device().first_depth_sensor()
         _DEPTH_SCALE = float(depth_sensor.get_depth_scale())
     except Exception:
-        # Fallback típico de D4xx: 0.001 m (mm)
-        _DEPTH_SCALE = 0.001
-    return _DEPTH_SCALE
+        # Mantener valor actual o default si falla
+        if _DEPTH_SCALE is None:
+            _DEPTH_SCALE = 0.001
 
 def _gpu_pixel_grids(width: int, height: int):
     """Devuelve mallas U,V en GPU cacheadas para (W,H)."""
@@ -92,13 +93,15 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.nd
     # Intrínsecos del frame depth actual
     prof = depth_frame.get_profile().as_video_stream_profile()
     intr = prof.get_intrinsics()
+    # Asegurar depth_scale desde el perfil actual (sin iniciar nuevos pipelines)
+    _update_depth_scale_from_profile(prof)
     W, H = intr.width, intr.height
     fx, fy = float(intr.fx), float(intr.fy)
     ppx, ppy = float(intr.ppx), float(intr.ppy)
 
     # Profundidad a GPU (en metros)
     depth_np = np.asanyarray(depth_frame.get_data())  # uint16 (z16)
-    depth_m = cp.asarray(depth_np, dtype=cp.float32) * _ensure_depth_scale()
+    depth_m = cp.asarray(depth_np, dtype=cp.float32) * float(_ensure_depth_scale())
 
     # Muestreo por stride previo (opcional) para acelerar
     s = max(1, int(stride))
@@ -166,22 +169,6 @@ def voxel_grid(points_xyz: np.ndarray, voxel_size: float = 0.01, min_points_per_
     means = means[keep_mask]
     return means
 
-def ensure_camera(color_w=640, color_h=480, depth_w=640, depth_h=480, fps=30):
-    """Asegura que haya un pipeline inicializado (global)."""
-    global _PIPELINE
-    if _PIPELINE is None:
-        _PIPELINE = init_camera(
-            color_width=color_w,
-            color_height=color_h,
-            depth_width=depth_w,
-            depth_height=depth_h,
-            fps=fps,
-        )
-        # Asegurar depth_scale en caché
-        _ensure_depth_scale()
-    return _PIPELINE
-
-
 def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
                          voxel_size: float = 0.01,
                          min_points_per_voxel: int = 3,
@@ -189,14 +176,16 @@ def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
                          extract_stride: int = 1):
     """Extrae la nube de puntos, aplica filtro voxel y la retorna lista para RANSAC.
 
-    - Si no se proveen frames, asegura e impulsa la inicialización de la cámara y toma un frame.
-    - También acepta un pipeline explícito para tomar frames.
+    - Si no se proveen frames pero hay pipeline, toma un frame de ese pipeline.
+    - Si no hay ni frames ni pipeline, retorna None (no se inicializa cámara aquí).
+    - Usa la ruta GPU para extracción y voxelizado.
     """
     if frames is None:
-        pipe = pipeline if pipeline is not None else ensure_camera()
-        frames = pipe.wait_for_frames()
+        if pipeline is not None:
+            frames = pipeline.wait_for_frames()
+        else:
+            return None
 
-    # Ruta acelerada en GPU
     points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride)
     if points_xyz is None:
         return None
