@@ -32,21 +32,25 @@ _runtime = {
     'last_d_cp': None,
     'last_thresh': None,
     'frame_idx': 0,
-    'result_dict': {'processed_img': None, 'processed_base': None},
-    'rgb_thread': None,
+    'result_dict': {'processed_base': None},
+    'rgb_thread': None,            # worker persistente
+    'rgb_done_event': None,        # señala cuando hay processed_base listo
+    'rgb_work_event': None,        # señala cuando hay nuevo RGB para procesar
+    'rgb_lock': None,              # protege acceso a rgb_input
+    'rgb_input': None,             # buzón tamaño 1 para el worker
     'fps_t0': None,
     'subsample_stride': None,
 }
 
 # Parámetros por defecto para mantener FPS aceptable
-GROUND_EVERY = 3            # calcular RANSAC cada N frames (más frecuente)
+GROUND_EVERY = 20           # calcular RANSAC cada 20 frames
 DIST_THRESH_RUN = 0.03      # tolerancia más estricta
 MAX_ITERS_RUN = 500         # menos iteraciones para reducir retardo
 MIN_INLIERS_RUN = 600       # umbral acorde a subsampling
 SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
 RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
-def process_rgb_pipeline(rgb_image, result_dict):
+def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
     Procesa la imagen RGB con el nuevo enfoque:
     1) Blanco y negro
@@ -55,13 +59,16 @@ def process_rgb_pipeline(rgb_image, result_dict):
     4) Sobel (ksize=5) y magnitud de gradiente
     5) Cierre morfológico (7x7)
 
-    Guarda:
+    Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
-    - result_dict['processed_img']: lo mismo para mostrar en ventana paralela
     """
     if rgb_image is None:
-        result_dict['processed_img'] = None
         result_dict['processed_base'] = None
+        if done_event is not None:
+            try:
+                done_event.set()
+            except Exception:
+                pass
         return
 
     # 1. Escala de grises (sin recorte)
@@ -88,7 +95,44 @@ def process_rgb_pipeline(rgb_image, result_dict):
     # Salidas (sin recorte)
     processed_base = cv2.cvtColor(closed, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
-    result_dict['processed_img'] = processed_base.copy()
+    # Señalizar que el procesamiento terminó para este frame
+    if done_event is not None:
+        try:
+            done_event.set()
+        except Exception:
+            pass
+
+
+def _rgb_worker_loop():
+    """Hilo persistente que duerme hasta que haya un RGB en el buzón, lo procesa y vuelve a dormir."""
+    while True:
+        # Espera a que el principal indique que hay trabajo
+        _runtime['rgb_work_event'].wait()
+        try:
+            _runtime['rgb_work_event'].clear()
+        except Exception:
+            pass
+
+        # Tomar snapshot del RGB actual bajo lock
+        rgb = None
+        try:
+            if _runtime['rgb_lock'] is not None:
+                with _runtime['rgb_lock']:
+                    rgb = _runtime['rgb_input']
+            else:
+                rgb = _runtime.get('rgb_input', None)
+        except Exception:
+            rgb = _runtime.get('rgb_input', None)
+
+        # Procesar (esto actualizará processed_base y hará set del done_event)
+        try:
+            process_rgb_pipeline(rgb, _runtime['result_dict'], _runtime['rgb_done_event'])
+        except Exception:
+            # En caso de error, señalizar finalización para no bloquear al principal
+            try:
+                _runtime['rgb_done_event'].set()
+            except Exception:
+                pass
 
 
 def _to_xp(a):
@@ -306,8 +350,9 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base=None):
     Returns:
         np.array: Imagen con el suelo marcado
     """
-    # Base SIEMPRE: imagen RGB original
-    result = _to_numpy(rgb_image)
+    # Base: priorizar la imagen procesada del secundario si está disponible; si no, usar RGB
+    base = _to_numpy(processed_base) if processed_base is not None else None
+    result = base if base is not None else _to_numpy(rgb_image)
     if result is None:
         return None
 
@@ -365,6 +410,14 @@ def _lazy_init():
         _runtime['subsample_stride'] = int(params.get('stride', SUBSAMPLE_STRIDE))
     except Exception:
         _runtime['subsample_stride'] = SUBSAMPLE_STRIDE
+    # Sincronización productor/consumidor para el secundario
+    _runtime['rgb_done_event'] = threading.Event()  # "salida lista"
+    _runtime['rgb_work_event'] = threading.Event()  # "entrada disponible"
+    _runtime['rgb_lock'] = threading.Lock()
+    _runtime['rgb_input'] = None
+    # Iniciar el worker persistente (daemon)
+    _runtime['rgb_thread'] = threading.Thread(target=_rgb_worker_loop, daemon=True)
+    _runtime['rgb_thread'].start()
     _runtime['initialized'] = True
 
 
@@ -391,11 +444,19 @@ def get_ground() -> Optional[np.ndarray]:
     if rgb_image is None or depth_m is None:
         return None
 
-    # Lanzar procesamiento paralelo de la imagen RGB (si no está en curso)
-    if _runtime['rgb_thread'] is None or not _runtime['rgb_thread'].is_alive():
-        _runtime['rgb_thread'] = threading.Thread(target=process_rgb_pipeline,
-                                                  args=(rgb_image, _runtime['result_dict']))
-        _runtime['rgb_thread'].start()
+    # Publicar el RGB en el buzón y despertar al worker secundario
+    try:
+        if _runtime['rgb_done_event'] is not None:
+            _runtime['rgb_done_event'].clear()
+        if _runtime['rgb_lock'] is not None:
+            with _runtime['rgb_lock']:
+                _runtime['rgb_input'] = rgb_image
+        else:
+            _runtime['rgb_input'] = rgb_image
+        if _runtime['rgb_work_event'] is not None:
+            _runtime['rgb_work_event'].set()
+    except Exception:
+        pass
 
     # Asegurar shape del depth al tamaño de COLOR
     if depth_m.shape[0] != H or depth_m.shape[1] != W:
@@ -462,8 +523,20 @@ def get_ground() -> Optional[np.ndarray]:
     else:
         ground_mask = np.zeros((H, W), dtype=np.uint8)
 
-    # Imagen base procesada para pintar
-    processed_base = _runtime['result_dict'].get('processed_base')
+    # Tomar processed_base si ya está listo; si no, esperar un instante muy corto y re-chequear
+    processed_base = None
+    try:
+        ev = _runtime['rgb_done_event']
+        if ev is not None and ev.is_set():
+            processed_base = _runtime['result_dict'].get('processed_base')
+        else:
+            # Espera mínima (re-check) para intentar captar el resultado sin bloquear FPS
+            if ev is not None:
+                ev.wait(timeout=0.003)
+            processed_base = _runtime['result_dict'].get('processed_base')
+    except Exception:
+        processed_base = _runtime['result_dict'].get('processed_base')
+
     img = apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base)
 
     # Calcular y pegar FPS en blanco sobre la imagen
