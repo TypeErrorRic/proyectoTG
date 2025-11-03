@@ -133,60 +133,34 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.nd
 
 def voxel_grid(points_xyz: np.ndarray,
                voxel_size: float = 0.01,
-               min_points_per_voxel: int = 1,
-               method: str = "first") -> np.ndarray:
-    """Voxelizado en GPU (CuPy) con dos modos rápidos:
+               min_points_per_voxel: int = 3) -> np.ndarray:
+    """Voxel super-rápido en GPU para denoise y preservación de planos.
 
-    - method="first": devuelve un representante por vóxel (índice primero). Muy rápido.
-    - method="centroid": devuelve el centroide del vóxel (requiere reducir por segmentos).
-    - method="none" o voxel_size<=0: retorna puntos tal cual.
-
-    Filtra vóxeles con menos de `min_points_per_voxel` puntos.
+    - Usa hashing de vóxeles y cp.unique para elegir 1 representante por vóxel.
+    - Filtra vóxeles con menos de `min_points_per_voxel` puntos (ruido aislado).
+    - Si voxel_size<=0 o None, devuelve los puntos tal cual (como CuPy).
     """
     if points_xyz is None:
         return None
     if len(points_xyz) == 0:
         return points_xyz
-    if method == "none" or voxel_size is None or voxel_size <= 0:
+    if voxel_size is None or voxel_size <= 0:
         return cp.asarray(points_xyz, dtype=cp.float32)
 
-    hash_factor = 100_000  # evitar colisiones; usar int64
-
     pts_gpu = cp.asarray(points_xyz, dtype=cp.float32)
-    vox = cp.floor(pts_gpu / float(voxel_size)).astype(cp.int64)
-    voxel_hash = (vox[:, 0] + vox[:, 1] * hash_factor + vox[:, 2] * hash_factor * hash_factor).astype(cp.int64)
-
     min_pts = int(max(1, min_points_per_voxel))
 
-    if method == "first":
-        # Un representante por vóxel usando unique (rápido y sin reducciones)
-        uniq, idx, counts = cp.unique(voxel_hash, return_index=True, return_counts=True)
-        if min_pts > 1:
-            keep = counts >= min_pts
-            idx = idx[keep]
-        return pts_gpu[idx]
+    # Hash de vóxeles
+    vox = cp.floor(pts_gpu / float(voxel_size)).astype(cp.int64)
+    hash_factor = 100_000
+    voxel_hash = (vox[:, 0] + vox[:, 1] * hash_factor + vox[:, 2] * hash_factor * hash_factor).astype(cp.int64)
 
-    # method == "centroid" (por defecto de respaldo)
-    order = cp.argsort(voxel_hash)
-    h_sorted = voxel_hash[order]
-    pts_sorted = pts_gpu[order]
-
-    # Inicios de segmento
-    start_mask = cp.concatenate([cp.array([True]), h_sorted[1:] != h_sorted[:-1]])
-    group_starts = cp.nonzero(start_mask)[0]
-
-    # Sumas por segmento
-    sums = cp.add.reduceat(pts_sorted, group_starts, axis=0)
-
-    # Conteos por segmento
-    group_ends = cp.concatenate([group_starts[1:], cp.array([pts_sorted.shape[0]])])
-    counts = (group_ends - group_starts).astype(cp.int32)
-
-    # Promedio y filtro
-    means = sums / counts[:, None]
-    keep_mask = counts >= min_pts
-    means = means[keep_mask]
-    return means
+    # Un representante por vóxel + conteos; filtra por soporte
+    _, idx, counts = cp.unique(voxel_hash, return_index=True, return_counts=True)
+    if min_pts > 1:
+        keep = counts >= min_pts
+        idx = idx[keep]
+    return pts_gpu[idx]
 
 def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
                          voxel_size: float = 0.01,
@@ -316,8 +290,7 @@ if __name__ == "__main__":
         tz = None  # auto al inicio
         fov_deg = 60.0
         voxel_size = 0.01
-        min_pts = 1
-        voxel_method = "first"  # "first" | "centroid" | "none"
+        min_pts = 3
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         # Rendimiento / logging
         max_render_pts = 150_000
@@ -330,7 +303,7 @@ if __name__ == "__main__":
             t1 = time.perf_counter()
             points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride)
             t2 = time.perf_counter()
-            points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts, method=voxel_method) if points_xyz is not None else None
+            points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
             t3 = time.perf_counter()
             frame_idx += 1
             img = render_pointcloud(points_voxel,
@@ -344,7 +317,13 @@ if __name__ == "__main__":
                                      fov_deg=fov_deg,
                                      max_points=max_render_pts)
             t4 = time.perf_counter()
-            hud = f"Adquisición: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | stride: {extract_stride} | mode:{voxel_method}"
+            hud = (
+                f"Adquisición: {(t1 - t0) * 1000:.1f} ms | "
+                f"Extract(GPU): {(t2 - t1) * 1000:.1f} ms | "
+                f"Voxel: {(t3 - t2) * 1000:.1f} ms | "
+                f"Render: {(t4 - t3) * 1000:.1f} ms | "
+                f"stride: {extract_stride} | vx:{voxel_size:.3f} | min:{min_pts}"
+            )
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             # Log a consola (rate-limited)
             now = time.perf_counter()
@@ -354,12 +333,12 @@ if __name__ == "__main__":
                 n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else 0
                 n_extract = int(points_xyz.shape[0]) if points_xyz is not None else 0
                 print(
-                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts} | stride: {extract_stride} | mode:{voxel_method}",
+                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts} | stride: {extract_stride}",
                     flush=True,
                 )
                 last_log = now
             # Ayuda de teclas
-            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  9/0: render pts  O/P: stride  M: voxel mode"
+            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  9/0: render pts  O/P: stride"
             cv2.putText(img, help1, (10, img.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180,180,180), 1, cv2.LINE_AA)
             cv2.imshow('RANSAC PointCloud', img)
             key = cv2.waitKey(1) & 0xFF
@@ -422,14 +401,7 @@ if __name__ == "__main__":
                 extract_stride = min(8, extract_stride + 1)
             elif key in (ord('p'), ord('P')):  # disminuir stride (más denso)
                 extract_stride = max(1, extract_stride - 1)
-            elif key in (ord('m'), ord('M')):
-                # Ciclar modos de voxel: first -> centroid -> none -> first
-                if voxel_method == "first":
-                    voxel_method = "centroid"
-                elif voxel_method == "centroid":
-                    voxel_method = "none"
-                else:
-                    voxel_method = "first"
+            # (Se elimina cambio de modo: sólo 'first' rápido)
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
