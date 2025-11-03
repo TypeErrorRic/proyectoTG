@@ -1,275 +1,134 @@
 """
-viewCamera.py
-Funciones mínimas para:
-- Extraer nube de puntos
-- Filtro voxel por grilla
-- Visualización y comunicación con ransacCellingGround
+Utilidades de cámara Intel RealSense necesarias para el flujo de RANSAC en ransacCellingGround:
+- get_depth_scale(pipeline=None): lee el "depth scale" del sensor de profundidad.
+- extract_rgb(frames): imagen BGR (np.uint8).
+- extract_depth_raw(frames): depth en uint16 (unidades nativas).
+- extract_depth_meters(frames, depth_scale=None): depth en metros (float32).
+- compute_rays_from_intrinsics(intr): calcula los rayos por píxel a coords de cámara.
+- precompute_rays_from_pipeline(pipeline): helper para obtener rayos (H, W, 3) desde el pipeline activo.
+- init_camera(...): inicializa la cámara.
+
+Incluye un main ligero que muestra qué se le entregaría a la función de RANSAC:
+    - dimensiones de rays (H, W, 3), depth (H, W) y un conteo de puntos válidos tras un submuestreo.
 """
 
-import numpy as np
-from typing import Optional
 import pyrealsense2 as rs
+import numpy as np
 import cv2
 import time
-import cupy as cp  # Requiere GPU/CUDA; no se agrega fallback a CPU por solicitud
+from typing import Tuple
 
-# Reutilizar objetos de RealSense para evitar costos por frame
-_RS_PC = rs.pointcloud()
-_RS_DEC = rs.decimation_filter()
-_RS_DEC.set_option(rs.option.filter_magnitude, 3)  # 2=default, 3-4=más FPS, menos resolución
+# =========================================================
+# ===============  U T I L I D A D E S  ===================
+# =========================================================
 
-# Cache de parámetros para extracción acelerada
-_DEPTH_SCALE = None  # metros por unidad en z16
-_PIXGRID_CACHE = {}  # clave: (W,H) -> (Ugrid, Vgrid) en GPU
+_DEPTH_SCALE_CACHE = None
 
-def extract_rgb(frames):
+def get_depth_scale(pipeline: rs.pipeline = None) -> float:
     """
-    Extrae la imagen RGB del frame de RealSense.
-    Retorna un array NumPy (H, W, 3) en formato BGR.
+    Obtiene y cachea el factor 'depth_scale' del sensor de profundidad.
+    Si no se pasa 'pipeline', intenta leer el primer dispositivo conectado.
+    Devuelve 0.001 (1 mm) como último recurso.
     """
-    color_frame = frames.get_color_frame() if hasattr(frames, 'get_color_frame') else None
-    if color_frame is None:
-        return None
-    rgb_image = np.asanyarray(color_frame.get_data())
-    return rgb_image
+    global _DEPTH_SCALE_CACHE
+    if _DEPTH_SCALE_CACHE is not None:
+        return _DEPTH_SCALE_CACHE
 
-def _ensure_depth_scale() -> float:
-    """Devuelve el depth_scale cacheado si existe; si no, retorna 0.001 por defecto.
-
-    Importante: no intenta inicializar la cámara para evitar conflictos con pipelines existentes.
-    """
-    return _DEPTH_SCALE if _DEPTH_SCALE is not None else 0.001
-
-def _update_depth_scale_from_profile(video_profile: rs.video_stream_profile):
-    """Actualiza el depth_scale global a partir de un perfil de stream de profundidad."""
-    global _DEPTH_SCALE
     try:
-        depth_sensor = video_profile.get_device().first_depth_sensor()
-        _DEPTH_SCALE = float(depth_sensor.get_depth_scale())
+        if pipeline is not None:
+            dev = pipeline.get_active_profile().get_device()
+            depth_sensor = dev.first_depth_sensor()
+            _DEPTH_SCALE_CACHE = float(depth_sensor.get_depth_scale())
+            return _DEPTH_SCALE_CACHE
     except Exception:
-        # Mantener valor actual o default si falla
-        if _DEPTH_SCALE is None:
-            _DEPTH_SCALE = 0.001
+        pass
 
-def _gpu_pixel_grids(width: int, height: int):
-    """Devuelve mallas U,V en GPU cacheadas para (W,H)."""
-    key = (width, height)
-    grids = _PIXGRID_CACHE.get(key)
-    if grids is None:
-        u = cp.arange(width, dtype=cp.float32)
-        v = cp.arange(height, dtype=cp.float32)
-        U, V = cp.meshgrid(u, v)  # shape (H,W)
-        _PIXGRID_CACHE[key] = (U, V)
-        grids = (U, V)
-    return grids
+    # Fallback: intenta vía contexto global
+    try:
+        ctx = rs.context()
+        devs = ctx.query_devices()
+        if len(devs) > 0:
+            depth_sensor = devs[0].first_depth_sensor()
+            _DEPTH_SCALE_CACHE = float(depth_sensor.get_depth_scale())
+            return _DEPTH_SCALE_CACHE
+    except Exception:
+        pass
 
-def extract_pointcloud_gpu(frames: rs.composite_frame,
-                           stride: int = 1,
-                           skip_top_ratio: float = 0.25,
-                           max_distance_m: float = 3.5) -> cp.ndarray:
-    """Extrae nube de puntos (Nx3) en GPU a partir del depth (z16) con intrínsecos.
+    # Último recurso (común en D435/D415): 1 mm
+    _DEPTH_SCALE_CACHE = 0.001
+    return _DEPTH_SCALE_CACHE
 
-    - Usa decimation (ya configurado globalmente) sobre el depth_frame.
-    - Vectoriza la deproyección en CuPy y aplica muestreo por 'stride' previo.
-    - skip_top_ratio: fracción superior de la imagen a ignorar (típicamente techo/cielo).
-    - max_distance_m: filtra por distancia de profundidad (Z) en metros (<= max_distance_m).
-    - Retorna un arreglo CuPy (N,3) en metros con Z>0.
+
+def extract_rgb(frames: rs.composite_frame, copy: bool = False) -> np.ndarray:
+    """
+    Devuelve la imagen de color (BGR, uint8) como np.ndarray de forma (H, W, 3).
+    Retorna None si no hay frame de color.
+    """
+    color_frame = frames.get_color_frame()
+    if not color_frame:
+        return None
+    img = np.asanyarray(color_frame.get_data())
+    return img.copy() if copy else img
+
+
+def extract_depth_raw(frames: rs.composite_frame) -> np.ndarray:
+    """
+    Devuelve el mapa de profundidad en bruto (uint16) como np.ndarray (H, W).
+    Estas unidades deben multiplicarse por 'depth_scale' para obtener metros.
+    Retorna None si no hay frame de profundidad.
     """
     depth_frame = frames.get_depth_frame()
     if not depth_frame:
         return None
+    depth_raw = np.asanyarray(depth_frame.get_data())
+    return depth_raw
 
-    # Aplicar decimation (reduce HxW y acelera la deproyección)
-    try:
-        d2 = _RS_DEC.process(depth_frame)
-        depth_frame = d2.as_depth_frame()
-    except Exception:
-        pass
 
-    # Intrínsecos del frame depth actual
-    prof = depth_frame.get_profile().as_video_stream_profile()
-    intr = prof.get_intrinsics()
-    # Asegurar depth_scale desde el perfil actual (sin iniciar nuevos pipelines)
-    _update_depth_scale_from_profile(prof)
+def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None) -> np.ndarray:
+    """
+    Devuelve el mapa de profundidad en metros (float32) como np.ndarray (H, W).
+    Si no se entrega 'depth_scale', se intentará consultarlo (y cachearlo).
+    """
+    depth_raw = extract_depth_raw(frames)
+    if depth_raw is None:
+        return None
+    if depth_scale is None:
+        depth_scale = get_depth_scale()
+    depth_m = depth_raw.astype(np.float32) * float(depth_scale)
+    return depth_m
+
+
+def compute_rays_from_intrinsics(intr) -> np.ndarray:
+    """
+    Precalcula los rayos de back-proyección por píxel a coords de cámara.
+    Devuelve array (H, W, 3) con [x/z, y/z, 1].
+    """
     W, H = intr.width, intr.height
-    fx, fy = float(intr.fx), float(intr.fy)
-    ppx, ppy = float(intr.ppx), float(intr.ppy)
+    fx, fy, cx, cy = intr.fx, intr.fy, intr.ppx, intr.ppy
+    u = np.arange(W, dtype=np.float32)
+    v = np.arange(H, dtype=np.float32)
+    uu, vv = np.meshgrid(u, v)  # (H,W)
+    x = (uu - cx) / float(fx)
+    y = (vv - cy) / float(fy)
+    ones = np.ones_like(x, dtype=np.float32)
+    rays = np.stack([x, y, ones], axis=-1).astype(np.float32)
+    return rays
 
-    # Profundidad a GPU (en metros) - optimizado: conversión directa a float32
-    depth_np = np.asanyarray(depth_frame.get_data(), dtype=np.uint16)
-    depth_scale = cp.float32(_ensure_depth_scale())
-    
-    # ROI vertical: ignorar la parte superior para evitar procesar techo/cielo
-    row_start = int(H * skip_top_ratio)
-    if row_start > 0:
-        depth_np = depth_np[row_start:, :]
-        H = depth_np.shape[0]
-        # Ajustar principal point en Y por el desplazamiento del ROI
-        ppy = ppy - row_start
-    
-    # Muestreo por stride previo (opcional) para acelerar
-    s = max(1, int(stride))
-    if s > 1:
-        depth_np = depth_np[::s, ::s]
-        # Ajustar intrínsecos al muestreo
-        fx /= s
-        fy /= s
-        ppx /= s
-        ppy /= s
-        W = int(np.ceil(W / s))
-        H = int(np.ceil(H / s))
 
-    # Transferencia a GPU y conversión a metros (fusionado)
-    depth_m = cp.asarray(depth_np, dtype=cp.float32) * depth_scale
-
-    # Grillas de pixeles en GPU (H,W) - cacheadas
-    U, V = _gpu_pixel_grids(W, H)
-
-    # Deproyección vectorizada fusionada (menos operaciones intermedias)
-    if max_distance_m is not None and max_distance_m > 0:
-        mask = (depth_m > 0) & (depth_m <= cp.float32(max_distance_m))
-    else:
-        mask = depth_m > 0
-    if not cp.any(mask):
-        return cp.empty((0, 3), dtype=cp.float32)
-    
-    # Pre-calcular inversos para multiplicación (más rápido que división)
-    inv_fx = cp.float32(1.0 / fx)
-    inv_fy = cp.float32(1.0 / fy)
-    
-    u = U[mask]
-    v = V[mask]
-    z = depth_m[mask]
-    x = (u - ppx) * z * inv_fx
-    y = (v - ppy) * z * inv_fy
-    pts = cp.stack((x, y, z), axis=1)
-    return pts
-
-def voxel_grid(points_xyz: np.ndarray,
-               voxel_size: float = 0.012,
-               min_points_per_voxel: int = 1) -> np.ndarray:
-    """Voxel super-rápido en GPU para denoise y preservación de planos.
-
-    - Usa hashing de vóxeles y cp.unique para elegir 1 representante por vóxel.
-    - Filtra vóxeles con menos de `min_points_per_voxel` puntos (ruido aislado).
-    - Si voxel_size<=0 o None, devuelve los puntos tal cual (como CuPy).
+def precompute_rays_from_pipeline(pipeline: rs.pipeline) -> Tuple[np.ndarray, int, int]:
     """
-    if points_xyz is None:
-        return None
-    if len(points_xyz) == 0:
-        return points_xyz
-    if voxel_size is None or voxel_size <= 0:
-        return cp.asarray(points_xyz, dtype=cp.float32)
-
-    pts_gpu = cp.asarray(points_xyz, dtype=cp.float32)
-    min_pts = int(max(1, min_points_per_voxel))
-
-    # Hash de vóxeles (optimizado: operaciones fusionadas, int32 en vez de int64 para velocidad)
-    inv_voxel = cp.float32(1.0 / voxel_size)
-    vox = cp.floor(pts_gpu * inv_voxel).astype(cp.int32)
-    
-    # Hash con factor más pequeño (suficiente para escenas típicas, más rápido)
-    hash_factor = cp.int32(73856)  # primo grande, evita colisiones
-    voxel_hash = vox[:, 0] + vox[:, 1] * hash_factor + vox[:, 2] * (hash_factor * hash_factor)
-
-    # Un representante por vóxel + conteos; filtra por soporte
-    _, idx, counts = cp.unique(voxel_hash, return_index=True, return_counts=True)
-    if min_pts > 1:
-        keep = counts >= min_pts
-        idx = idx[keep]
-    return pts_gpu[idx]
-
-def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
-                         voxel_size: float = 0.012,
-                         min_points_per_voxel: int = 1,
-                         pipeline: Optional[rs.pipeline] = None,
-                         extract_stride: int = 1,
-                         skip_top_ratio: float = 0.25):
-    """Extrae la nube de puntos, aplica filtro voxel y la retorna lista para RANSAC.
-
-    - Si no se proveen frames pero hay pipeline, toma un frame de ese pipeline.
-    - Si no hay ni frames ni pipeline, retorna None (no se inicializa cámara aquí).
-    - Usa la ruta GPU para extracción y voxelizado.
-    - skip_top_ratio: fracción superior de la imagen a ignorar (techo/cielo).
+    Helper para obtener los rayos (H,W,3) desde el pipeline activo.
+    Retorna (rays_np, H, W).
     """
-    if frames is None:
-        if pipeline is not None:
-            frames = pipeline.wait_for_frames()
-        else:
-            return None
+    depth_profile = pipeline.get_active_profile().get_stream(rs.stream.depth).as_video_stream_profile()
+    intr = depth_profile.get_intrinsics()
+    rays_np = compute_rays_from_intrinsics(intr)
+    H, W = intr.height, intr.width
+    return rays_np, H, W
 
-    points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride, skip_top_ratio=skip_top_ratio)
-    if points_xyz is None:
-        return None
-    points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_points_per_voxel)
-    return points_voxel
-
-def render_pointcloud(points_xyz: np.ndarray,
-                      out_size=(720, 720),
-                      yaw_deg: float = -45.0,
-                      pitch_deg: float = 25.0,
-                      roll_deg: float = 0.0,
-                      tz: Optional[float] = None,
-                      tx: float = 0.0,
-                      ty: float = 0.0,
-                      fov_deg: float = 60.0,
-                      max_points: int = 150_000) -> np.ndarray:
-    """Renderiza la nube de puntos en 2D (sin colores) usando GPU (CuPy).
-
-    Permite navegar con parámetros de cámara: yaw/pitch/roll (grados), traslación (tx, ty, tz) y FOV.
-    Si tz es None, se auto-ajusta para situar la nube delante de la cámara.
-    """
-    if points_xyz is None or len(points_xyz) == 0:
-        return np.zeros((out_size[0], out_size[1], 3), dtype=np.uint8)
-
-    H, W = out_size
-    img = np.zeros((H, W, 3), dtype=np.uint8)
-
-    yaw = np.deg2rad(yaw_deg)
-    pitch = np.deg2rad(pitch_deg)
-    roll = np.deg2rad(roll_deg)
-    Rx = np.array(
-        [[1, 0, 0], [0, np.cos(pitch), -np.sin(pitch)], [0, np.sin(pitch), np.cos(pitch)]],
-        dtype=np.float32,
-    )
-    Ry = np.array(
-        [[np.cos(yaw), 0, np.sin(yaw)], [0, 1, 0], [-np.sin(yaw), 0, np.cos(yaw)]],
-        dtype=np.float32,
-    )
-    Rz = np.array(
-        [[np.cos(roll), -np.sin(roll), 0], [np.sin(roll), np.cos(roll), 0], [0, 0, 1]],
-        dtype=np.float32,
-    )
-    R = (Rz @ Ry @ Rx).astype(np.float32)
-
-    pts = cp.asarray(points_xyz, dtype=cp.float32)
-    # Submuestreo para render si hay demasiados puntos
-    N = int(pts.shape[0])
-    if N > max_points:
-        idx = cp.random.randint(0, N, size=(max_points,), dtype=cp.int32)
-        pts = pts[idx]
-    # Media en lugar de mediana (más rápido)
-    center = cp.mean(pts, axis=0)
-    pts_centered = pts - center
-    R_cp = cp.asarray(R)
-    pts_rot = pts_centered @ R_cp.T
-    z = pts_rot[:, 2]
-    if tz is None:
-        # Aproximación rápida: usa min en vez de percentil (ahorra cómputo)
-        tz = max(0.5, -float(cp.min(z)) + 1.5)
-    pts_cam = pts_rot + cp.asarray([tx, ty, tz], dtype=cp.float32)
-    f = 0.5 * H / np.tan(np.deg2rad(fov_deg) * 0.5)
-    Z = cp.clip(pts_cam[:, 2], 1e-3, None)
-    x_proj = (pts_cam[:, 0] * f) / Z
-    y_proj = (pts_cam[:, 1] * f) / Z
-    u = (W * 0.5 + x_proj).astype(cp.int32)
-    v = (H * 0.5 - y_proj).astype(cp.int32)
-    mask = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-    u, v = cp.asnumpy(u[mask]), cp.asnumpy(v[mask])
-
-    img[v, u] = (200, 200, 200)
-    return img
-
+# =========================================================
+# ==========  I N I C I A L I Z A C I Ó N  C Á M A R A  ===
+# =========================================================
 def init_camera(
     color_width: int = 640,
     color_height: int = 480,
@@ -296,141 +155,124 @@ def init_camera(
     config.enable_stream(rs.stream.depth, depth_width, depth_height, rs.format.z16, fps)
 
     pipeline.start(config)
+    _depth_scale = get_depth_scale(pipeline)
     return pipeline
 
+# =========================================================
+# ============  M A I N   D E   V I S U A L I Z A C I Ó N
+# =========================================================
+
 if __name__ == "__main__":
-    pipeline = init_camera()
-    print("Presiona ESC para salir...")
+    from helpers import *
+    pipeline = init_camera(640, 480, 640, 480, 30)
+    print("Demo: Nube de puntos desde rayos y profundidad (ESC para salir)")
     try:
-        cv2.namedWindow('RANSAC PointCloud', cv2.WINDOW_NORMAL)
-        # Estado de cámara para navegación
-        yaw_deg, pitch_deg, roll_deg = -45.0, 25.0, 0.0
-        tx, ty = 0.0, 0.0
-        tz = None  # auto al inicio
-        fov_deg = 60.0
-        extract_stride = 1  # muestreo previo a la deproyección (1=full)
-        skip_top_ratio = 0.25  # ignorar fracción superior de la imagen (techo/cielo)
-        max_distance_m = 3.5   # limitar distancia de profundidad para acelerar
-        # Parámetros de voxel establecidos
-        voxel_size = 0.012
-        min_pts = 1
-        # Rendimiento / logging
-        max_render_pts = 150_000
-        frame_idx = 0
-        last_log = time.perf_counter()
-        log_interval = 1.0  # segundos
-        # Limpieza de memoria GPU periódica (cada N frames)
-        gpu_cleanup_interval = 300  # frames (~10 seg a 30 FPS)
+        rays_np, H, W = precompute_rays_from_pipeline(pipeline)
+        stride_demo = 4  # submuestreo para la nube
+        cv2.namedWindow('RGB', cv2.WINDOW_NORMAL)
+        cv2.namedWindow('PointCloud', cv2.WINDOW_NORMAL)
+        yaw, pitch, roll = -45.0, 25.0, 0.0
+        fov, point_size = 60.0, 1
+        
+        # Variables para medición de tiempos
+        frame_count = 0
+        
         while True:
-            t0 = time.perf_counter()
-            frames = pipeline.wait_for_frames()
+            t_start_frame = time.perf_counter()
+            
+            # 1. Captura de frames
             t1 = time.perf_counter()
-            points_xyz = extract_pointcloud_gpu(frames,
-                                               stride=extract_stride,
-                                               skip_top_ratio=skip_top_ratio,
-                                               max_distance_m=max_distance_m)
+            frames = pipeline.wait_for_frames()
             t2 = time.perf_counter()
-            # Filtro voxel para reducir densidad manteniendo planos
-            points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
+            
+            # 2. Extracción RGB y Depth
+            rgb = extract_rgb(frames)
+            depth_m = extract_depth_meters(frames)
             t3 = time.perf_counter()
-            frame_idx += 1
             
-            # Limpieza periódica del pool de memoria de CuPy
-            if frame_idx % gpu_cleanup_interval == 0:
-                mempool = cp.get_default_memory_pool()
-                mempool.free_all_blocks()
-            
-            img = render_pointcloud(points_voxel if points_voxel is not None else points_xyz,
-                                     out_size=(720, 720),
-                                     yaw_deg=yaw_deg,
-                                     pitch_deg=pitch_deg,
-                                     roll_deg=roll_deg,
-                                     tz=tz,
-                                     tx=tx,
-                                     ty=ty,
-                                     fov_deg=fov_deg,
-                                     max_points=max_render_pts)
+            if rgb is None or depth_m is None:
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:
+                    break
+                continue
+
+            # 3. Ajuste de dimensiones
+            if depth_m.shape != (H, W):
+                depth_m = cv2.resize(depth_m, (W, H), interpolation=cv2.INTER_NEAREST)
             t4 = time.perf_counter()
-            hud = (
-                f"Adquisición: {(t1 - t0) * 1000:.1f} ms | "
-                f"Extract(GPU): {(t2 - t1) * 1000:.1f} ms | "
-                f"Voxel: {(t3 - t2) * 1000:.1f} ms | "
-                f"Render: {(t4 - t3) * 1000:.1f} ms | "
-                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f} | maxD: {max_distance_m:.1f}m | vx:{voxel_size:.3f} | min:{min_pts}"
-            )
-            cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
-            # Log a consola (rate-limited)
-            now = time.perf_counter()
-            if (now - last_log) >= log_interval:
-                total_ms = (t4 - t0) * 1000.0
-                fps = 1000.0 / max(total_ms, 1e-3)
-                n_extract = int(points_xyz.shape[0]) if points_xyz is not None else 0
-                n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else n_extract
-                print(
-                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | maxPts: {max_render_pts} | stride: {extract_stride}",
-                    flush=True,
-                )
-                last_log = now
-            # Ayuda de teclas
-            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  9/0: render pts  O/P: stride  -/=: ROI"
-            cv2.putText(img, help1, (10, img.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180,180,180), 1, cv2.LINE_AA)
-            cv2.imshow('RANSAC PointCloud', img)
+
+            # 4. Construir nube de puntos a partir de rayos y profundidad
+            points_xyz = points_from_rays_and_depth(rays_np, depth_m, stride=stride_demo)
+            t5 = time.perf_counter()
+            
+            # 5. Extracción de colores
+            rgb_sub = rgb[::stride_demo, ::stride_demo]
+            depth_sub = depth_m[::stride_demo, ::stride_demo]
+            valid = (depth_sub > 0)
+            
+            if points_xyz is not None and points_xyz.size > 0:
+                colors = rgb_sub[valid]  # Indexación directa con máscara 2D
+            else:
+                colors = None
+            t6 = time.perf_counter()
+
+            # 6. Render 2D de la nube
+            pc_img = render_pointcloud_numpy(points_xyz, colors,
+                                             out_size=(720, 720),
+                                             yaw_deg=yaw, pitch_deg=pitch, roll_deg=roll,
+                                             fov_deg=fov, point_size=point_size)
+            t7 = time.perf_counter()
+
+            # 7. HUD y visualización
+            t_end_frame = time.perf_counter()
+            
+            vis = rgb.copy()
+            hud1 = f"rays: {H}x{W}x3  stride:{stride_demo}  pts:{0 if points_xyz is None else len(points_xyz)}"
+            hud2 = f"Yaw:{yaw:.0f} Pitch:{pitch:.0f} Roll:{roll:.0f} FOV:{fov:.0f} Size:{point_size}"
+            cv2.putText(vis, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
+            cv2.putText(vis, hud2, (10, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
+            
+            cv2.putText(pc_img, "Controles: A/D yaw  W/S pitch  Q/E roll  Z/X FOV  +/- tamaño  ESC salir",
+                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
+            cv2.imshow('RGB', vis)
+            cv2.imshow('PointCloud', pc_img)
+            
+            # Imprimir tiempos cada 30 frames
+            frame_count += 1
+            if frame_count % 30 == 0:
+                print(f"\n=== Tiempos Frame #{frame_count} ===")
+                print(f"  Captura frames:     {(t2-t1)*1000:6.2f} ms")
+                print(f"  Extracción RGB/D:   {(t3-t2)*1000:6.2f} ms")
+                print(f"  Resize depth:       {(t4-t3)*1000:6.2f} ms")
+                print(f"  Rayos -> PointCloud:{(t5-t4)*1000:6.2f} ms")
+                print(f"  Extracción colores: {(t6-t5)*1000:6.2f} ms")
+                print(f"  Render PointCloud:  {(t7-t6)*1000:6.2f} ms")
+                print(f"  TOTAL:              {(t_end_frame-t_start_frame)*1000:6.2f} ms ({1.0/(t_end_frame-t_start_frame):.1f} FPS)")
+
             key = cv2.waitKey(1) & 0xFF
             if key == 27:
                 break
-            # Controles de navegación
-            step_ang = 3.0
-            step_pan = 0.05
-            step_fov = 2.0
-            # Estado persistente adicional
-            if 'max_render_pts' not in locals():
-                max_render_pts = 150_000
-            if 'frame_idx' not in locals():
-                frame_idx = 0
-            if key in (ord('w'), ord('W')):
-                pitch_deg += step_ang
-            elif key in (ord('s'), ord('S')):
-                pitch_deg -= step_ang
-            elif key in (ord('a'), ord('A')):
-                yaw_deg += step_ang
-            elif key in (ord('d'), ord('D')):
-                yaw_deg -= step_ang
-            elif key in (ord('q'), ord('Q')):
-                roll_deg -= step_ang
-            elif key in (ord('e'), ord('E')):
-                roll_deg += step_ang
-            elif key in (ord('='), ord('+')):
-                # zoom in (disminuir FOV o acercar tz)
-                fov_deg = max(20.0, fov_deg - step_fov)
-            elif key == ord('-'):
-                # zoom out (aumentar FOV)
-                fov_deg = min(100.0, fov_deg + step_fov)
-            elif key in (ord('j'), ord('J')):
-                tx -= step_pan
-            elif key in (ord('l'), ord('L')):
-                tx += step_pan
-            elif key in (ord('i'), ord('I')):
-                ty += step_pan
-            elif key in (ord('k'), ord('K')):
-                ty -= step_pan
-            elif key in (ord('r'), ord('R')):
-                yaw_deg, pitch_deg, roll_deg = -45.0, 25.0, 0.0
-                tx, ty = 0.0, 0.0
-                tz = None
-                fov_deg = 60.0
-            elif key == ord('9'):
-                max_render_pts = max(20_000, int(max_render_pts * 0.8))
-            elif key == ord('0'):
-                max_render_pts = min(1_000_000, int(max_render_pts * 1.25))
-            elif key in (ord('o'), ord('O')):  # aumentar stride (más rápido, menos puntos)
-                extract_stride = min(8, extract_stride + 1)
-            elif key in (ord('p'), ord('P')):  # disminuir stride (más denso)
-                extract_stride = max(1, extract_stride - 1)
-            elif key == ord('-'):  # disminuir ROI (procesar más de arriba)
-                skip_top_ratio = max(0.0, skip_top_ratio - 0.05)
-            elif key == ord('='):  # aumentar ROI (ignorar más de arriba)
-                skip_top_ratio = min(0.5, skip_top_ratio + 0.05)
-            # (Se elimina cambio de modo: sólo 'first' rápido)
+            # Controles simples
+            if key == ord('a'):
+                yaw -= 5.0
+            elif key == ord('d'):
+                yaw += 5.0
+            elif key == ord('w'):
+                pitch += 5.0
+            elif key == ord('s'):
+                pitch -= 5.0
+            elif key == ord('q'):
+                roll -= 5.0
+            elif key == ord('e'):
+                roll += 5.0
+            elif key == ord('z'):
+                fov = max(20.0, fov - 5.0)
+            elif key == ord('x'):
+                fov = min(120.0, fov + 5.0)
+            elif key in (ord('+'), ord('=')):
+                point_size = min(6, point_size + 1)
+            elif key in (ord('-'), ord('_')):
+                point_size = max(1, point_size - 1)
     finally:
         pipeline.stop()
         cv2.destroyAllWindows()
