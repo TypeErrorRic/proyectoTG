@@ -52,26 +52,6 @@ def _gpu_pixel_grids(width: int, height: int):
         grids = (U, V)
     return grids
 
-def extract_pointcloud(frames: rs.composite_frame) -> np.ndarray:
-    """Extrae la nube de puntos (Nx3) del frame de RealSense con decimation.
-
-    Devuelve NumPy (N,3) en metros, sólo Z>0.
-    """
-    depth_frame = frames.get_depth_frame()
-    if not depth_frame:
-        return None
-    # Decimation para reducir resolución del depth (acelera pointcloud + voxel)
-    try:
-        d2 = _RS_DEC.process(depth_frame)
-        depth_frame = d2.as_depth_frame()
-    except Exception:
-        pass
-    points = _RS_PC.calculate(depth_frame)
-    verts = np.asanyarray(points.get_vertices()).view(np.float32).reshape(-1, 3)
-    valid = verts[:, 2] > 0
-    verts = verts[valid]
-    return verts
-
 def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.ndarray:
     """Extrae nube de puntos (Nx3) en GPU a partir del depth (z16) con intrínsecos.
 
@@ -132,8 +112,8 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.nd
     return pts
 
 def voxel_grid(points_xyz: np.ndarray,
-               voxel_size: float = 0.01,
-               min_points_per_voxel: int = 1) -> np.ndarray:
+               voxel_size: float = 0.008,
+               min_points_per_voxel: int = 2) -> np.ndarray:
     """Voxel super-rápido en GPU para denoise y preservación de planos.
 
     - Usa hashing de vóxeles y cp.unique para elegir 1 representante por vóxel.
@@ -289,8 +269,8 @@ if __name__ == "__main__":
         tx, ty = 0.0, 0.0
         tz = None  # auto al inicio
         fov_deg = 60.0
-        voxel_size = 0.006
-        min_pts = 1
+        voxel_size = 0.008
+        min_pts = 2
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         # Rendimiento / logging
         max_render_pts = 150_000
