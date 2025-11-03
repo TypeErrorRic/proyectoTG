@@ -168,7 +168,7 @@ if __name__ == "__main__":
     print("Demo: Nube de puntos desde rayos y profundidad (ESC para salir)")
     try:
         rays_np, H, W = precompute_rays_from_pipeline(pipeline)
-        stride_demo = 2  # submuestreo para la nube (1=máxima densidad)
+        stride_demo = 3  # submuestreo para la nube (1=máxima densidad)
         cv2.namedWindow('RGB', cv2.WINDOW_NORMAL)
         cv2.namedWindow('PointCloud', cv2.WINDOW_NORMAL)
         yaw, pitch, roll = -45.0, 25.0, 0.0
