@@ -59,7 +59,6 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     4) Sobel (ksize=5) y magnitud de gradiente
     5) Cierre morfológico (medio)
     6) Unsharp mask para realzar
-    7) Detección de líneas (Canny + dilatación), interior negro
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -100,21 +99,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # Salida base en BGR (3 canales)
+    # Salida en BGR (3 canales)
     processed_base = cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
-
-    # 7. Detección de líneas: Canny + dilatación; interior en negro
-    v = float(np.median(sharp))
-    sigma = 0.33
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    edges = cv2.Canny(sharp, lower, upper, L2gradient=True)
-    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.dilate(edges, edge_kernel, iterations=1)
-
-    lines_bgr = np.zeros_like(processed_base)
-    lines_bgr[edges > 0] = (255, 255, 255)
-    processed_base = lines_bgr
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
