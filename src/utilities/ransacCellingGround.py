@@ -86,6 +86,27 @@ def visualizar_resultado():
     print("Inicializando cámara RealSense…")
     pipeline = init_camera(640, 480, 640, 480, 30)
     cv2.namedWindow('Visualización Suelo', cv2.WINDOW_NORMAL)
+    def render_puntos_suelo(puntos, mask_suelo, out_size=(480, 480)):
+        """
+        Renderiza la nube de puntos frontal, pintando suelo en verde y el resto en gris.
+        """
+        # Proyección simple: X, Z (asumiendo Y es altura)
+        img = np.zeros((out_size[1], out_size[0], 3), dtype=np.uint8)
+        if puntos is None or puntos.shape[0] == 0:
+            return img
+        # Normalizar X y Z para que quepan en la imagen
+        x = puntos[:, 0]
+        z = puntos[:, 2]
+        # Evitar valores extremos
+        x_min, x_max = np.percentile(x, [1, 99])
+        z_min, z_max = np.percentile(z, [1, 99])
+        x_img = ((x - x_min) / (x_max - x_min + 1e-6) * (out_size[0] - 1)).astype(int)
+        z_img = ((z - z_min) / (z_max - z_min + 1e-6) * (out_size[1] - 1)).astype(int)
+        # Colorear suelo y no suelo
+        for i in range(puntos.shape[0]):
+            color = (0, 255, 0) if mask_suelo[i] else (180, 180, 180)
+            cv2.circle(img, (x_img[i], z_img[i]), 1, color, -1)
+        return img
     try:
         while True:
             t0 = time.perf_counter()
@@ -103,18 +124,19 @@ def visualizar_resultado():
             # Calcular plano suelo usando RANSAC
             ground_mask = None
             puntos_ransac = None
+            mask_ransac = None
             if pts_gpu is not None and pts_gpu.shape[0] > 0:
                 mask = ransac_plane_gpu(pts_gpu, dist_thresh=0.02, max_iters=1000, min_inliers=500)
                 if mask is not None:
+                    mask_ransac = mask.get()
                     ground_mask = cp.asnumpy(mask).astype(np.uint8)
-                    puntos_ransac = cp.asnumpy(pts_gpu)[mask.get()]
+                    puntos_ransac = cp.asnumpy(pts_gpu)[mask_ransac]
             t4 = time.perf_counter()
 
             # Visualizar nube de puntos frontal del resultado RANSAC
-            if puntos_ransac is not None and puntos_ransac.shape[0] > 0:
-                # Visualización frontal: yaw=0, pitch=0, roll=0
-                from viewCamera import render_pointcloud
-                nube_img = render_pointcloud(puntos_ransac, out_size=(480, 480), yaw_deg=0.0, pitch_deg=0.0, roll_deg=0.0)
+            if pts_gpu is not None and mask_ransac is not None:
+                puntos_cpu = cp.asnumpy(pts_gpu)
+                nube_img = render_puntos_suelo(puntos_cpu, mask_ransac, out_size=(480, 480))
                 cv2.imshow('Nube RANSAC Frontal', nube_img)
 
             # Pintar máscara sobre imagen
