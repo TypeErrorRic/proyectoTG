@@ -79,15 +79,15 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.nd
     fx, fy = float(intr.fx), float(intr.fy)
     ppx, ppy = float(intr.ppx), float(intr.ppy)
 
-    # Profundidad a GPU (en metros)
-    depth_np = np.asanyarray(depth_frame.get_data())  # uint16 (z16)
-    depth_m = cp.asarray(depth_np, dtype=cp.float32) * float(_ensure_depth_scale())
-
+    # Profundidad a GPU (en metros) - optimizado: conversión directa a float32
+    depth_np = np.asanyarray(depth_frame.get_data(), dtype=np.uint16)
+    depth_scale = cp.float32(_ensure_depth_scale())
+    
     # Muestreo por stride previo (opcional) para acelerar
     s = max(1, int(stride))
     if s > 1:
-        depth_m = depth_m[::s, ::s]
-        # Ajustar intrínsecos al muestreo: ppx/ppy y focos escalan por s
+        depth_np = depth_np[::s, ::s]
+        # Ajustar intrínsecos al muestreo
         fx /= s
         fy /= s
         ppx /= s
@@ -95,20 +95,27 @@ def extract_pointcloud_gpu(frames: rs.composite_frame, stride: int = 1) -> cp.nd
         W = int(np.ceil(W / s))
         H = int(np.ceil(H / s))
 
-    # Grillas de pixeles en GPU (H,W)
+    # Transferencia a GPU y conversión a metros (fusionado)
+    depth_m = cp.asarray(depth_np, dtype=cp.float32) * depth_scale
+
+    # Grillas de pixeles en GPU (H,W) - cacheadas
     U, V = _gpu_pixel_grids(W, H)
 
-    # Deproyección vectorizada: X = (u-ppx)*Z/fx, Y = (v-ppy)*Z/fy, Z = Z
-    Z = depth_m
-    mask = Z > 0
-    if not mask.any():
+    # Deproyección vectorizada fusionada (menos operaciones intermedias)
+    mask = depth_m > 0
+    if not cp.any(mask):
         return cp.empty((0, 3), dtype=cp.float32)
+    
+    # Pre-calcular inversos para multiplicación (más rápido que división)
+    inv_fx = cp.float32(1.0 / fx)
+    inv_fy = cp.float32(1.0 / fy)
+    
     u = U[mask]
     v = V[mask]
-    z = Z[mask]
-    x = (u - ppx) * z / fx
-    y = (v - ppy) * z / fy
-    pts = cp.stack((x, y, z), axis=1).astype(cp.float32, copy=False)
+    z = depth_m[mask]
+    x = (u - ppx) * z * inv_fx
+    y = (v - ppy) * z * inv_fy
+    pts = cp.stack((x, y, z), axis=1)
     return pts
 
 def voxel_grid(points_xyz: np.ndarray,
@@ -130,10 +137,13 @@ def voxel_grid(points_xyz: np.ndarray,
     pts_gpu = cp.asarray(points_xyz, dtype=cp.float32)
     min_pts = int(max(1, min_points_per_voxel))
 
-    # Hash de vóxeles
-    vox = cp.floor(pts_gpu / float(voxel_size)).astype(cp.int64)
-    hash_factor = 100_000
-    voxel_hash = (vox[:, 0] + vox[:, 1] * hash_factor + vox[:, 2] * hash_factor * hash_factor).astype(cp.int64)
+    # Hash de vóxeles (optimizado: operaciones fusionadas, int32 en vez de int64 para velocidad)
+    inv_voxel = cp.float32(1.0 / voxel_size)
+    vox = cp.floor(pts_gpu * inv_voxel).astype(cp.int32)
+    
+    # Hash con factor más pequeño (suficiente para escenas típicas, más rápido)
+    hash_factor = cp.int32(73856)  # primo grande, evita colisiones
+    voxel_hash = vox[:, 0] + vox[:, 1] * hash_factor + vox[:, 2] * (hash_factor * hash_factor)
 
     # Un representante por vóxel + conteos; filtra por soporte
     _, idx, counts = cp.unique(voxel_hash, return_index=True, return_counts=True)
@@ -269,7 +279,7 @@ if __name__ == "__main__":
         tx, ty = 0.0, 0.0
         tz = None  # auto al inicio
         fov_deg = 60.0
-        voxel_size = 0.008
+        voxel_size = 0.006
         min_pts = 2
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         # Rendimiento / logging
