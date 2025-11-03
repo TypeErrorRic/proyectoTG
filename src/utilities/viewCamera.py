@@ -17,6 +17,7 @@ import numpy as np
 import cv2
 import time
 from typing import Tuple, Callable, Optional
+import math
 
 # =========================================================
 # ===============  U T I L I D A D E S  ===================
@@ -118,6 +119,14 @@ def compute_rays_from_intrinsics(intr) -> np.ndarray:
 # Alineación DEPTH -> COLOR (GPU opcional)
 ###############################################
 
+# Ajustes de rendimiento (puedes tunearlos):
+# - ALIGN_DOWNSAMPLE: submuestreo del mapa de profundidad ANTES de alinear.
+#   1 = sin submuestreo (máxima calidad), 2 = 1/4 de píxeles (~4x más rápido), etc.
+# - ALIGN_MAX_DEPTH_M: descarta puntos más lejanos que este valor (en metros) para reducir trabajo.
+#   Usa None o <=0 para desactivar.
+ALIGN_DOWNSAMPLE: int = 1
+ALIGN_MAX_DEPTH_M: Optional[float] = None
+
 # Kernel CUDA para alineación (idéntico al usado previamente)
 _ALIGN_KERNEL_SRC = r"""
 extern "C" __global__
@@ -127,6 +136,7 @@ void align_depth_to_color(
     const float* __restrict__ t,        // (3) traslación depth->color
     const float fx, const float fy,
     const float cx, const float cy,
+    const float max_depth,              // <=0: desactivado
     const int Hd, const int Wd,
     const int Hc, const int Wc,
     unsigned int* __restrict__ out_bits // (Hc*Wc) inicializado a +inf
@@ -137,6 +147,7 @@ void align_depth_to_color(
 
     float z = depth[idx];
     if (!(z > 0.0f) || !isfinite(z)) return;
+    if (max_depth > 0.0f && z > max_depth) return;
 
     // A indexado linealmente (x3)
     int aidx = idx * 3;
@@ -175,7 +186,7 @@ class DepthToColorAlignerGPU:
       con z-buffer (atómico) para quedarse con la muestra más cercana.
     """
 
-    def __init__(self, pipeline: rs.pipeline) -> None:
+    def __init__(self, pipeline: rs.pipeline, downsample: int = 1, max_depth_m: Optional[float] = None, reuse_output: bool = True) -> None:
         import cupy as cp  # import local para no requerir CuPy si no se usa
         prof = pipeline.get_active_profile()
         depth_prof = prof.get_stream(rs.stream.depth).as_video_stream_profile()
@@ -184,12 +195,17 @@ class DepthToColorAlignerGPU:
         # Intrínsecos
         intr_d = depth_prof.get_intrinsics()
         intr_c = color_prof.get_intrinsics()
-        self.Wd, self.Hd = intr_d.width, intr_d.height
+        # Downsample de profundidad para reducir coste de alineación
+        self._ds = max(1, int(downsample))
+        self.Wd_native, self.Hd_native = intr_d.width, intr_d.height
+        self.Wd = (self.Wd_native + (self._ds - 1)) // self._ds
+        self.Hd = (self.Hd_native + (self._ds - 1)) // self._ds
         self.Wc, self.Hc = intr_c.width, intr_c.height
         self.fx_c = float(intr_c.fx)
         self.fy_c = float(intr_c.fy)
         self.cx_c = float(intr_c.ppx)
         self.cy_c = float(intr_c.ppy)
+        self._max_depth = float(max_depth_m) if (max_depth_m is not None) else -1.0
 
         # Extrínsecos depth->color (rotación y traslación)
         extr = depth_prof.get_extrinsics_to(color_prof)
@@ -198,8 +214,12 @@ class DepthToColorAlignerGPU:
         self._cp = cp
         self.t_cp = cp.asarray(t, dtype=cp.float32)
 
-        # Rayos del stream de profundidad
-        rays_d = compute_rays_from_intrinsics(intr_d).astype(np.float32)  # (Hd,Wd,3)
+        # Rayos del stream de profundidad (submuestreados si aplica)
+        rays_d_full = compute_rays_from_intrinsics(intr_d).astype(np.float32)  # (Hd_native,Wd_native,3)
+        if self._ds > 1:
+            rays_d = rays_d_full[::self._ds, ::self._ds]
+        else:
+            rays_d = rays_d_full
 
         # A(x,y) = R_cd * ray_d(x,y)
         A = np.tensordot(rays_d, R.T, axes=(2, 0))  # (Hd,Wd,3)
@@ -208,6 +228,10 @@ class DepthToColorAlignerGPU:
         # Compilar kernel
         self._kernel = cp.RawKernel(_ALIGN_KERNEL_SRC, 'align_depth_to_color')
 
+        # Buffer de salida reutilizable para evitar malloc/fill costosos por frame
+        self._inf_bits = np.float32(np.inf).view(np.uint32)
+        self._out_bits = cp.empty((self.Hc, self.Wc), dtype=cp.uint32) if reuse_output else None
+
     def align(self, depth_m: np.ndarray) -> np.ndarray:
         """
         Devuelve depth alineado al espacio de COLOR (Hc,Wc) en metros (float32).
@@ -215,13 +239,17 @@ class DepthToColorAlignerGPU:
         cp = self._cp
         if depth_m is None:
             return None
-        # Ajustar tamaño de entrada si hiciera falta
+        # Ajustar tamaño de entrada si hiciera falta (submuestreo previo)
         if depth_m.shape != (self.Hd, self.Wd):
             depth_m = cv2.resize(depth_m, (self.Wd, self.Hd), interpolation=cv2.INTER_NEAREST)
 
         depth_cp = cp.asarray(depth_m, dtype=cp.float32)
         # Salida inicializada a +inf (como uint32 para atomicMin bit a bit)
-        out_bits = cp.full((self.Hc, self.Wc), np.float32(np.inf).view(np.uint32), dtype=cp.uint32)
+        if self._out_bits is None:
+            out_bits = cp.full((self.Hc, self.Wc), self._inf_bits, dtype=cp.uint32)
+        else:
+            out_bits = self._out_bits
+            out_bits.fill(self._inf_bits)
 
         # Lanzar kernel
         N = int(self.Hd * self.Wd)
@@ -233,6 +261,7 @@ class DepthToColorAlignerGPU:
             self.t_cp,
             np.float32(self.fx_c), np.float32(self.fy_c),
             np.float32(self.cx_c), np.float32(self.cy_c),
+            np.float32(self._max_depth),
             np.int32(self.Hd), np.int32(self.Wd),
             np.int32(self.Hc), np.int32(self.Wc),
             out_bits.ravel()
@@ -254,7 +283,9 @@ def make_depth_to_color_aligner(pipeline: rs.pipeline) -> Callable[[rs.composite
     """
     try:
         # Intentar GPU
-        aligner_gpu = DepthToColorAlignerGPU(pipeline)
+        ds = max(1, int(ALIGN_DOWNSAMPLE))
+        max_d = ALIGN_MAX_DEPTH_M if (ALIGN_MAX_DEPTH_M is not None and ALIGN_MAX_DEPTH_M > 0) else None
+        aligner_gpu = DepthToColorAlignerGPU(pipeline, downsample=ds, max_depth_m=max_d, reuse_output=True)
 
         def _align(frames: rs.composite_frame) -> Optional[np.ndarray]:
             depth_native = extract_depth_meters(frames)
