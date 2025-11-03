@@ -14,9 +14,33 @@ import threading
 from typing import Optional, Tuple
 
 # (Alineación GPU Depth->Color movida a viewCamera.make_depth_to_color_aligner)
+
 # =======================
-# Ejemplo de uso mínimo
+# Estado y parámetros runtime (para get_ground)
 # =======================
+
+# Diccionario de estado para evitar variables globales sueltas
+_runtime = {
+    'initialized': False,
+    'pipeline': None,
+    'rays_cp': None,
+    'H': None,
+    'W': None,
+    'align_depth_fn': None,
+    'last_n_cp': None,
+    'last_d_cp': None,
+    'last_thresh': None,
+    'frame_idx': 0,
+    'result_dict': {'processed_img': None, 'processed_base': None},
+    'rgb_thread': None,
+}
+
+# Parámetros por defecto para mantener FPS aceptable
+GROUND_EVERY = 5            # calcular RANSAC cada N frames
+DIST_THRESH_RUN = 0.04      # tolerancia ligeramente mayor
+MAX_ITERS_RUN = 800         # menos iteraciones
+MIN_INLIERS_RUN = 600       # umbral acorde a subsampling
+SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict):
     """
@@ -298,131 +322,136 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base=None):
     cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
     return result 
 
-# =======================
-# Ejemplo de uso mínimo
-# =======================
-if __name__ == "__main__":
-    # Visualiza la imagen RGB con el suelo segmentado (en vivo)
+def _lazy_init():
+    """Inicializa cámara y rayos en la primera llamada."""
+    if _runtime['initialized']:
+        return
     print("Inicializando cámara RealSense…")
     pipeline, _params = init_camera(640, 480, 640, 480, 30)
-
-    # Precomputar rayos (una sola vez) en el espacio de COLOR y obtener la función de alineación
-    # del RGB y el DEPTH alineado correspondan al mismo rayo
     rays_np, H, W, align_depth_fn = precompute_rays_for_stream(pipeline, rs.stream.color)
-    rays_cp = cp.asarray(rays_np)  # (H,W,3)
+    _runtime['pipeline'] = pipeline
+    _runtime['rays_cp'] = cp.asarray(rays_np)
+    _runtime['H'] = H
+    _runtime['W'] = W
+    _runtime['align_depth_fn'] = align_depth_fn
+    _runtime['last_thresh'] = DIST_THRESH_RUN
+    _runtime['initialized'] = True
 
-    # Parámetros runtime para mantener FPS
-    ground_every = 5             # calcular RANSAC cada N frames
-    dist_thresh_run = 0.04       # tolerancia ligeramente mayor
-    max_iters_run = 800          # menos iteraciones
-    min_inliers_run = 600        # umbral acorde a subsampling
-    subsample_stride = 4         # muestreo 1/s^2 para RANSAC
 
-    last_n_cp = None
-    last_d_cp = None
-    last_thresh = dist_thresh_run
-    frame_idx = 0
-    t0 = time.perf_counter()
-    fps_avg = 0.0
+def get_ground() -> Optional[np.ndarray]:
+    """
+    Obtiene un frame, detecta el plano de suelo (RANSAC) y devuelve la imagen RGB
+    con la máscara del suelo pintada en verde. Dentro de la función se imprime
+    el retardo (tiempo) de RANSAC en milisegundos cuando se ejecuta.
+
+    Returns:
+        np.ndarray | None: imagen BGR con el suelo pintado o None si no hay frame.
+    """
+    _lazy_init()
+
+    pipeline = _runtime['pipeline']
+    H, W = _runtime['H'], _runtime['W']
+    align_depth_fn = _runtime['align_depth_fn']
+
+    frames = pipeline.wait_for_frames()
+
+    # Extraer RGB y Depth nativos
+    rgb_image = extract_rgb(frames)
+    depth_m = align_depth_fn(frames) if align_depth_fn is not None else extract_depth_meters(frames)
+    if rgb_image is None or depth_m is None:
+        return None
+
+    # Lanzar procesamiento paralelo de la imagen RGB (si no está en curso)
+    if _runtime['rgb_thread'] is None or not _runtime['rgb_thread'].is_alive():
+        _runtime['rgb_thread'] = threading.Thread(target=process_rgb_pipeline,
+                                                  args=(rgb_image, _runtime['result_dict']))
+        _runtime['rgb_thread'].start()
+
+    # Asegurar shape del depth al tamaño de COLOR
+    if depth_m.shape[0] != H or depth_m.shape[1] != W:
+        depth_m = cv2.resize(depth_m, (W, H), interpolation=cv2.INTER_NEAREST)
+
+    _runtime['frame_idx'] += 1
+    depth_cp = cp.asarray(depth_m, dtype=cp.float32)
+
+    # Decidir si ejecutar RANSAC ahora (y medir retardo)
+    ran_now = (_runtime['frame_idx'] % GROUND_EVERY) == 1 or (_runtime['last_n_cp'] is None)
+    ransac_ms = 0.0
+    if ran_now:
+        # Submuestreo para RANSAC
+        Dsub = depth_cp[::SUBSAMPLE_STRIDE, ::SUBSAMPLE_STRIDE]
+        Rsub = _runtime['rays_cp'][::SUBSAMPLE_STRIDE, ::SUBSAMPLE_STRIDE]
+        valid = Dsub > 0
+        if int(cp.sum(valid)) >= MIN_INLIERS_RUN:
+            Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
+            Psub = Psub[valid.reshape(-1)]
+
+            t0 = time.perf_counter()
+            res = ransac_plane_gpu(
+                Psub,
+                dist_thresh=DIST_THRESH_RUN,
+                max_iters=MAX_ITERS_RUN,
+                min_inliers=MIN_INLIERS_RUN,
+                up_axis=(0.0, -1.0, 0.0),
+                max_angle_deg=20.0,
+                seed=42,
+                score_subset=8192,
+                orientation='ground',
+            )
+            ransac_ms = (time.perf_counter() - t0) * 1000.0
+            print(f"Retardo RANSAC: {ransac_ms:.1f} ms")
+
+            if res is not None:
+                _runtime['last_n_cp'] = res['n']
+                _runtime['last_d_cp'] = res['d']
+                _runtime['last_thresh'] = DIST_THRESH_RUN
+            else:
+                _runtime['last_n_cp'] = None
+                _runtime['last_d_cp'] = None
+        else:
+            # Datos insuficientes, no se ejecuta RANSAC este frame
+            print("Retardo RANSAC: 0.0 ms (datos insuficientes)")
+
+    # Construir máscara del mejor plano actual (si existe)
+    H, W = _runtime['H'], _runtime['W']
+    if _runtime['last_n_cp'] is not None:
+        dotnr = cp.tensordot(_runtime['rays_cp'], _runtime['last_n_cp'], axes=([2], [0]))
+        dists = cp.abs(depth_cp * dotnr + _runtime['last_d_cp'])
+        valid_depth = depth_cp > 0
+        mask = (dists <= _runtime['last_thresh']) & valid_depth
+        ground_mask = _to_numpy(mask).astype(np.uint8)
+    else:
+        ground_mask = np.zeros((H, W), dtype=np.uint8)
+
+    # Imagen base procesada para pintar
+    processed_base = _runtime['result_dict'].get('processed_base')
+    img = apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base)
+    return img
+
+
+# =======================
+# Ejecución directa del módulo
+# =======================
+if __name__ == "__main__":
     cv2.namedWindow('Detección de Suelo - RealSense', cv2.WINDOW_NORMAL)
     try:
-        result_dict = {'processed_img': None, 'processed_base': None}
-        rgb_thread = None
         while True:
-            frames = pipeline.wait_for_frames()
-
-            # Extraer RGB y Depth nativos
-            rgb_image = extract_rgb(frames)
-            # Alinear DEPTH al espacio de COLOR mediante función provista por viewCamera
-            depth_m = align_depth_fn(frames) if align_depth_fn is not None else extract_depth_meters(frames)
-            if rgb_image is None or depth_m is None:
+            img = get_ground()
+            if img is None:
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:
                     break
                 continue
 
-            # Lanzar procesamiento paralelo de la imagen RGB
-            if rgb_thread is None or not rgb_thread.is_alive():
-                rgb_thread = threading.Thread(target=process_rgb_pipeline, args=(rgb_image, result_dict))
-                rgb_thread.start()
-
-            # Asegurar shapes esperadas
-            # No recortar ni redimensionar la imagen RGB en ningún paso
-            if depth_m.shape[0] != H or depth_m.shape[1] != W:
-                # Redimensionar depth con nearest si la cámara entrega otra resolución
-                depth_m = cv2.resize(depth_m, (W, H), interpolation=cv2.INTER_NEAREST)
-
-            frame_idx += 1
-            depth_cp = cp.asarray(depth_m, dtype=cp.float32)
-            ground_mask = None
-
-            # Detectar suelo solo cada 'ground_every' frames; entre medias, reusar el plano
-            ran_now = (frame_idx % ground_every) == 1 or (last_n_cp is None)
-            if ran_now:
-                # Submuestreo para RANSAC
-                Dsub = depth_cp[::subsample_stride, ::subsample_stride]
-                Rsub = rays_cp[::subsample_stride, ::subsample_stride]
-                # Puntos válidos
-                valid = Dsub > 0
-                if int(cp.sum(valid)) < min_inliers_run:
-                    img = rgb_image
-                else:
-                    Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
-                    Psub = Psub[valid.reshape(-1)]
-                    Psub_np = Psub
-                    res = ransac_plane_gpu(Psub_np,
-                                           dist_thresh=dist_thresh_run,
-                                           max_iters=max_iters_run,
-                                           min_inliers=min_inliers_run,
-                                           up_axis=(0.0, -1.0, 0.0),
-                                           max_angle_deg=20.0,
-                                           seed=42,
-                                           score_subset=8192,
-                                           orientation='ground')
-                    if res is not None:
-                        last_n_cp = res['n']
-                        last_d_cp = res['d']
-                        last_thresh = dist_thresh_run
-                    else:
-                        last_n_cp = None
-                        last_d_cp = None
-
-            # Construir máscara con el mejor plano actual (si existe)
-            if last_n_cp is not None:
-                dotnr = cp.tensordot(rays_cp, last_n_cp, axes=([2], [0]))
-                dists = cp.abs(depth_cp * dotnr + last_d_cp)
-                valid_depth = depth_cp > 0
-                mask = (dists <= last_thresh) & valid_depth
-                ground_mask = _to_numpy(mask).astype(np.uint8)
-            else:
-                ground_mask = np.zeros((H, W), dtype=np.uint8)
-
-            # Aplicar máscara a la imagen procesada (unsharp)
-            img = apply_ground_mask_to_rgb(rgb_image, ground_mask, result_dict.get('processed_base'))
-
-            # HUD simple con FPS y estado
-            dt = time.perf_counter() - t0
-            t0 = time.perf_counter()
-            fps = 1.0 / max(dt, 1e-6)
-            fps_avg = 0.9 * fps_avg + 0.1 * fps if fps_avg > 0 else fps
-            inl = int(np.sum(ground_mask > 0)) if ground_mask is not None else 0
-
-            hud1 = f"FPS:{fps_avg:4.1f}  {'RANSAC' if ran_now else 'mask'}  Inliers:{inl}"
-            # Sombra negra + texto blanco para máxima legibilidad
-            cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,0), 2, cv2.LINE_AA)
-            cv2.putText(img, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 1, cv2.LINE_AA)
-
-            info_text = "Suelo detectado en verde | ESC para salir"
-            cv2.putText(img, info_text, (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 2, cv2.LINE_AA)
-            cv2.putText(img, info_text, (10, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1, cv2.LINE_AA)
-
-            # Mostrar imagen procesada en ventana aparte
-            if result_dict['processed_img'] is not None:
-                cv2.imshow('Procesamiento RGB paralelo', result_dict['processed_img'])
+            # Ventana opcional del procesado paralelo
+            proc = _runtime['result_dict'].get('processed_img')
+            if proc is not None:
+                cv2.imshow('Procesamiento RGB paralelo', proc)
             cv2.imshow('Detección de Suelo - RealSense', img)
             key = cv2.waitKey(1) & 0xFF
             if key == 27:
                 break
     finally:
-        pipeline.stop()
+        if _runtime['pipeline'] is not None:
+            _runtime['pipeline'].stop()
         cv2.destroyAllWindows()
