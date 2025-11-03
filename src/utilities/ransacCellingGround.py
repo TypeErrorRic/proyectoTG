@@ -39,9 +39,10 @@ _runtime = {
 # Parámetros por defecto para mantener FPS aceptable
 GROUND_EVERY = 5            # calcular RANSAC cada N frames
 DIST_THRESH_RUN = 0.04      # tolerancia ligeramente mayor
-MAX_ITERS_RUN = 800         # menos iteraciones
+MAX_ITERS_RUN = 500         # menos iteraciones para reducir retardo
 MIN_INLIERS_RUN = 600       # umbral acorde a subsampling
 SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
+RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict):
     """
@@ -117,7 +118,9 @@ def ransac_plane_gpu(points,
                      batch_size=None,
                      point_chunk=None,
                      score_subset=None,
-                     orientation: str = 'any'):
+                     orientation: str = 'any',
+                     time_budget_ms: Optional[float] = None,
+                     early_stop_ratio: float = 0.92):
     """
     RANSAC de un plano 'horizontal' (suelo/techo) optimizado para GPU.
 
@@ -197,6 +200,8 @@ def ransac_plane_gpu(points,
     P_samp = P[samp_idx]
 
     remaining = int(max_iters)
+    start_time = time.perf_counter()
+    processed_batches = 0
     while remaining > 0:
         K = int(min(batch_size, remaining))
         remaining -= K
@@ -246,6 +251,16 @@ def ransac_plane_gpu(points,
             best_count = batch_best_count
             best_n = n_unit[batch_best_idx]
             best_d = d[batch_best_idx]
+
+        processed_batches += 1
+        # Early-stop por calidad del modelo (en la submuestra)
+        if score_subset and batch_best_count >= int(early_stop_ratio * int(score_subset)):
+            break
+        # Time budget (si aplica), garantiza al menos 1-2 lotes
+        if time_budget_ms is not None and processed_batches >= 2:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            if elapsed_ms >= time_budget_ms:
+                break
 
     if best_count < 0:
         return None
@@ -396,8 +411,10 @@ def get_ground() -> Optional[np.ndarray]:
                 up_axis=(0.0, -1.0, 0.0),
                 max_angle_deg=20.0,
                 seed=42,
-                score_subset=8192,
+                score_subset=4096,
                 orientation='ground',
+                time_budget_ms=RANSAC_TIME_BUDGET_MS,
+                early_stop_ratio=0.92,
             )
             ransac_ms = (time.perf_counter() - t0) * 1000.0
             print(f"Retardo RANSAC: {ransac_ms:.1f} ms")
