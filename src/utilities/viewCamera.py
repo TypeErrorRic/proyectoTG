@@ -300,6 +300,9 @@ if __name__ == "__main__":
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         skip_top_ratio = 0.25  # ignorar fracción superior de la imagen (techo/cielo)
         max_distance_m = 3.5   # limitar distancia de profundidad para acelerar
+        # Parámetros de voxel establecidos
+        voxel_size = 0.012
+        min_pts = 1
         # Rendimiento / logging
         max_render_pts = 150_000
         frame_idx = 0
@@ -316,6 +319,9 @@ if __name__ == "__main__":
                                                skip_top_ratio=skip_top_ratio,
                                                max_distance_m=max_distance_m)
             t2 = time.perf_counter()
+            # Filtro voxel para reducir densidad manteniendo planos
+            points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
+            t3 = time.perf_counter()
             frame_idx += 1
             
             # Limpieza periódica del pool de memoria de CuPy
@@ -323,7 +329,7 @@ if __name__ == "__main__":
                 mempool = cp.get_default_memory_pool()
                 mempool.free_all_blocks()
             
-            img = render_pointcloud(points_xyz,
+            img = render_pointcloud(points_voxel if points_voxel is not None else points_xyz,
                                      out_size=(720, 720),
                                      yaw_deg=yaw_deg,
                                      pitch_deg=pitch_deg,
@@ -333,22 +339,24 @@ if __name__ == "__main__":
                                      ty=ty,
                                      fov_deg=fov_deg,
                                      max_points=max_render_pts)
-            t3 = time.perf_counter()
+            t4 = time.perf_counter()
             hud = (
                 f"Adquisición: {(t1 - t0) * 1000:.1f} ms | "
                 f"Extract(GPU): {(t2 - t1) * 1000:.1f} ms | "
-                f"Render: {(t3 - t2) * 1000:.1f} ms | "
-                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f} | maxD: {max_distance_m:.1f}m"
+                f"Voxel: {(t3 - t2) * 1000:.1f} ms | "
+                f"Render: {(t4 - t3) * 1000:.1f} ms | "
+                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f} | maxD: {max_distance_m:.1f}m | vx:{voxel_size:.3f} | min:{min_pts}"
             )
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             # Log a consola (rate-limited)
             now = time.perf_counter()
             if (now - last_log) >= log_interval:
-                total_ms = (t3 - t0) * 1000.0
+                total_ms = (t4 - t0) * 1000.0
                 fps = 1000.0 / max(total_ms, 1e-3)
                 n_extract = int(points_xyz.shape[0]) if points_xyz is not None else 0
+                n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else n_extract
                 print(
-                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Render: {(t3 - t2) * 1000:.1f} ms | pts: {n_extract} | maxPts: {max_render_pts} | stride: {extract_stride}",
+                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | maxPts: {max_render_pts} | stride: {extract_stride}",
                     flush=True,
                 )
                 last_log = now
