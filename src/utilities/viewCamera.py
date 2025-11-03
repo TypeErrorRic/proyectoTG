@@ -5,7 +5,7 @@ Utilidades de cámara Intel RealSense necesarias para el flujo de RANSAC en rans
 - extract_depth_raw(frames): depth en uint16 (unidades nativas).
 - extract_depth_meters(frames, depth_scale=None): depth en metros (float32).
 - compute_rays_from_intrinsics(intr): calcula los rayos por píxel a coords de cámara.
-- precompute_rays_from_pipeline(pipeline): helper para obtener rayos (H, W, 3) desde el pipeline activo.
+- precompute_rays_for_stream(pipeline, stream): obtiene rayos (H, W, 3) para el stream indicado (depth/color).
 - init_camera(...): inicializa la cámara.
 
 Incluye un main ligero que muestra qué se le entregaría a la función de RANSAC:
@@ -16,7 +16,7 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 import time
-from typing import Tuple
+from typing import Tuple, Callable, Optional
 
 # =========================================================
 # ===============  U T I L I D A D E S  ===================
@@ -114,32 +114,187 @@ def compute_rays_from_intrinsics(intr) -> np.ndarray:
     rays = np.stack([x, y, ones], axis=-1).astype(np.float32)
     return rays
 
+###############################################
+# Alineación DEPTH -> COLOR (GPU opcional)
+###############################################
 
-def precompute_rays_from_pipeline(pipeline: rs.pipeline) -> Tuple[np.ndarray, int, int]:
+# Kernel CUDA para alineación (idéntico al usado previamente)
+_ALIGN_KERNEL_SRC = r"""
+extern "C" __global__
+void align_depth_to_color(
+    const float* __restrict__ depth,    // (Hd*Wd)
+    const float* __restrict__ A,        // (Hd*Wd*3) precomputado: R_cd * ray_d
+    const float* __restrict__ t,        // (3) traslación depth->color
+    const float fx, const float fy,
+    const float cx, const float cy,
+    const int Hd, const int Wd,
+    const int Hc, const int Wc,
+    unsigned int* __restrict__ out_bits // (Hc*Wc) inicializado a +inf
+){
+    int idx = blockDim.x * blockIdx.x + threadIdx.x;
+    int N = Hd * Wd;
+    if (idx >= N) return;
+
+    float z = depth[idx];
+    if (!(z > 0.0f) || !isfinite(z)) return;
+
+    // A indexado linealmente (x3)
+    int aidx = idx * 3;
+    float ax = A[aidx + 0];
+    float ay = A[aidx + 1];
+    float az = A[aidx + 2];
+
+    // Transformar punto de depth->color
+    float Xcx = ax * z + t[0];
+    float Xcy = ay * z + t[1];
+    float Xcz = az * z + t[2];
+    if (!(Xcz > 0.0f) || !isfinite(Xcz)) return;
+
+    // Proyectar a píxel de color
+    float u = fx * (Xcx / Xcz) + cx;
+    float v = fy * (Xcy / Xcz) + cy;
+
+    int ui = (int)roundf(u);
+    int vi = (int)roundf(v);
+    if (ui < 0 || ui >= Wc || vi < 0 || vi >= Hc) return;
+
+    // Z-buffer: quedarse con el punto más cercano (menor Z en cámara color)
+    unsigned int zbits = __float_as_uint(Xcz);
+    int o = vi * Wc + ui;
+    atomicMin(&out_bits[o], zbits);
+}
+"""
+
+
+class DepthToColorAlignerGPU:
     """
-    Helper para obtener los rayos (H,W,3) desde el pipeline activo usando
-    el stream de profundidad por defecto. Retorna (rays_np, H, W).
+    Alineador rápido de DEPTH->COLOR usando GPU (CuPy + kernel CUDA).
+
+    - Precalcula A = R_cd @ ray_d(x,y) por píxel (depth) y usa t_cd.
+    - Por frame: hace un pase sobre depth y "salpica" al plano de color
+      con z-buffer (atómico) para quedarse con la muestra más cercana.
     """
-    depth_profile = pipeline.get_active_profile().get_stream(rs.stream.depth).as_video_stream_profile()
-    intr = depth_profile.get_intrinsics()
-    rays_np = compute_rays_from_intrinsics(intr)
-    H, W = intr.height, intr.width
-    return rays_np, H, W
+
+    def __init__(self, pipeline: rs.pipeline) -> None:
+        import cupy as cp  # import local para no requerir CuPy si no se usa
+        prof = pipeline.get_active_profile()
+        depth_prof = prof.get_stream(rs.stream.depth).as_video_stream_profile()
+        color_prof = prof.get_stream(rs.stream.color).as_video_stream_profile()
+
+        # Intrínsecos
+        intr_d = depth_prof.get_intrinsics()
+        intr_c = color_prof.get_intrinsics()
+        self.Wd, self.Hd = intr_d.width, intr_d.height
+        self.Wc, self.Hc = intr_c.width, intr_c.height
+        self.fx_c = float(intr_c.fx)
+        self.fy_c = float(intr_c.fy)
+        self.cx_c = float(intr_c.ppx)
+        self.cy_c = float(intr_c.ppy)
+
+        # Extrínsecos depth->color (rotación y traslación)
+        extr = depth_prof.get_extrinsics_to(color_prof)
+        R = np.asarray(extr.rotation, dtype=np.float32).reshape(3, 3)
+        t = np.asarray(extr.translation, dtype=np.float32).reshape(3)
+        self._cp = cp
+        self.t_cp = cp.asarray(t, dtype=cp.float32)
+
+        # Rayos del stream de profundidad
+        rays_d = compute_rays_from_intrinsics(intr_d).astype(np.float32)  # (Hd,Wd,3)
+
+        # A(x,y) = R_cd * ray_d(x,y)
+        A = np.tensordot(rays_d, R.T, axes=(2, 0))  # (Hd,Wd,3)
+        self.A_cp = cp.asarray(A, dtype=cp.float32)
+
+        # Compilar kernel
+        self._kernel = cp.RawKernel(_ALIGN_KERNEL_SRC, 'align_depth_to_color')
+
+    def align(self, depth_m: np.ndarray) -> np.ndarray:
+        """
+        Devuelve depth alineado al espacio de COLOR (Hc,Wc) en metros (float32).
+        """
+        cp = self._cp
+        if depth_m is None:
+            return None
+        # Ajustar tamaño de entrada si hiciera falta
+        if depth_m.shape != (self.Hd, self.Wd):
+            depth_m = cv2.resize(depth_m, (self.Wd, self.Hd), interpolation=cv2.INTER_NEAREST)
+
+        depth_cp = cp.asarray(depth_m, dtype=cp.float32)
+        # Salida inicializada a +inf (como uint32 para atomicMin bit a bit)
+        out_bits = cp.full((self.Hc, self.Wc), np.float32(np.inf).view(np.uint32), dtype=cp.uint32)
+
+        # Lanzar kernel
+        N = int(self.Hd * self.Wd)
+        threads = 256
+        blocks = (N + threads - 1) // threads
+        self._kernel((blocks,), (threads,), (
+            depth_cp,
+            self.A_cp.ravel(),
+            self.t_cp,
+            np.float32(self.fx_c), np.float32(self.fy_c),
+            np.float32(self.cx_c), np.float32(self.cy_c),
+            np.int32(self.Hd), np.int32(self.Wd),
+            np.int32(self.Hc), np.int32(self.Wc),
+            out_bits.ravel()
+        ))
+
+        # Convertir a float32 y poner 0.0 donde quedó +inf (no asignado)
+        depth_c = out_bits.view(cp.float32)
+        mask_inf = cp.isinf(depth_c)
+        if mask_inf.any():
+            depth_c = depth_c.copy()
+            depth_c[mask_inf] = 0.0
+        return depth_c.get()
 
 
-def precompute_rays_for_stream(pipeline: rs.pipeline, stream: rs.stream = rs.stream.depth) -> Tuple[np.ndarray, int, int]:
+def make_depth_to_color_aligner(pipeline: rs.pipeline) -> Callable[[rs.composite_frame], Optional[np.ndarray]]:
+    """
+    Crea una función align(frames)->depth_en_color (float32, Hc x Wc) que
+    usa GPU (CuPy) si está disponible; si no, usa rs.align como respaldo.
+    """
+    try:
+        # Intentar GPU
+        aligner_gpu = DepthToColorAlignerGPU(pipeline)
+
+        def _align(frames: rs.composite_frame) -> Optional[np.ndarray]:
+            depth_native = extract_depth_meters(frames)
+            if depth_native is None:
+                return None
+            return aligner_gpu.align(depth_native)
+
+        return _align
+    except Exception:
+        # Respaldo con rs.align
+        align_to_color = rs.align(rs.stream.color)
+
+        def _align_cpu(frames: rs.composite_frame) -> Optional[np.ndarray]:
+            aligned_frames = align_to_color.process(frames)
+            return extract_depth_meters(aligned_frames)
+
+        return _align_cpu
+
+
+def precompute_rays_for_stream(pipeline: rs.pipeline, stream: rs.stream = rs.stream.depth) -> Tuple[np.ndarray, int, int, Optional[Callable[[rs.composite_frame], Optional[np.ndarray]]]]:
     """
     Igual que precompute_rays_from_pipeline, pero permitiendo elegir el stream
     (p.ej. rs.stream.color) para que los rayos estén en el mismo espacio de píxeles
     que el frame con el que se quiera correlacionar por píxel.
 
-    Retorna (rays_np, H, W) según las intrínsecas del stream indicado.
+    Retorna (rays_np, H, W, align_fn):
+      - align_fn(frames) devuelve depth alineado al espacio de COLOR si stream=color,
+        o None si no aplica.
     """
     prof = pipeline.get_active_profile().get_stream(stream).as_video_stream_profile()
     intr = prof.get_intrinsics()
     rays_np = compute_rays_from_intrinsics(intr)
     H, W = intr.height, intr.width
-    return rays_np, H, W
+
+    align_fn: Optional[Callable[[rs.composite_frame], Optional[np.ndarray]]] = None
+    if stream == rs.stream.color:
+        # Preparar función de alineación depth->color
+        align_fn = make_depth_to_color_aligner(pipeline)
+
+    return rays_np, H, W, align_fn
 
 # =========================================================
 # ==========  I N I C I A L I Z A C I Ó N  C Á M A R A  ===
@@ -219,7 +374,9 @@ if __name__ == "__main__":
     
     print("Demo: Nube de puntos desde rayos y profundidad (ESC para salir)")
     try:
-        rays_np, H, W = precompute_rays_from_pipeline(pipeline)
+        # Usar la versión basada en stream COLOR para demostrar alineación depth->color
+        # De esta forma, los rayos (u,v)->rayo están en el espacio de la imagen RGB
+        rays_np, H, W, align_depth_fn = precompute_rays_for_stream(pipeline, rs.stream.color)
         
         # Extraer parámetros de configuración
         stride_demo = params['stride']
@@ -243,9 +400,10 @@ if __name__ == "__main__":
             frames = pipeline.wait_for_frames()
             t2 = time.perf_counter()
             
-            # 2. Extracción RGB y Depth
+            # 2. Extracción RGB y alineación DEPTH->COLOR
             rgb = extract_rgb(frames)
-            depth_m = extract_depth_meters(frames)
+            t2a = time.perf_counter()
+            depth_m = align_depth_fn(frames) if align_depth_fn is not None else extract_depth_meters(frames)
             t3 = time.perf_counter()
             
             if rgb is None or depth_m is None:
@@ -254,7 +412,7 @@ if __name__ == "__main__":
                     break
                 continue
 
-            # 3. Ajuste de dimensiones
+            # 3. Ajuste de dimensiones (por seguridad)
             if depth_m.shape != (H, W):
                 depth_m = cv2.resize(depth_m, (W, H), interpolation=cv2.INTER_NEAREST)
             t4 = time.perf_counter()
@@ -295,12 +453,13 @@ if __name__ == "__main__":
             cv2.imshow('RGB', vis)
             cv2.imshow('PointCloud', pc_img)
             
-            # Imprimir tiempos cada 30 frames
+            # Imprimir tiempos cada 60 frames (incluyendo alineación)
             frame_count += 1
-            if frame_count % 30 == 0:
+            if frame_count % 60 == 0:
                 print(f"\n=== Tiempos Frame #{frame_count} ===")
                 print(f"  Captura frames:     {(t2-t1)*1000:6.2f} ms")
-                print(f"  Extracción RGB/D:   {(t3-t2)*1000:6.2f} ms")
+                print(f"  Extracción RGB:     {(t2a-t2)*1000:6.2f} ms")
+                print(f"  Alineación D->C:    {(t3-t2a)*1000:6.2f} ms")
                 print(f"  Resize depth:       {(t4-t3)*1000:6.2f} ms")
                 print(f"  Rayos -> PointCloud:{(t5-t4)*1000:6.2f} ms")
                 print(f"  Extracción colores: {(t6-t5)*1000:6.2f} ms")
