@@ -59,7 +59,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     4) Sobel (ksize=5) y magnitud de gradiente
     5) Cierre morfológico (medio)
     6) Unsharp mask para realzar
-    7) Watershed guiado por gradientes y overlay de bordes
+    7) Detección de líneas (Canny + dilatación), interior negro
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -103,40 +103,18 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # Salida base en BGR (3 canales)
     processed_base = cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
 
-    # 7. Watershed con gradientes
-    #    - Gradiente (Sobel) como relieve para watershed
-    #    - Marcadores por componentes conectados (sure FG/BG)
-    #    - Superponer bordes del watershed sobre processed_base
-    try:
-        # Gradiente sobre imagen sharpened
-        gx_w = cv2.Sobel(sharp, cv2.CV_32F, 1, 0, ksize=3)
-        gy_w = cv2.Sobel(sharp, cv2.CV_32F, 0, 1, ksize=3)
-        gmag = cv2.magnitude(gx_w, gy_w)
-        gmag_u8 = cv2.normalize(gmag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    # 7. Detección de líneas: Canny + dilatación; interior en negro
+    v = float(np.median(sharp))
+    sigma = 0.33
+    lower = int(max(0, (1.0 - sigma) * v))
+    upper = int(min(255, (1.0 + sigma) * v))
+    edges = cv2.Canny(sharp, lower, upper, L2gradient=True)
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, edge_kernel, iterations=1)
 
-        # Marcadores (foreground/background) desde binarización + distancia
-        _, th_ws = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        k_ws = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        sure_bg = cv2.dilate(th_ws, k_ws, iterations=2)
-        dist = cv2.distanceTransform(th_ws, cv2.DIST_L2, 5)
-        _, sure_fg = cv2.threshold(dist, 0.5 * float(dist.max()), 255, 0)
-        sure_fg = sure_fg.astype(np.uint8)
-        unknown = cv2.subtract(sure_bg, sure_fg)
-
-        num_lbl, markers = cv2.connectedComponents(sure_fg)
-        markers = markers + 1  # que el fondo sea 1 en adelante
-        markers[unknown == 255] = 0
-
-        # Watershed sobre el gradiente como imagen 3 canales
-        gmag_bgr = cv2.cvtColor(gmag_u8, cv2.COLOR_GRAY2BGR)
-        markers = cv2.watershed(gmag_bgr, markers)
-
-        # Bordes (marcados con -1) en rojo
-        boundary_mask = (markers == -1)
-        processed_base[boundary_mask] = (0, 0, 255)
-    except Exception:
-        # En caso de fallo, dejamos processed_base tal cual
-        pass
+    lines_bgr = np.zeros_like(processed_base)
+    lines_bgr[edges > 0] = (255, 255, 255)
+    processed_base = lines_bgr
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
