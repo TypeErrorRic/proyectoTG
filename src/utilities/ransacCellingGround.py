@@ -52,14 +52,12 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con un pipeline ligero para resaltar bordes como líneas:
+    Procesa la imagen RGB con un pipeline ligero (Laplaciano):
     1) Blanco y negro
     2) CLAHE (clip=2.0, tiles=24x24)
     3) Suavizado Gauss (sigma≈1.0)
     4) Laplaciano (ksize=3) en CV_16S + convertScaleAbs(|·|)
-    5) Umbral (Otsu) para máscara de bordes
-    6) Dilatación 1× (3×3) para engrosar
-    7) Salida BGR: líneas blancas, fondo negro
+    5) Salida BGR directa del Laplaciano (sin umbral ni dilatación)
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -87,16 +85,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     lap = cv2.Laplacian(gauss, cv2.CV_16S, ksize=3)
     lap_abs = cv2.convertScaleAbs(lap)
 
-    # 5. Umbral Otsu para extraer bordes
-    _, edges = cv2.threshold(lap_abs, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # 6. Dilatar una vez para engrosar líneas
-    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.dilate(edges, edge_kernel, iterations=1)
-
-    # 7. Salida BGR: líneas blancas (255), fondo negro
-    processed_base = np.zeros((edges.shape[0], edges.shape[1], 3), dtype=np.uint8)
-    processed_base[edges > 0] = (255, 255, 255)
+    # 5. Salida BGR directa del Laplaciano (evita nube blanca por umbral)
+    processed_base = cv2.cvtColor(lap_abs, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
