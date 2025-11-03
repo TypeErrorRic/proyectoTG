@@ -4,6 +4,7 @@ import cv2
 import time
 import cupy as cp
 from viewCamera import extract_pointcloud_gpu, init_camera, extract_rgb
+import math
 
 def obtener_nube_puntos(frames, stride=1, skip_top_ratio=0.25, max_distance_m=3.5):
     """
@@ -40,11 +41,19 @@ def ransac_plane_gpu(points,
     Aplica RANSAC para encontrar el plano del suelo en la nube de puntos.
     Retorna una máscara booleana de los puntos que pertenecen al plano.
     """
-    import math
+    # Convertir a cupy y reducir la nube si es muy grande
     P = cp.asarray(points).astype(cp.float32)
     N = int(P.shape[0])
     if N < 3:
         return None
+    # Parámetros extremos para velocidad
+    max_points = 2000
+    iteraciones = min(max_iters, 100)
+    # Muestreo aleatorio si hay demasiados puntos
+    if N > max_points:
+        idx_sample = cp.random.choice(N, max_points, replace=False)
+        P = P[idx_sample]
+        N = max_points
     up = cp.asarray(up_axis, dtype=cp.float32)
     up = up / (cp.linalg.norm(up) + 1e-9)
     cos_thresh = math.cos(math.radians(float(max_angle_deg)))
@@ -53,7 +62,8 @@ def ransac_plane_gpu(points,
     best_count = -1
     best_n = None
     best_d = None
-    for _ in range(max_iters):
+    best_mask = None
+    for _ in range(iteraciones):
         idxs = rand_fn((3,))
         a, b, c = P[idxs[0]], P[idxs[1]], P[idxs[2]]
         ab = b - a
@@ -69,7 +79,7 @@ def ransac_plane_gpu(points,
             continue
         dists = cp.abs(n_unit[None, :] @ P.T + d)[0]
         mask = dists <= dist_thresh
-        count = int(cp.sum(mask).get())
+        count = cp.count_nonzero(mask)
         if count > best_count and count >= min_inliers:
             best_count = count
             best_n = n_unit
