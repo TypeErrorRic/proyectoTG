@@ -57,7 +57,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     2) Filtro bilateral (d=7)
     3) CLAHE (clip=2.0, tiles=24x24)
     4) Sobel (ksize=5) y magnitud de gradiente
-    5) Cierre morfológico (suave)
+    5) Cierre morfológico (medio)
     6) Unsharp mask para realzar
 
     Guarda solo:
@@ -89,13 +89,13 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     mag_u8 = mag.astype(np.uint8)
 
-    # 5. Cierre morfológico suave (kernel 7x7, 1 iteración)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    # 5. Cierre morfológico medio (kernel 9x9, 1 iteración)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
     closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
 
     # 6. Unsharp mask para realzar detalles sin introducir manchas
     #    sharp = closed * (1 + amount) - gauss(closed) * amount
-    amount = 2.4  # intensidad del realce; ajustable (más fuerte)
+    amount = 3.0  # intensidad del realce; ajustable (más fuerte)
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
