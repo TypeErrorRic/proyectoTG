@@ -290,8 +290,6 @@ if __name__ == "__main__":
         tx, ty = 0.0, 0.0
         tz = None  # auto al inicio
         fov_deg = 60.0
-        voxel_size = 0.012
-        min_pts = 1
         extract_stride = 1  # muestreo previo a la deproyección (1=full)
         skip_top_ratio = 0.25  # ignorar fracción superior de la imagen (techo/cielo)
         # Rendimiento / logging
@@ -305,10 +303,8 @@ if __name__ == "__main__":
             t0 = time.perf_counter()
             frames = pipeline.wait_for_frames()
             t1 = time.perf_counter()
-            points_voxel = extract_pointcloud_gpu(frames, stride=extract_stride, skip_top_ratio=skip_top_ratio)
+            points_xyz = extract_pointcloud_gpu(frames, stride=extract_stride, skip_top_ratio=skip_top_ratio)
             t2 = time.perf_counter()
-            #points_voxel = voxel_grid(points_xyz, voxel_size=voxel_size, min_points_per_voxel=min_pts) if points_xyz is not None else None
-            t3 = time.perf_counter()
             frame_idx += 1
             
             # Limpieza periódica del pool de memoria de CuPy
@@ -316,7 +312,7 @@ if __name__ == "__main__":
                 mempool = cp.get_default_memory_pool()
                 mempool.free_all_blocks()
             
-            img = render_pointcloud(points_voxel,
+            img = render_pointcloud(points_xyz,
                                      out_size=(720, 720),
                                      yaw_deg=yaw_deg,
                                      pitch_deg=pitch_deg,
@@ -326,29 +322,27 @@ if __name__ == "__main__":
                                      ty=ty,
                                      fov_deg=fov_deg,
                                      max_points=max_render_pts)
-            t4 = time.perf_counter()
+            t3 = time.perf_counter()
             hud = (
                 f"Adquisición: {(t1 - t0) * 1000:.1f} ms | "
                 f"Extract(GPU): {(t2 - t1) * 1000:.1f} ms | "
-                f"Voxel: {(t3 - t2) * 1000:.1f} ms | "
-                f"Render: {(t4 - t3) * 1000:.1f} ms | "
-                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f} | vx:{voxel_size:.3f} | min:{min_pts}"
+                f"Render: {(t3 - t2) * 1000:.1f} ms | "
+                f"stride: {extract_stride} | ROI: {skip_top_ratio:.2f}"
             )
             cv2.putText(img, hud, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
             # Log a consola (rate-limited)
             now = time.perf_counter()
             if (now - last_log) >= log_interval:
-                total_ms = (t4 - t0) * 1000.0
+                total_ms = (t3 - t0) * 1000.0
                 fps = 1000.0 / max(total_ms, 1e-3)
-                n_voxel = int(points_voxel.shape[0]) if points_voxel is not None else 0
                 n_extract = int(points_xyz.shape[0]) if points_xyz is not None else 0
                 print(
-                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Voxel: {(t3 - t2) * 1000:.1f} ms | Render: {(t4 - t3) * 1000:.1f} ms | pts(raw): {n_extract} | pts(voxel): {n_voxel} | voxel: {voxel_size:.3f} | minPts: {min_pts} | maxPts: {max_render_pts} | stride: {extract_stride}",
+                    f"FPS: {fps:4.1f} | Acq: {(t1 - t0) * 1000:.1f} ms | Extract(GPU): {(t2 - t1) * 1000:.1f} ms | Render: {(t3 - t2) * 1000:.1f} ms | pts: {n_extract} | maxPts: {max_render_pts} | stride: {extract_stride}",
                     flush=True,
                 )
                 last_log = now
             # Ayuda de teclas
-            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  [,]: voxel  [;'] minPts  9/0: render pts  O/P: stride  -/=: ROI"
+            help1 = "W/S: pitch  A/D: yaw  Q/E: roll  =/-: zoom  J/L/I/K: pan  R: reset  9/0: render pts  O/P: stride  -/=: ROI"
             cv2.putText(img, help1, (10, img.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180,180,180), 1, cv2.LINE_AA)
             cv2.imshow('RANSAC PointCloud', img)
             key = cv2.waitKey(1) & 0xFF
@@ -394,15 +388,6 @@ if __name__ == "__main__":
                 tx, ty = 0.0, 0.0
                 tz = None
                 fov_deg = 60.0
-            # Ajustes de voxel y min puntos rápidos
-            elif key == ord('['):
-                voxel_size = max(0.002, voxel_size - 0.002)
-            elif key == ord(']'):
-                voxel_size = min(0.05, voxel_size + 0.002)
-            elif key == ord(';'):
-                min_pts = max(1, min_pts - 1)
-            elif key == ord('\''):
-                min_pts = min(20, min_pts + 1)
             elif key == ord('9'):
                 max_render_pts = max(20_000, int(max_render_pts * 0.8))
             elif key == ord('0'):
