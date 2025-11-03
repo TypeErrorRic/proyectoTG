@@ -7,6 +7,7 @@ Funciones mínimas para:
 """
 
 import numpy as np
+from typing import Optional
 import pyrealsense2 as rs
 import cv2
 import time
@@ -76,10 +77,10 @@ def ensure_camera(color_w=640, color_h=480, depth_w=640, depth_h=480, fps=30):
     return _PIPELINE
 
 
-def get_voxel_for_ransac(frames: rs.composite_frame | None = None,
+def get_voxel_for_ransac(frames: Optional[rs.composite_frame] = None,
                          voxel_size: float = 0.01,
                          min_points_per_voxel: int = 3,
-                         pipeline: rs.pipeline | None = None):
+                         pipeline: Optional[rs.pipeline] = None):
     """Extrae la nube de puntos, aplica filtro voxel y la retorna lista para RANSAC.
 
     - Si no se proveen frames, asegura e impulsa la inicialización de la cámara y toma un frame.
@@ -100,7 +101,7 @@ def render_pointcloud(points_xyz: np.ndarray,
                       yaw_deg: float = -45.0,
                       pitch_deg: float = 25.0,
                       roll_deg: float = 0.0,
-                      tz: float | None = None,
+                      tz: Optional[float] = None,
                       tx: float = 0.0,
                       ty: float = 0.0,
                       fov_deg: float = 60.0) -> np.ndarray:
