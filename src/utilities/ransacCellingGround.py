@@ -80,7 +80,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
 
     # 3. Unsharp mask ligero para resaltar bordes antes de Sobel
     #    sharp = enhanced * (1 + amount) - gauss(enhanced) * amount
-    amount = 1.6  # realce moderado y rápido
+    amount = 3.0  # realce fuerte
     blur_us = cv2.GaussianBlur(enhanced, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp_enh = cv2.addWeighted(enhanced, 1.0 + amount, blur_us, -amount, 0)
 
