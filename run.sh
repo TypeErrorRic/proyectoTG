@@ -517,6 +517,15 @@ PY
       exit 1
     fi
     ;;
+  test-2)
+  echo "Iniciando entorno $ENV_NAME…"
+    if [[ -f "src/utilities/viewCamera.py" ]]; then
+      run_in_env python src/utilities/viewCamera.py
+    else
+      echo "ERROR: No se encontró src/utilities/viewCamera.py"
+      exit 1
+    fi
+    ;;
   TxInstall)
     # ===================== SOLO JETSON (TX) EN CONDA =====================
     if [[ "$IS_JETSON" -ne 1 ]]; then
