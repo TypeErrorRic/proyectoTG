@@ -52,13 +52,16 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con YCrCb + Canny + morfología (rápido):
-    1) Convertir a YCrCb y tomar el canal Y
-    2) GaussianBlur 3x3 (sigma≈0.9)
-    3) Canny (low=60, high=180, apertureSize=3, L2gradient=True)
-    4) Apertura morfológica 3x3 (1 iteración)
-    5) Cierre morfológico 3x3 (1 iteración)
-    6) Salida BGR: líneas blancas, fondo negro
+    Procesa la imagen RGB con XDoG (DoG extendido) para una salida tipo boceto:
+    1) Convertir a Y (luma)
+    2) GaussianBlur con σ1≈1.0 y σ2=1.6·σ1
+    3) DoG: D = G(σ1) − τ·G(σ2), τ≈0.98
+    4) XDoG: suavizado no lineal con tanh (ϕ≈10) y umbral ε≈−0.01
+    5) Binarización (Otsu)
+    6) Apertura 3x3 y filtrado por área (< 150 px)
+    7) Cierre 3x3 (1 iter) para unir cortes pequeños
+    8) Thinning (esqueleto morfológico) para líneas de 1 px
+    9) Salida BGR tipo boceto: líneas negras sobre fondo blanco
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -72,26 +75,69 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
                 pass
         return
 
-    # 1. Convertir a Y (luma) de YCrCb
+    # 1. Luma Y
     ycrcb = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2YCrCb)
-    Y = ycrcb[:, :, 0]
+    Y = ycrcb[:, :, 0].astype(np.float32) / 255.0
 
-    # 2. GaussianBlur 3x3 (sigma ~0.9)
-    Y_blur = cv2.GaussianBlur(Y, (3, 3), sigmaX=0.9, sigmaY=0.9)
+    # 2. Gauss σ1 y σ2
+    sigma1 = 1.0
+    sigma2 = sigma1 * 1.6
+    G1 = cv2.GaussianBlur(Y, (0, 0), sigmaX=sigma1, sigmaY=sigma1)
+    G2 = cv2.GaussianBlur(Y, (0, 0), sigmaX=sigma2, sigmaY=sigma2)
 
-    # 3. Canny con umbrales fijos, L2, aperture 3
-    edges = cv2.Canny(Y_blur, 60, 180, apertureSize=3, L2gradient=True)
+    # 3. DoG: D = G1 - tau*G2
+    tau = 0.98
+    D = G1 - tau * G2
 
-    # 4. Apertura 3x3 para limpiar puntos
+    # 4. XDoG: no lineal
+    eps = -0.01
+    phi = 10.0
+    X = np.ones_like(D, dtype=np.float32)
+    mask = D < eps
+    X[mask] = 1.0 + np.tanh(phi * (D[mask] - eps))
+    X = np.clip(X, 0.0, 1.0)
+
+    # 5. Binarización (Otsu) sobre invertido para líneas oscuras
+    X_u8 = (X * 255.0).astype(np.uint8)
+    _, edges = cv2.threshold(255 - X_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # 6. Apertura y filtrado por área
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, k, iterations=1)
+    # Filtrado por área (elimina componentes muy pequeños)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(edges, connectivity=8)
+    min_area = 150
+    keep = np.zeros_like(edges)
+    for i in range(1, num_labels):
+        if stats[i, cv2.CC_STAT_AREA] >= min_area:
+            keep[labels == i] = 255
+    edges = keep
 
-    # 5. Cierre 3x3 para unir pequeños cortes
+    # 7. Cierre para unir cortes pequeños
     edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, k, iterations=1)
 
-    # 6. Salida BGR: líneas blancas sobre fondo negro
-    processed_base = np.zeros((edges.shape[0], edges.shape[1], 3), dtype=np.uint8)
-    processed_base[edges > 0] = (255, 255, 255)
+    # 8. Thinning (esqueleto morfológico)
+    def _morph_skeleton(bin_img: np.ndarray) -> np.ndarray:
+        bin_img = (bin_img > 0).astype(np.uint8) * 255
+        skel = np.zeros_like(bin_img)
+        element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+        done = False
+        img_copy = bin_img.copy()
+        while not done:
+            eroded = cv2.erode(img_copy, element)
+            temp = cv2.dilate(eroded, element)
+            temp = cv2.subtract(img_copy, temp)
+            skel = cv2.bitwise_or(skel, temp)
+            img_copy = eroded
+            if cv2.countNonZero(img_copy) == 0:
+                done = True
+        return skel
+
+    edges_thin = _morph_skeleton(edges)
+
+    # 9. Salida tipo boceto invertida: fondo negro, líneas blancas
+    processed_base = np.zeros((edges_thin.shape[0], edges_thin.shape[1], 3), dtype=np.uint8)
+    processed_base[edges_thin > 0] = (255, 255, 255)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
