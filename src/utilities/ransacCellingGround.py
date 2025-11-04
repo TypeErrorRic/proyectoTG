@@ -106,18 +106,17 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, kernel_close, iterations=2)
 
-    # 8. Preparar marcadores para Watershed a partir de regiones internas
-    regions = cv2.bitwise_not(edges_otsu)  # interior de formas
-    regions = cv2.morphologyEx(regions, cv2.MORPH_OPEN, kernel, iterations=1)
-    sure_bg = cv2.dilate(regions, kernel, iterations=2)
+    # 8. Preparar marcadores para Watershed a partir de la máscara de objetos
+    objects = cv2.morphologyEx(edges_otsu, cv2.MORPH_OPEN, kernel, iterations=1)
+    sure_bg = cv2.dilate(objects, kernel, iterations=3)
 
-    # Foreground seguro con distance transform
-    dist = cv2.distanceTransform(regions, distanceType=cv2.DIST_L2, maskSize=5)
-    # Normalizamos y umbralizamos con umbral más permisivo para captar más figuras
-    dist_u8 = cv2.normalize(dist, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    # Usar umbral fijo bajo (20-30% del máximo) en lugar de Otsu para captar figuras pequeñas/débiles
-    thresh_val = max(10, int(0.25 * dist_u8.max()))
-    _, sure_fg = cv2.threshold(dist_u8, thresh_val, 255, cv2.THRESH_BINARY)
+    # Foreground seguro mediante distance transform sobre la máscara de objetos
+    dist = cv2.distanceTransform(objects, distanceType=cv2.DIST_L2, maskSize=5)
+    dist_norm = cv2.normalize(dist, None, 0.0, 1.0, cv2.NORM_MINMAX)
+    sure_fg = (dist_norm >= 0.2).astype(np.uint8) * 255  # núcleos de figuras
+    sure_fg = cv2.morphologyEx(sure_fg, cv2.MORPH_OPEN, kernel, iterations=1)
+    if cv2.countNonZero(sure_fg) == 0:
+        sure_fg = cv2.erode(objects, kernel, iterations=1)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
     # 9. Marcadores iniciales
