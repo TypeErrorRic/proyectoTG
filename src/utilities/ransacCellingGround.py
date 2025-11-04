@@ -74,18 +74,29 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
         # Si se requiere otro factor, se puede parametrizar.
         compressed = img[::2, ::2].copy()
 
-        # Aplicar CLAHE para reducir saturación por brillo sobre el canal L en LAB
-        # Rápido porque la imagen ya está comprimida
+        # Mejora de iluminación + reducción de sombras (rápido sobre imagen comprimida)
+        # 1) Convertir a LAB para operar sobre L (luminancia)
         lab = cv2.cvtColor(compressed, cv2.COLOR_BGR2LAB)
         L, A, B = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        L_eq = clahe.apply(L)
+
+        # 2) Normalización de iluminación: dividir por fondo suavizado (homomorphic-like)
+        Lf = (L.astype(np.float32) / 255.0)
+        bg = cv2.GaussianBlur(Lf, ksize=(0, 0), sigmaX=15, sigmaY=15)
+        norm = Lf / (bg + 1e-3)
+        norm = cv2.normalize(norm, None, 0.0, 1.0, cv2.NORM_MINMAX)
+        # 3) Ligera corrección gamma para levantar sombras
+        norm = np.power(norm, 0.9)
+        L_norm_u8 = (norm * 255.0).clip(0, 255).astype(np.uint8)
+
+        # 4) CLAHE más agresivo para mejorar iluminación local y reducir sombras residuales
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        L_eq = clahe.apply(L_norm_u8)
         lab_eq = cv2.merge([L_eq, A, B])
         enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
 
-        # Reducir gamas de color: borrar 3 bits LSB por canal (conservar 5 MSB)
-        # 32 niveles por canal (más suave que 2 bits)
-        np.bitwise_and(enhanced, 0xF8, out=enhanced)
+        # Reducir gamas de color: borrar 5 bits LSB por canal (conservar 3 MSB)
+        # 8 niveles por canal
+        np.bitwise_and(enhanced, 0xE0, out=enhanced)
 
         result_dict['processed_base'] = enhanced
     finally:
