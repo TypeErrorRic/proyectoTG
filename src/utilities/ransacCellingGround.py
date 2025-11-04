@@ -102,7 +102,9 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
 
     # 7. Bordes binarios con Otsu
     _, edges_otsu = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
+    # Cerrar gaps más agresivamente para conectar bordes del zapato
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, kernel_close, iterations=2)
 
     # 8. Preparar marcadores para Watershed a partir de regiones internas
     regions = cv2.bitwise_not(edges_otsu)  # interior de formas
@@ -111,9 +113,11 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
 
     # Foreground seguro con distance transform
     dist = cv2.distanceTransform(regions, distanceType=cv2.DIST_L2, maskSize=5)
-    # Normalizamos y umbralizamos automáticamente (Otsu) para robustez
+    # Normalizamos y umbralizamos con umbral más permisivo para captar más figuras
     dist_u8 = cv2.normalize(dist, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    _, sure_fg = cv2.threshold(dist_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Usar umbral fijo bajo (20-30% del máximo) en lugar de Otsu para captar figuras pequeñas/débiles
+    thresh_val = max(10, int(0.25 * dist_u8.max()))
+    _, sure_fg = cv2.threshold(dist_u8, thresh_val, 255, cv2.THRESH_BINARY)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
     # 9. Marcadores iniciales
