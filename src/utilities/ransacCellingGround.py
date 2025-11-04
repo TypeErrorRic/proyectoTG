@@ -107,8 +107,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     k_thk = 3   # grosor del kernel
     kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (k_len, k_thk))
     kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (k_thk, k_len))
-    opened_h = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_h, iterations=1)
-    opened_v = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_v, iterations=1)
+    opened_h = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_h, iterations=3)
+    opened_v = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_v, iterations=3)
     long_lines = cv2.max(opened_h, opened_v)
     # Mezcla para amplificar líneas largas sin perder contraste global
     lines_amp = cv2.addWeighted(sharp, 0.4, long_lines, 0.6, 0)
