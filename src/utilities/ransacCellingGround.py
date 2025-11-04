@@ -128,7 +128,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     _, edges_otsu = cv2.threshold(lines_amp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
     # Salida en BGR (3 canales) del mapa binario para visualizar su efecto
-    processed_base = cv2.cvtColor(edges_otsu, cv2.COLOR_GRAY2BGR)
+    processed_base = cv2.cvtColor(lines_amp, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
