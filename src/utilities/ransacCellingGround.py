@@ -59,7 +59,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     4) Sobel (ksize=5) y magnitud de gradiente
     5) Cierre morfológico (medio)
     6) Unsharp mask para realzar
-    7) Filtro por histograma para conservar sólo lo blanco
+    7) Amplificación de líneas horizontales y verticales con kernels largos
+    8) Filtro por histograma para conservar sólo lo blanco
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -100,16 +101,29 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # 7. Filtro por histograma: conservar las zonas más blancas
+    # 7. Amplificación de líneas horizontales y verticales con kernels largos
+    #    Usamos apertura morfológica con elementos estructurantes alargados
+    #    para preservar/amplificar únicamente líneas largas (rectas) H/V.
+    k_len = 41  # longitud del kernel (grande para líneas largas)
+    k_thk = 3   # grosor del kernel
+    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (k_len, k_thk))
+    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (k_thk, k_len))
+    opened_h = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_h, iterations=1)
+    opened_v = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_v, iterations=1)
+    long_lines = cv2.max(opened_h, opened_v)
+    # Mezcla para amplificar líneas largas sin perder contraste global
+    lines_amp = cv2.addWeighted(sharp, 0.4, long_lines, 0.6, 0)
+
+    # 8. Filtro por histograma: conservar las zonas más blancas
     #    Estrategia: umbral por percentil sobre el histograma (mantener el X% más brillante)
     keep_top = 0.12  # conservar el 12% más brillante (ajustable)
-    hist = cv2.calcHist([sharp], [0], None, [256], [0, 256]).ravel()
+    hist = cv2.calcHist([lines_amp], [0], None, [256], [0, 256]).ravel()
     cum_rev = np.cumsum(hist[::-1])  # acumulado desde 255 hacia abajo
-    total = sharp.size
+    total = lines_amp.size
     cutoff = max(1, int(total * keep_top))
     idx = int(np.searchsorted(cum_rev, cutoff))
     thr = int(max(0, 255 - idx))
-    _, white_mask = cv2.threshold(sharp, thr, 255, cv2.THRESH_BINARY)
+    _, white_mask = cv2.threshold(lines_amp, thr, 255, cv2.THRESH_BINARY)
 
     # Salida en BGR (3 canales), dejando sólo lo blanco
     processed_base = cv2.cvtColor(white_mask, cv2.COLOR_GRAY2BGR)
