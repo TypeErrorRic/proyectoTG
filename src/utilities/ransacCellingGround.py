@@ -96,48 +96,28 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # 7. Detección y refuerzo de líneas rectas (completa segmentos rotos)
-    #    1) Canny para bordes finos
-    #    2) HoughLines para líneas infinitas (completa discontinuidades)
-    #    3) HoughLinesP para cubrir segmentos que Hough clásico no tome
-    #    4) Cierre morfológico ligero para unir pequeños huecos
-    edges_h = cv2.Canny(sharp, 50, 150, apertureSize=3, L2gradient=True)
-    h, w = sharp.shape[:2]
-    line_map = np.zeros((h, w), dtype=np.uint8)
+    # 7. Realce de líneas continuas en cualquier dirección (banco de Gabor)
+    #    Un banco de Gabor en múltiples orientaciones refuerza trazos largos y continuos
+    #    en cualquier ángulo, atenuando segmentos cortos/ruido direccional.
+    ksize = 5                         # tamaño del kernel (imparte continuidad ~ decenas de px)
+    sigma = ksize / 6.0                # dispersión del gaussiano
+    lambd = ksize / 2.0                # longitud de onda
+    gamma = 0.3                        # relación de aspecto (alargado)
+    n_orient = 8                       # número de orientaciones (0..pi)
+    thetas = [i * (np.pi / n_orient) for i in range(n_orient)]
 
-    # Hough clásico: devuelve (rho, theta). Dibujamos la línea extendida a toda la imagen.
-    lines = cv2.HoughLines(edges_h, 1, np.pi / 180.0, threshold=120)
-    if lines is not None:
-        # Factor de extensión grande para cubrir todo el frame
-        scale = int(np.hypot(h, w))
-        for l in lines[:, 0, :]:
-            rho, theta = float(l[0]), float(l[1])
-            a, b = np.cos(theta), np.sin(theta)
-            x0, y0 = a * rho, b * rho
-            x1, y1 = int(x0 + scale * (-b)), int(y0 + scale * (a))
-            x2, y2 = int(x0 - scale * (-b)), int(y0 - scale * (a))
-            cv2.line(line_map, (x1, y1), (x2, y2), 255, 2, cv2.LINE_AA)
+    sharp_f = sharp.astype(np.float32)
+    resp_max = None
+    for th in thetas:
+        gk = cv2.getGaborKernel((ksize, ksize), sigma, th, lambd, gamma, psi=0, ktype=cv2.CV_32F)
+        resp = cv2.filter2D(sharp_f, -1, gk)
+        # usar magnitud (valor absoluto) para indiferencia de fase
+        resp = np.abs(resp)
+        resp_max = resp if resp_max is None else np.maximum(resp_max, resp)
 
-    # Hough probabilístico: segmentos; los extendemos un poco para completar cortes cortos.
-    linesP = cv2.HoughLinesP(edges_h, 1, np.pi / 180.0, threshold=60,
-                             minLineLength=30, maxLineGap=15)
-    if linesP is not None:
-        for seg in linesP[:, 0, :]:
-            x1, y1, x2, y2 = map(int, seg)
-            dx, dy = x2 - x1, y2 - y1
-            # Extiende 25% del largo en ambos extremos, con recorte a bordes.
-            length = max(1.0, float(np.hypot(dx, dy)))
-            ex, ey = int(0.25 * dx), int(0.25 * dy)
-            xa, ya = np.clip([x1 - ex, y1 - ey], [0, 0], [w - 1, h - 1])
-            xb, yb = np.clip([x2 + ex, y2 + ey], [0, 0], [w - 1, h - 1])
-            cv2.line(line_map, (int(xa), int(ya)), (int(xb), int(yb)), 255, 2, cv2.LINE_AA)
-
-    # Unir pequeños huecos en el mapa de líneas
-    line_map = cv2.morphologyEx(line_map, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
-
-    lines_u8 = line_map
+    lines_u8 = cv2.normalize(resp_max, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     # Mezcla para resaltar continuidad sin perder contraste global de bordes
-    lines_amp = cv2.addWeighted(sharp, 0.4, lines_u8, 0.6, 0)
+    lines_amp = cv2.addWeighted(sharp, 0.2, lines_u8, 0.8, 0)
 
     # 8. Generar mapa de bordes binario (Otsu) para segmentación por Watershed con Gradientes
     _, edges_otsu = cv2.threshold(lines_amp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
