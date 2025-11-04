@@ -79,8 +79,9 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 2. Filtro bilateral (sin recorte)
     bilateral = cv2.bilateralFilter(gray, d=7, sigmaColor=75, sigmaSpace=75)
 
-    # 3. CLAHE antes de Sobel (sin recorte)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(24, 24))
+    # 3. CLAHE antes de Sobel (sin recorte) — reforzado
+    #    Aumentamos clipLimit para un contraste local más fuerte
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(24, 24))
     enhanced = clahe.apply(bilateral)
 
     # 4. Gradiente Sobel (sin recorte)
@@ -126,8 +127,6 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 8. Generar mapa de bordes binario (Otsu) para segmentación por Watershed con Gradientes
     _, edges_otsu = cv2.threshold(lines_amp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
-    result_dict['edges_bin'] = edges_otsu
-
     # Salida en BGR (3 canales) del mapa binario para visualizar su efecto
     processed_base = cv2.cvtColor(edges_otsu, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
