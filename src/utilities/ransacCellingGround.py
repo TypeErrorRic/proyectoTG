@@ -63,18 +63,16 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
             result_dict['processed_base'] = None
             return
 
-        # Asegurar imagen BGR de 3 canales
-        if rgb_image.ndim == 2:
-            img = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
-        else:
-            img = rgb_image
+        # Evitar conversiones costosas: asumir BGR 3 canales si ya viene así
+        img = rgb_image
+        if img.ndim == 2:
+            # Solo convertir si realmente es necesario
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
-        # Factor de escala para reducir píxeles
-        scale = 0.5  # reducir al 50% en cada dimensión
-        h, w = img.shape[:2]
-        new_w = max(1, int(w * scale))
-        new_h = max(1, int(h * scale))
-        compressed = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        # Compresión ultrarrápida: submuestreo por stride (factor 2)
+        # Esto evita la costosa interpolación del resize.
+        # Si se requiere otro factor, se puede parametrizar.
+        compressed = img[::2, ::2].copy()
 
         result_dict['processed_base'] = compressed
     finally:
