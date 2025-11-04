@@ -52,92 +52,38 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Aplica Watershed guiado por gradientes para extraer formas a partir de la imagen RGB.
+    Comprime la imagen RGB reduciendo su resolución y guarda el resultado en
+    result_dict['processed_base'].
 
-    Resumen del pipeline:
-    1) Gray + CLAHE suave
-    2) Filtro bilateral (preserva bordes)
-    3) Gradiente (Sobel) + cierre morfológico + unsharp ligero
-    4) Marcadores (foreground/background) con distanceTransform
-    5) cv2.watershed sobre la imagen original
-    6) Devuelve una imagen BGR con contornos del Watershed en rojo
-
-    Guarda en:
-    - result_dict['processed_base']: imagen BGR con formas delineadas (3 canales)
+    - Si la entrada es None, establece processed_base en None.
+    - La compresión se realiza mediante un reescalado (downscale) con INTER_AREA.
     """
-    if rgb_image is None:
-        result_dict['processed_base'] = None
+    try:
+        if rgb_image is None:
+            result_dict['processed_base'] = None
+            return
+
+        # Asegurar imagen BGR de 3 canales
+        if rgb_image.ndim == 2:
+            img = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
+        else:
+            img = rgb_image
+
+        # Factor de escala para reducir píxeles
+        scale = 0.5  # reducir al 50% en cada dimensión
+        h, w = img.shape[:2]
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        compressed = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        result_dict['processed_base'] = compressed
+    finally:
+        # Señalizar que el procesamiento terminó para este frame
         if done_event is not None:
             try:
                 done_event.set()
             except Exception:
                 pass
-        return
-
-    # 1. Escala de grises (sin recorte)
-    gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
-
-    # 2. CLAHE ligero (uniforme)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(32, 32))
-    gray = clahe.apply(gray)
-
-    # 3. Filtro bilateral (más ligero)
-    bilateral = cv2.bilateralFilter(gray, d=5, sigmaColor=50, sigmaSpace=50)
-
-    # 4. Gradiente Sobel (sin recorte)
-    gx = cv2.Sobel(bilateral, cv2.CV_64F, 1, 0, ksize=5)
-    gy = cv2.Sobel(bilateral, cv2.CV_64F, 0, 1, ksize=5)
-    mag = cv2.magnitude(gx, gy)
-    mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    mag_u8 = mag.astype(np.uint8)
-
-    # 5. Cierre morfológico medio para consolidar bordes
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
-
-    # 6. Unsharp mask (ligero) para realzar gradientes
-    amount = 1.5
-    blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
-    sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
-
-    # 7. Bordes binarios con Otsu
-    _, edges_otsu = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # Cerrar gaps más agresivamente para conectar bordes del zapato
-    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, kernel_close, iterations=2)
-
-    # 8. Preparar marcadores para Watershed a partir de la máscara de objetos
-    objects = cv2.morphologyEx(edges_otsu, cv2.MORPH_OPEN, kernel, iterations=1)
-    sure_bg = cv2.dilate(objects, kernel, iterations=3)
-
-    # Foreground seguro mediante distance transform sobre la máscara de objetos
-    dist = cv2.distanceTransform(objects, distanceType=cv2.DIST_L2, maskSize=5)
-    dist_norm = cv2.normalize(dist, None, 0.0, 1.0, cv2.NORM_MINMAX)
-    sure_fg = (dist_norm >= 0.2).astype(np.uint8) * 255  # núcleos de figuras
-    sure_fg = cv2.morphologyEx(sure_fg, cv2.MORPH_OPEN, kernel, iterations=1)
-    if cv2.countNonZero(sure_fg) == 0:
-        sure_fg = cv2.erode(objects, kernel, iterations=1)
-    unknown = cv2.subtract(sure_bg, sure_fg)
-
-    # 9. Marcadores iniciales
-    num_labels, markers = cv2.connectedComponents(sure_fg)
-    markers = markers + 1  # dejar fondo como 1
-    markers[unknown == 255] = 0  # regiones desconocidas a 0
-
-    # 10. Watershed sobre la imagen original
-    img_ws = rgb_image if rgb_image.ndim == 3 else cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
-    markers = cv2.watershed(img_ws.copy(), markers)
-
-    # 11. Visualización: mostrar OTSU (cerrado) con contornos del Watershed en rojo
-    base_otsu = cv2.cvtColor(edges_otsu, cv2.COLOR_GRAY2BGR)
-    base_otsu[markers == -1] = (0, 0, 255)  # contornos Watershed en rojo
-    result_dict['processed_base'] = base_otsu
-    # Señalizar que el procesamiento terminó para este frame
-    if done_event is not None:
-        try:
-            done_event.set()
-        except Exception:
-            pass
 
 
 def _rgb_worker_loop():
