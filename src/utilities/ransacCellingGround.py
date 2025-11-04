@@ -83,9 +83,9 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
         lab_eq = cv2.merge([L_eq, A, B])
         enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
 
-        # Reducir gamas de color: borrar 6 bits LSB por canal (conservar 2 MSB)
-        # Valores resultantes por canal: {0, 64, 128, 192}
-        np.bitwise_and(enhanced, 0xC0, out=enhanced)
+        # Reducir gamas de color: borrar 3 bits LSB por canal (conservar 5 MSB)
+        # 32 niveles por canal (más suave que 2 bits)
+        np.bitwise_and(enhanced, 0xF8, out=enhanced)
 
         result_dict['processed_base'] = enhanced
     finally:
