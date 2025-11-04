@@ -76,8 +76,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 1. Escala de grises (sin recorte)
     gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
 
-    # 2. CLAHE ligero (uniforme)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(32, 32))
+    # 2. CLAHE moderado (uniforme)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(24, 24))
     gray = clahe.apply(gray)
 
     # 3. Filtro bilateral (sin recorte)
@@ -91,7 +91,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     mag_u8 = mag.astype(np.uint8)
 
     # 5. Cierre morfológico medio (kernel 9x9, 1 iteración)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
 
     # 6. Unsharp mask para realzar detalles sin introducir manchas
