@@ -120,8 +120,9 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
         resp_max = resp if resp_max is None else np.maximum(resp_max, resp)
 
     lines_u8 = cv2.normalize(resp_max, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    # Mezcla para resaltar continuidad sin perder contraste global de bordes
-    lines_amp = cv2.addWeighted(sharp, 0.4, lines_u8, 0.6, 0)
+    # Fusión multiplicativa para enfatizar fuertemente bordes continuos
+    # (valores altos sólo donde ambas respuestas son altas)
+    lines_amp = cv2.multiply(sharp, lines_u8, scale=1.0/255.0)
 
     # Salida en BGR (3 canales) usando el realce de líneas largas
     processed_base = cv2.cvtColor(lines_amp, cv2.COLOR_GRAY2BGR)
