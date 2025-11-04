@@ -59,7 +59,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     4) Sobel (ksize=5) y magnitud de gradiente
     5) Cierre morfológico (medio)
     6) Unsharp mask para realzar
-    7) Amplificación de líneas horizontales y verticales con kernels largos
+    7) Realce de líneas continuas en cualquier dirección (banco de Gabor)
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -100,18 +100,28 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # 7. Amplificación de líneas horizontales y verticales con kernels largos
-    #    Usamos apertura morfológica con elementos estructurantes alargados
-    #    para preservar/amplificar únicamente líneas largas (rectas) H/V.
-    k_len = 10  # longitud del kernel (grande para líneas largas)
-    k_thk = 3   # grosor del kernel
-    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (k_len, k_thk))
-    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (k_thk, k_len))
-    opened_h = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_h, iterations=10)
-    opened_v = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_v, iterations=10)
-    long_lines = cv2.max(opened_h, opened_v)
-    # Mezcla para amplificar líneas largas sin perder contraste global
-    lines_amp = cv2.addWeighted(sharp, 0.4, long_lines, 0.6, 0)
+    # 7. Realce de líneas continuas en cualquier dirección (banco de Gabor)
+    #    Un banco de Gabor en múltiples orientaciones refuerza trazos largos y continuos
+    #    en cualquier ángulo, atenuando segmentos cortos/ruido direccional.
+    ksize = 9                         # tamaño del kernel (imparte continuidad ~ decenas de px)
+    sigma = ksize / 6.0                # dispersión del gaussiano
+    lambd = ksize / 2.0                # longitud de onda
+    gamma = 0.3                        # relación de aspecto (alargado)
+    n_orient = 8                       # número de orientaciones (0..pi)
+    thetas = [i * (np.pi / n_orient) for i in range(n_orient)]
+
+    sharp_f = sharp.astype(np.float32)
+    resp_max = None
+    for th in thetas:
+        gk = cv2.getGaborKernel((ksize, ksize), sigma, th, lambd, gamma, psi=0, ktype=cv2.CV_32F)
+        resp = cv2.filter2D(sharp_f, -1, gk)
+        # usar magnitud (valor absoluto) para indiferencia de fase
+        resp = np.abs(resp)
+        resp_max = resp if resp_max is None else np.maximum(resp_max, resp)
+
+    lines_u8 = cv2.normalize(resp_max, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    # Mezcla para resaltar continuidad sin perder contraste global de bordes
+    lines_amp = cv2.addWeighted(sharp, 0.4, lines_u8, 0.6, 0)
 
     # Salida en BGR (3 canales) usando el realce de líneas largas
     processed_base = cv2.cvtColor(lines_amp, cv2.COLOR_GRAY2BGR)
