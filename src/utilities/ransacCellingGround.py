@@ -76,16 +76,16 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
 
         # Aplicar CLAHE para reducir saturación por brillo sobre el canal L en LAB
         # Rápido porque la imagen ya está comprimida
-        try:
-            lab = cv2.cvtColor(compressed, cv2.COLOR_BGR2LAB)
-            L, A, B = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            L_eq = clahe.apply(L)
-            lab_eq = cv2.merge([L_eq, A, B])
-            enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
-        except Exception:
-            # Si algo falla, usar la comprimida sin mejorar
-            enhanced = compressed
+        lab = cv2.cvtColor(compressed, cv2.COLOR_BGR2LAB)
+        L, A, B = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        L_eq = clahe.apply(L)
+        lab_eq = cv2.merge([L_eq, A, B])
+        enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
+
+        # Reducir gamas de color: borrar 6 bits LSB por canal (conservar 2 MSB)
+        # Valores resultantes por canal: {0, 64, 128, 192}
+        np.bitwise_and(enhanced, 0xC0, out=enhanced)
 
         result_dict['processed_base'] = enhanced
     finally:
