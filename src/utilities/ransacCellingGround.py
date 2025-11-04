@@ -103,12 +103,12 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 7. Amplificación de líneas horizontales y verticales con kernels largos
     #    Usamos apertura morfológica con elementos estructurantes alargados
     #    para preservar/amplificar únicamente líneas largas (rectas) H/V.
-    k_len = 20  # longitud del kernel (grande para líneas largas)
+    k_len = 10  # longitud del kernel (grande para líneas largas)
     k_thk = 3   # grosor del kernel
     kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (k_len, k_thk))
     kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (k_thk, k_len))
-    opened_h = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_h, iterations=3)
-    opened_v = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_v, iterations=3)
+    opened_h = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_h, iterations=5)
+    opened_v = cv2.morphologyEx(sharp, cv2.MORPH_OPEN, kernel_v, iterations=5)
     long_lines = cv2.max(opened_h, opened_v)
     # Mezcla para amplificar líneas largas sin perder contraste global
     lines_amp = cv2.addWeighted(sharp, 0.4, long_lines, 0.6, 0)
