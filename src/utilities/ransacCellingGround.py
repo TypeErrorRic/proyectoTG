@@ -81,8 +81,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(32, 32))
     gray = clahe.apply(gray)
 
-    # 3. Filtro bilateral (sin recorte)
-    bilateral = cv2.bilateralFilter(gray, d=7, sigmaColor=75, sigmaSpace=75)
+    # 3. Filtro bilateral (más ligero)
+    bilateral = cv2.bilateralFilter(gray, d=5, sigmaColor=50, sigmaSpace=50)
 
     # 4. Gradiente Sobel (sin recorte)
     gx = cv2.Sobel(bilateral, cv2.CV_64F, 1, 0, ksize=5)
@@ -93,7 +93,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
 
     # 5. Cierre morfológico medio para consolidar bordes
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
+    closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
 
     # 6. Unsharp mask (ligero) para realzar gradientes
     amount = 1.5
@@ -125,12 +125,10 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     img_ws = rgb_image if rgb_image.ndim == 3 else cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
     markers = cv2.watershed(img_ws.copy(), markers)
 
-    # 11. Visualización: contornos en rojo
-    base_vis = rgb_image.copy()
-    base_vis[markers == -1] = (0, 0, 255)  # rojo para límites del Watershed
-
-    processed_base = base_vis
-    result_dict['processed_base'] = processed_base
+    # 11. Visualización: mostrar OTSU (cerrado) con contornos del Watershed en rojo
+    base_otsu = cv2.cvtColor(edges_otsu, cv2.COLOR_GRAY2BGR)
+    base_otsu[markers == -1] = (0, 0, 255)  # contornos Watershed en rojo
+    result_dict['processed_base'] = base_otsu
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
         try:
