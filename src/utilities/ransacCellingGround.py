@@ -96,34 +96,11 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # 7. Realce de líneas continuas en cualquier dirección (banco de Gabor)
-    #    Un banco de Gabor en múltiples orientaciones refuerza trazos largos y continuos
-    #    en cualquier ángulo, atenuando segmentos cortos/ruido direccional.
-    ksize = 5                         # tamaño del kernel (imparte continuidad ~ decenas de px)
-    sigma = ksize / 6.0                # dispersión del gaussiano
-    lambd = ksize / 2.0                # longitud de onda
-    gamma = 0.3                        # relación de aspecto (alargado)
-    n_orient = 8                       # número de orientaciones (0..pi)
-    thetas = [i * (np.pi / n_orient) for i in range(n_orient)]
-
-    sharp_f = sharp.astype(np.float32)
-    resp_max = None
-    for th in thetas:
-        gk = cv2.getGaborKernel((ksize, ksize), sigma, th, lambd, gamma, psi=0, ktype=cv2.CV_32F)
-        resp = cv2.filter2D(sharp_f, -1, gk)
-        # usar magnitud (valor absoluto) para indiferencia de fase
-        resp = np.abs(resp)
-        resp_max = resp if resp_max is None else np.maximum(resp_max, resp)
-
-    lines_u8 = cv2.normalize(resp_max, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    # Mezcla para resaltar continuidad sin perder contraste global de bordes
-    lines_amp = cv2.addWeighted(sharp, 0.2, lines_u8, 0.8, 0)
-
     # 8. Generar mapa de bordes binario (Otsu) para segmentación por Watershed con Gradientes
-    _, edges_otsu = cv2.threshold(lines_amp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, edges_otsu = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
     # Salida en BGR (3 canales) del mapa binario para visualizar su efecto
-    processed_base = cv2.cvtColor(lines_amp, cv2.COLOR_GRAY2BGR)
+    processed_base = cv2.cvtColor(edges_otsu, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
