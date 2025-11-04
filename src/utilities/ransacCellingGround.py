@@ -72,9 +72,22 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
         # Compresión ultrarrápida: submuestreo por stride (factor 2)
         # Esto evita la costosa interpolación del resize.
         # Si se requiere otro factor, se puede parametrizar.
-        compressed = img[::4, ::4].copy()
+        compressed = img[::2, ::2].copy()
 
-        result_dict['processed_base'] = compressed
+        # Aplicar CLAHE para reducir saturación por brillo sobre el canal L en LAB
+        # Rápido porque la imagen ya está comprimida
+        try:
+            lab = cv2.cvtColor(compressed, cv2.COLOR_BGR2LAB)
+            L, A, B = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            L_eq = clahe.apply(L)
+            lab_eq = cv2.merge([L_eq, A, B])
+            enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
+        except Exception:
+            # Si algo falla, usar la comprimida sin mejorar
+            enhanced = compressed
+
+        result_dict['processed_base'] = enhanced
     finally:
         # Señalizar que el procesamiento terminó para este frame
         if done_event is not None:
