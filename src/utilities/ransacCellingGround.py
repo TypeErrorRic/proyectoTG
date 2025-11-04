@@ -59,6 +59,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     4) Sobel (ksize=5) y magnitud de gradiente
     5) Cierre morfológico (medio)
     6) Unsharp mask para realzar
+    7) Filtro por histograma para conservar sólo lo blanco
 
     Guarda solo:
     - result_dict['processed_base']: imagen 3 canales del resultado final
@@ -99,8 +100,19 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # Salida en BGR (3 canales)
-    processed_base = cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
+    # 7. Filtro por histograma: conservar las zonas más blancas
+    #    Estrategia: umbral por percentil sobre el histograma (mantener el X% más brillante)
+    keep_top = 0.12  # conservar el 12% más brillante (ajustable)
+    hist = cv2.calcHist([sharp], [0], None, [256], [0, 256]).ravel()
+    cum_rev = np.cumsum(hist[::-1])  # acumulado desde 255 hacia abajo
+    total = sharp.size
+    cutoff = max(1, int(total * keep_top))
+    idx = int(np.searchsorted(cum_rev, cutoff))
+    thr = int(max(0, 255 - idx))
+    _, white_mask = cv2.threshold(sharp, thr, 255, cv2.THRESH_BINARY)
+
+    # Salida en BGR (3 canales), dejando sólo lo blanco
+    processed_base = cv2.cvtColor(white_mask, cv2.COLOR_GRAY2BGR)
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
