@@ -120,9 +120,22 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
         resp_max = resp if resp_max is None else np.maximum(resp_max, resp)
 
     lines_u8 = cv2.normalize(resp_max, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    # Fusión multiplicativa para enfatizar fuertemente bordes continuos
-    # (valores altos sólo donde ambas respuestas son altas)
-    lines_amp = cv2.multiply(sharp, lines_u8, scale=1.0/255.0)
+
+    # Ponderación extra según "blancura" en la imagen original:
+    # píxeles muy claros reciben más refuerzo en el mapa de líneas
+    gray_f = gray.astype(np.float32) / 255.0
+    white_weight = np.power(gray_f, 3.0)   # énfasis suave en zonas realmente blancas
+    alpha_boost = 1.0                      # hasta +100% en blancos puros
+
+    sharp_f = sharp.astype(np.float32) / 255.0
+    lines_f = lines_u8.astype(np.float32) / 255.0
+    lines_boosted = lines_f * (1.0 + alpha_boost * white_weight)
+    lines_boosted = np.clip(lines_boosted, 0.0, 1.0)
+
+    # Fusión multiplicativa para enfatizar fuertemente bordes continuos,
+    # con refuerzo adicional en trazos blancos del original
+    lines_amp_f = sharp_f * lines_boosted
+    lines_amp = (lines_amp_f * 255.0).astype(np.uint8)
 
     # Salida en BGR (3 canales) usando el realce de líneas largas
     processed_base = cv2.cvtColor(lines_amp, cv2.COLOR_GRAY2BGR)
