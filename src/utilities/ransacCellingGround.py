@@ -72,7 +72,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
         # Compresión ultrarrápida: submuestreo por stride (factor 2)
         # Esto evita la costosa interpolación del resize.
         # Si se requiere otro factor, se puede parametrizar.
-        compressed = img[::2, ::2].copy()
+        compressed = img[::4, ::4].copy()
 
         result_dict['processed_base'] = compressed
     finally:
