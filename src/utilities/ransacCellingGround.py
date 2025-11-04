@@ -76,7 +76,11 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 1. Escala de grises (sin recorte)
     gray = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
 
-    # 2. Filtro bilateral (sin recorte)
+    # 2. CLAHE ligero (uniforme)
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(32, 32))
+    gray = clahe.apply(gray)
+
+    # 3. Filtro bilateral (sin recorte)
     bilateral = cv2.bilateralFilter(gray, d=7, sigmaColor=75, sigmaSpace=75)
 
     # 4. Gradiente Sobel (sin recorte)
