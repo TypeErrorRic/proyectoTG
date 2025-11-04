@@ -52,17 +52,18 @@ RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
 
 def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
     """
-    Procesa la imagen RGB con el nuevo enfoque:
-    1) Blanco y negro
-    2) Filtro bilateral (d=7)
-    3) CLAHE (clip=2.0, tiles=24x24)
-    4) Sobel (ksize=5) y magnitud de gradiente
-    5) Cierre morfológico (medio)
-    6) Unsharp mask para realzar
-    7) Realce de líneas continuas en cualquier dirección (banco de Gabor)
+    Aplica Watershed guiado por gradientes para extraer formas a partir de la imagen RGB.
 
-    Guarda solo:
-    - result_dict['processed_base']: imagen 3 canales del resultado final
+    Resumen del pipeline:
+    1) Gray + CLAHE suave
+    2) Filtro bilateral (preserva bordes)
+    3) Gradiente (Sobel) + cierre morfológico + unsharp ligero
+    4) Marcadores (foreground/background) con distanceTransform
+    5) cv2.watershed sobre la imagen original
+    6) Devuelve una imagen BGR con contornos del Watershed en rojo
+
+    Guarda en:
+    - result_dict['processed_base']: imagen BGR con formas delineadas (3 canales)
     """
     if rgb_image is None:
         result_dict['processed_base'] = None
@@ -90,21 +91,45 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     mag_u8 = mag.astype(np.uint8)
 
-    # 5. Cierre morfológico medio (kernel 9x9, 1 iteración)
+    # 5. Cierre morfológico medio para consolidar bordes
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-    # 6. Unsharp mask para realzar detalles sin introducir manchas
-    #    sharp = closed * (1 + amount) - gauss(closed) * amount
-    amount = 4.0  # intensidad del realce; ajustable (más fuerte)
+    # 6. Unsharp mask (ligero) para realzar gradientes
+    amount = 1.5
     blurred = cv2.GaussianBlur(closed, (0, 0), sigmaX=1.0, sigmaY=1.0)
     sharp = cv2.addWeighted(closed, 1.0 + amount, blurred, -amount, 0)
 
-    # 8. Generar mapa de bordes binario (Otsu) para segmentación por Watershed con Gradientes
+    # 7. Bordes binarios con Otsu
     _, edges_otsu = cv2.threshold(sharp, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     edges_otsu = cv2.morphologyEx(edges_otsu, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=1)
-    # Salida en BGR (3 canales) del mapa binario para visualizar su efecto
-    processed_base = cv2.cvtColor(edges_otsu, cv2.COLOR_GRAY2BGR)
+
+    # 8. Preparar marcadores para Watershed a partir de regiones internas
+    regions = cv2.bitwise_not(edges_otsu)  # interior de formas
+    regions = cv2.morphologyEx(regions, cv2.MORPH_OPEN, kernel, iterations=1)
+    sure_bg = cv2.dilate(regions, kernel, iterations=2)
+
+    # Foreground seguro con distance transform
+    dist = cv2.distanceTransform(regions, distanceType=cv2.DIST_L2, maskSize=5)
+    # Normalizamos y umbralizamos automáticamente (Otsu) para robustez
+    dist_u8 = cv2.normalize(dist, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    _, sure_fg = cv2.threshold(dist_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # 9. Marcadores iniciales
+    num_labels, markers = cv2.connectedComponents(sure_fg)
+    markers = markers + 1  # dejar fondo como 1
+    markers[unknown == 255] = 0  # regiones desconocidas a 0
+
+    # 10. Watershed sobre la imagen original
+    img_ws = rgb_image if rgb_image.ndim == 3 else cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
+    markers = cv2.watershed(img_ws.copy(), markers)
+
+    # 11. Visualización: contornos en rojo
+    base_vis = rgb_image.copy()
+    base_vis[markers == -1] = (0, 0, 255)  # rojo para límites del Watershed
+
+    processed_base = base_vis
     result_dict['processed_base'] = processed_base
     # Señalizar que el procesamiento terminó para este frame
     if done_event is not None:
