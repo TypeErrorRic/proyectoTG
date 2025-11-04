@@ -91,7 +91,7 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     mag_u8 = mag.astype(np.uint8)
 
     # 5. Cierre morfológico medio (kernel 9x9, 1 iteración)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     closed = cv2.morphologyEx(mag_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
 
     # 6. Unsharp mask para realzar detalles sin introducir manchas
