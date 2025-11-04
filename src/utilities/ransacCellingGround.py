@@ -96,7 +96,8 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
 
         # Reducir gamas de color: borrar 5 bits LSB por canal (conservar 3 MSB)
         # 8 niveles por canal
-        np.bitwise_and(enhanced, 0xE0, out=enhanced)
+        # Usar desplazamiento para asegurar que se borren exactamente 5 LSB
+        enhanced[:] = (enhanced >> 5) << 5
 
         result_dict['processed_base'] = enhanced
     finally:
