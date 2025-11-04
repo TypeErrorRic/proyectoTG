@@ -79,14 +79,9 @@ def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.
     # 2. Filtro bilateral (sin recorte)
     bilateral = cv2.bilateralFilter(gray, d=7, sigmaColor=75, sigmaSpace=75)
 
-    # 3. CLAHE antes de Sobel (sin recorte) — reforzado
-    #    Aumentamos clipLimit para un contraste local más fuerte
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(24, 24))
-    enhanced = clahe.apply(bilateral)
-
     # 4. Gradiente Sobel (sin recorte)
-    gx = cv2.Sobel(enhanced, cv2.CV_64F, 1, 0, ksize=5)
-    gy = cv2.Sobel(enhanced, cv2.CV_64F, 0, 1, ksize=5)
+    gx = cv2.Sobel(bilateral, cv2.CV_64F, 1, 0, ksize=5)
+    gy = cv2.Sobel(bilateral, cv2.CV_64F, 0, 1, ksize=5)
     mag = cv2.magnitude(gx, gy)
     mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
     mag_u8 = mag.astype(np.uint8)
