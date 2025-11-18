@@ -8,17 +8,27 @@ if __package__ is None or __package__ == "":
     )
 
 from src.utilities.segmentar import AlgoritmosSegmentacion
+import cv2
+
 
 def main() -> None:
-    import cv2
+
+    window_name = "Segmentacion"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
     while True:
         resultado = AlgoritmosSegmentacion()
-        cv2.imshow("Segmentación", resultado)
+        if resultado is not None:
+            cv2.imshow(window_name, resultado)
+
         key = cv2.waitKey(1) & 0xFF
-        if key == 27:
+        if key == 27:  # ESC
             break
+
+    cv2.destroyWindow(window_name)
     cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
     main()
+
