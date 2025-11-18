@@ -10,37 +10,7 @@ from viewCamera import (
 )
 import time
 import cupy as cp
-import threading
 from typing import Optional
-
-# (Alineación GPU Depth->Color movida a viewCamera.make_depth_to_color_aligner)
-
-# =======================
-# Estado y parámetros runtime (para get_ground)
-# =======================
-
-# Diccionario de estado para evitar variables globales sueltas
-_runtime = {
-    'initialized': False,
-    'pipeline': None,
-    'rays_cp': None,
-    'H': None,
-    'W': None,
-    'align_depth_fn': None,
-    'params': None,
-    'last_n_cp': None,
-    'last_d_cp': None,
-    'last_thresh': None,
-    'frame_idx': 0,
-    'result_dict': {'processed_base': None},
-    'rgb_thread': None,            # worker persistente
-    'rgb_done_event': None,        # señala cuando hay processed_base listo
-    'rgb_work_event': None,        # señala cuando hay nuevo RGB para procesar
-    'rgb_lock': None,              # protege acceso a rgb_input
-    'rgb_input': None,             # buzón tamaño 1 para el worker
-    'fps_t0': None,
-    'subsample_stride': None,
-}
 
 # Parámetros por defecto para mantener FPS aceptable
 GROUND_EVERY = 20           # calcular RANSAC cada 20 frames
@@ -49,92 +19,6 @@ MAX_ITERS_RUN = 500         # menos iteraciones para reducir retardo
 MIN_INLIERS_RUN = 600       # umbral acorde a subsampling
 SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
 RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
-
-def process_rgb_pipeline(rgb_image, result_dict, done_event: Optional[threading.Event] = None):
-    """
-    Comprime la imagen RGB reduciendo su resolución y guarda el resultado en
-    result_dict['processed_base'].
-
-    - Si la entrada es None, establece processed_base en None.
-    - La compresión se realiza mediante un reescalado (downscale) con INTER_AREA.
-    """
-    try:
-        if rgb_image is None:
-            result_dict['processed_base'] = None
-            return
-
-        # Evitar conversiones costosas: asumir BGR 3 canales si ya viene así
-        img = rgb_image
-        if img.ndim == 2:
-            # Solo convertir si realmente es necesario
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-
-        # Compresión ultrarrápida: submuestreo por stride (factor 2)
-        # Esto evita la costosa interpolación del resize.
-        # Si se requiere otro factor, se puede parametrizar.
-        compressed = img[::2, ::2].copy()
-
-        # Mejora de iluminación + reducción de sombras (rápido sobre imagen comprimida)
-        # 1) Convertir a LAB para operar sobre L (luminancia)
-        lab = cv2.cvtColor(compressed, cv2.COLOR_BGR2LAB)
-        L, A, B = cv2.split(lab)
-
-        # 2) Normalización de iluminación: dividir por fondo suavizado (homomorphic-like)
-        Lf = (L.astype(np.float32) / 255.0)
-        bg = cv2.GaussianBlur(Lf, ksize=(0, 0), sigmaX=15, sigmaY=15)
-        norm = Lf / (bg + 1e-3)
-        norm = cv2.normalize(norm, None, 0.0, 1.0, cv2.NORM_MINMAX)
-        # 3) Ligera corrección gamma para levantar sombras
-        norm = np.power(norm, 0.9)
-        L_norm_u8 = (norm * 255.0).clip(0, 255).astype(np.uint8)
-
-        # 4) CLAHE más agresivo para mejorar iluminación local y reducir sombras residuales
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        L_eq = clahe.apply(L_norm_u8)
-        lab_eq = cv2.merge([L_eq, A, B])
-        enhanced = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
-
-        result_dict['processed_base'] = enhanced
-    finally:
-        # Señalizar que el procesamiento terminó para este frame
-        if done_event is not None:
-            try:
-                done_event.set()
-            except Exception:
-                pass
-
-
-def _rgb_worker_loop():
-    """Hilo persistente que duerme hasta que haya un RGB en el buzón, lo procesa y vuelve a dormir."""
-    while True:
-        # Espera a que el principal indique que hay trabajo
-        _runtime['rgb_work_event'].wait()
-        try:
-            _runtime['rgb_work_event'].clear()
-        except Exception:
-            pass
-
-        # Tomar snapshot del RGB actual bajo lock
-        rgb = None
-        try:
-            if _runtime['rgb_lock'] is not None:
-                with _runtime['rgb_lock']:
-                    rgb = _runtime['rgb_input']
-            else:
-                rgb = _runtime.get('rgb_input', None)
-        except Exception:
-            rgb = _runtime.get('rgb_input', None)
-
-        # Procesar (esto actualizará processed_base y hará set del done_event)
-        try:
-            process_rgb_pipeline(rgb, _runtime['result_dict'], _runtime['rgb_done_event'])
-        except Exception:
-            # En caso de error, señalizar finalización para no bloquear al principal
-            try:
-                _runtime['rgb_done_event'].set()
-            except Exception:
-                pass
-
 
 def _to_xp(a):
     """Asegura arreglo en GPU (CuPy)."""
@@ -380,192 +264,79 @@ def apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base=None):
     cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
     return result 
 
-def _lazy_init():
-    """Inicializa cámara y rayos en la primera llamada."""
-    if _runtime['initialized']:
-        return
-    print("Inicializando cámara RealSense…")
-    pipeline, params = init_camera(
-        color_width=640,
-        color_height=480,
-        depth_width=640,
-        depth_height=480,
-        fps=30,
-        stride=2,        # submuestreo para nube
-        yaw=-45.0,
-        pitch=25.0,
-        roll=0.0,
-        fov=60.0,
-        point_size=1
-    )
-    rays_np, H, W, align_depth_fn = precompute_rays_for_stream(pipeline, rs.stream.color)
-    _runtime['pipeline'] = pipeline
-    _runtime['rays_cp'] = cp.asarray(rays_np)
-    _runtime['H'] = H
-    _runtime['W'] = W
-    _runtime['align_depth_fn'] = align_depth_fn
-    _runtime['params'] = params
-    _runtime['last_thresh'] = DIST_THRESH_RUN
-    # Usar el stride de params para el submuestreo de RANSAC si viene configurado
-    try:
-        _runtime['subsample_stride'] = int(params.get('stride', SUBSAMPLE_STRIDE))
-    except Exception:
-        _runtime['subsample_stride'] = SUBSAMPLE_STRIDE
-    # Sincronización productor/consumidor para el secundario
-    _runtime['rgb_done_event'] = threading.Event()  # "salida lista"
-    _runtime['rgb_work_event'] = threading.Event()  # "entrada disponible"
-    _runtime['rgb_lock'] = threading.Lock()
-    _runtime['rgb_input'] = None
-    # Iniciar el worker persistente (daemon)
-    _runtime['rgb_thread'] = threading.Thread(target=_rgb_worker_loop, daemon=True)
-    _runtime['rgb_thread'].start()
-    _runtime['initialized'] = True
 
+last_n_cp = None
+last_d_cp = None
+last_thresh = DIST_THRESH_RUN
 
-def get_ground() -> Optional[np.ndarray]:
+def get_ground(rgb_image: np.ndarray, mapaProfundidad: np.ndarray, rays_cp: cp.ndarray, H: int, W: int, subsample_stride=SUBSAMPLE_STRIDE, min_inliers=MIN_INLIERS_RUN) -> Optional[np.ndarray]:
     """
-    Obtiene un frame, detecta el plano de suelo (RANSAC) y devuelve la imagen RGB
+    Detecta el plano de suelo (RANSAC) y devuelve la imagen RGB
     con la máscara del suelo pintada en verde.
 
+    Args:
+        rgb_image: Imagen RGB
+        mapaProfundidad: Mapa de profundidad
+        rays_cp: Rayos precalculados en cupy
+        H, W: Alto y ancho de la imagen
+        subsample_stride: Submuestreo para RANSAC
+        min_inliers: Mínimo de inliers para aceptar plano
+
     Returns:
-        np.ndarray | None: imagen BGR con el suelo pintado o None si no hay frame.
+        np.ndarray | None: imagen BGR con el suelo pintado o None si no hay datos válidos.
     """
-    _lazy_init()
+    # Convertir depth a cupy para RANSAC
+    depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
+    # Submuestreo para RANSAC
+    Dsub = depth_cp[::subsample_stride, ::subsample_stride]
+    Rsub = rays_cp[::subsample_stride, ::subsample_stride]
+    # Limitar al 50% inferior para sesgar hacia el suelo
+    sub_h = Dsub.shape[0]
+    if sub_h >= 2:
+        Dsub = Dsub[sub_h//2:, :]
+        Rsub = Rsub[sub_h//2:, :]
+    valid = Dsub > 0
+    global last_n_cp, last_d_cp, last_thresh
+    if int(cp.sum(valid)) >= min_inliers:
+        Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
+        Psub = Psub[valid.reshape(-1)]
 
-    pipeline = _runtime['pipeline']
-    H, W = _runtime['H'], _runtime['W']
-    align_depth_fn = _runtime['align_depth_fn']
+        res = ransac_plane_gpu(
+            Psub,
+            dist_thresh=last_thresh,
+            max_iters=MAX_ITERS_RUN,
+            min_inliers=min_inliers,
+            up_axis=(0.0, -1.0, 0.0),
+            max_angle_deg=45.0,
+            seed=42,
+            score_subset=2048,
+            orientation='ground',
+            time_budget_ms=RANSAC_TIME_BUDGET_MS,
+            early_stop_ratio=0.92,
+            batch_size=256,
+        )
 
-    frames = pipeline.wait_for_frames()
-
-    # Extraer RGB y Depth nativos
-    rgb_image = extract_rgb(frames)
-    depth_m = align_depth_fn(frames) if align_depth_fn is not None else extract_depth_meters(frames)
-    if rgb_image is None or depth_m is None:
-        return None
-
-    # Publicar el RGB en el buzón y despertar al worker secundario
-    try:
-        if _runtime['rgb_done_event'] is not None:
-            _runtime['rgb_done_event'].clear()
-        if _runtime['rgb_lock'] is not None:
-            with _runtime['rgb_lock']:
-                _runtime['rgb_input'] = rgb_image
+        if res is not None:
+            last_n_cp = res['n']
+            last_d_cp = res['d']
+            # last_thresh se mantiene igual
         else:
-            _runtime['rgb_input'] = rgb_image
-        if _runtime['rgb_work_event'] is not None:
-            _runtime['rgb_work_event'].set()
-    except Exception:
+            last_n_cp = None
+            last_d_cp = None
+    else:
+        # Datos insuficientes, no se ejecuta RANSAC este frame
         pass
 
-    # Asegurar shape del depth al tamaño de COLOR
-    if depth_m.shape[0] != H or depth_m.shape[1] != W:
-        depth_m = cv2.resize(depth_m, (W, H), interpolation=cv2.INTER_NEAREST)
-
-    _runtime['frame_idx'] += 1
-    depth_cp = cp.asarray(depth_m, dtype=cp.float32)
-
-    # Decidir si ejecutar RANSAC ahora (y medir retardo)
-    ran_now = (_runtime['frame_idx'] % GROUND_EVERY) == 1 or (_runtime['last_n_cp'] is None)
-    if ran_now:
-        # Submuestreo para RANSAC
-        sub_stride = _runtime['subsample_stride'] or SUBSAMPLE_STRIDE
-        Dsub = depth_cp[::sub_stride, ::sub_stride]
-        Rsub = _runtime['rays_cp'][::sub_stride, ::sub_stride]
-        # Limitar al 50% inferior para sesgar hacia el suelo
-        sub_h = Dsub.shape[0]
-        if sub_h >= 2:
-            Dsub = Dsub[sub_h//2:, :]
-            Rsub = Rsub[sub_h//2:, :]
-        valid = Dsub > 0
-        if int(cp.sum(valid)) >= MIN_INLIERS_RUN:
-            Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
-            Psub = Psub[valid.reshape(-1)]
-
-            res = ransac_plane_gpu(
-                Psub,
-                dist_thresh=DIST_THRESH_RUN,
-                max_iters=MAX_ITERS_RUN,
-                min_inliers=MIN_INLIERS_RUN,
-                up_axis=(0.0, -1.0, 0.0),
-                max_angle_deg=45.0,
-                seed=42,
-                score_subset=2048,
-                orientation='ground',
-                time_budget_ms=RANSAC_TIME_BUDGET_MS,
-                early_stop_ratio=0.92,
-                batch_size=256,
-            )
-
-            if res is not None:
-                _runtime['last_n_cp'] = res['n']
-                _runtime['last_d_cp'] = res['d']
-                _runtime['last_thresh'] = DIST_THRESH_RUN
-            else:
-                _runtime['last_n_cp'] = None
-                _runtime['last_d_cp'] = None
-        else:
-            # Datos insuficientes, no se ejecuta RANSAC este frame
-            pass
-
     # Construir máscara del mejor plano actual (si existe)
-    H, W = _runtime['H'], _runtime['W']
-    if _runtime['last_n_cp'] is not None:
-        dotnr = cp.tensordot(_runtime['rays_cp'], _runtime['last_n_cp'], axes=([2], [0]))
-        dists = cp.abs(depth_cp * dotnr + _runtime['last_d_cp'])
+    if last_n_cp is not None:
+        dotnr = cp.tensordot(rays_cp, last_n_cp, axes=([2], [0]))
+        dists = cp.abs(depth_cp * dotnr + last_d_cp)
         valid_depth = depth_cp > 0
-        mask = (dists <= _runtime['last_thresh']) & valid_depth
+        mask = (dists <= last_thresh) & valid_depth
         ground_mask = _to_numpy(mask).astype(np.uint8)
     else:
         ground_mask = np.zeros((H, W), dtype=np.uint8)
 
-    # Tomar processed_base si ya está listo; si no, esperar un instante muy corto y re-chequear
-    processed_base = None
-    try:
-        ev = _runtime['rgb_done_event']
-        if ev is not None and ev.is_set():
-            processed_base = _runtime['result_dict'].get('processed_base')
-        else:
-            # Espera mínima (re-check) para intentar captar el resultado sin bloquear FPS
-            if ev is not None:
-                ev.wait(timeout=0.003)
-            processed_base = _runtime['result_dict'].get('processed_base')
-    except Exception:
-        processed_base = _runtime['result_dict'].get('processed_base')
+    img = apply_ground_mask_to_rgb(rgb_image, ground_mask)
 
-    img = apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base)
-
-    # Calcular y pegar FPS en blanco sobre la imagen
-    now = time.perf_counter()
-    if _runtime['fps_t0'] is None:
-        _runtime['fps_t0'] = now
-        fps = 0.0
-    else:
-        dt = now - _runtime['fps_t0']
-        _runtime['fps_t0'] = now
-        fps = 1.0 / max(dt, 1e-6)
-    cv2.putText(img, f"FPS: {fps:4.1f}", (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
     return img
-
-
-# =======================
-# Ejecución directa del módulo
-# =======================
-if __name__ == "__main__":
-    cv2.namedWindow('Detección de Suelo - RealSense', cv2.WINDOW_NORMAL)
-    try:
-        while True:
-            img = get_ground()
-            if img is None:
-                key = cv2.waitKey(1) & 0xFF
-                if key == 27:
-                    break
-                continue
-            cv2.imshow('Detección de Suelo - RealSense', img)
-            key = cv2.waitKey(1) & 0xFF
-            if key == 27:
-                break
-    finally:
-        if _runtime['pipeline'] is not None:
-            _runtime['pipeline'].stop()
-        cv2.destroyAllWindows()

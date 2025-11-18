@@ -121,3 +121,14 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
             c = (int(col[i, 0]), int(col[i, 1]), int(col[i, 2])) if col is not None else (200, 200, 200)
             cv2.circle(img, (int(u[i]), int(v[i])), point_size, c, -1, lineType=cv2.LINE_AA)
     return img
+
+#Por el momento no hay mas funciones
+
+def wallSegmentation():
+    pass
+
+def doorSegmentation():
+    pass
+
+def ColocarMascara(rgb_image):
+    return rgb_image
