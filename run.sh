@@ -510,10 +510,10 @@ PY
     ;;
   test)
   echo "Iniciando entorno $ENV_NAME…"
-    if [[ -f "src/utilities/ransacCellingGround.py" ]]; then
-      run_in_env python src/utilities/ransacCellingGround.py
+    if [[ -f "src/main.py" ]]; then
+      run_in_env python src/main.py
     else
-      echo "ERROR: No se encontró src/utilities/ransacCellingGround.py"
+      echo "ERROR: No se encontró src/main.py"
       exit 1
     fi
     ;;
