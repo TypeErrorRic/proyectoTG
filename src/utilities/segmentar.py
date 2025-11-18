@@ -17,7 +17,7 @@ import cv2
 import threading
 import time
 import queue
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, Tuple, Dict
 
 # =======================
 # Estado y parámetros runtime (para inicialización de cámara y rayos)
@@ -58,8 +58,8 @@ TareaFuncion = Callable[..., Any]
 # Referencia a la funcion que se ejecutara en el hilo
 _tarea_funcion: Optional[TareaFuncion] = None
 # Argumentos con los que se llamara a la funcion en el hilo
-_tarea_args: tuple[Any, ...] = ()
-_tarea_kwargs: dict[str, Any] = {}
+_tarea_args: Tuple[Any, ...] = ()
+_tarea_kwargs: Dict[str, Any] = {}
 
 
 def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
@@ -181,7 +181,7 @@ def _lazy_init(color_width=640, color_height=480, depth_width=640,
     _runtime['initialized'] = True
 
 
-def preprocesar(pipeline=None) -> tuple[Any, Any, Any, Any]:
+def preprocesar(pipeline=None) -> Tuple[Any, Any, Any, Any]:
     """
     Extrae y prepara los datos necesarios para RANSAC:
     - Imagen RGB
