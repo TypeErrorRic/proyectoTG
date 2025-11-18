@@ -1,3 +1,14 @@
+import os
+import sys
+
+# Permite ejecutar tanto con `python -m src.main`
+# como directamente con `python src/main.py`
+if __package__ is None or __package__ == "":
+    sys.path.insert(
+        0,
+        os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
+    )
+
 from src.utilities.segmentar import AlgoritmosSegmentacion
 
 def main() -> None:
