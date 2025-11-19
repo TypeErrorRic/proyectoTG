@@ -2,23 +2,9 @@ import math
 import numpy as np
 import cv2
 import pyrealsense2 as rs
-from src.utilities.viewCamera import (
-    init_camera,
-    extract_rgb,
-    extract_depth_meters,
-    precompute_rays_for_stream,
-)
 import time
 import cupy as cp
-from typing import Optional
-
-# Parámetros por defecto para mantener FPS aceptable
-GROUND_EVERY = 20           # calcular RANSAC cada 20 frames
-DIST_THRESH_RUN = 0.03      # tolerancia más estricta
-MAX_ITERS_RUN = 500         # menos iteraciones para reducir retardo
-MIN_INLIERS_RUN = 600       # umbral acorde a subsampling
-SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
-RANSAC_TIME_BUDGET_MS = 50  # presupuesto de tiempo por ejecución de RANSAC
+from typing import Optional, Dict, Any
 
 def _to_xp(a):
     """Asegura arreglo en GPU (CuPy)."""
@@ -222,121 +208,116 @@ def ransac_plane_gpu(points,
         'num_inliers': final_count,
     }
 
+# Global variables to store the last detected ground plane parameters
+# These are used to keep the last valid plane and threshold between frames
+last_n_cp = None  # Last normal vector of the detected ground plane (CuPy array)
+last_d_cp = None  # Last 'd' parameter of the detected ground plane (CuPy scalar)
 
-def apply_ground_mask_to_rgb(rgb_image, ground_mask, processed_base=None):
+def get_ground(
+        mapaProfundidad: np.ndarray, 
+        rays_cp: cp.ndarray, 
+        H: int, 
+        W: int, 
+        groundParams: Dict[str, Any]
+        ) -> Optional[np.ndarray]:
     """
-    Aplica la máscara del suelo a una imagen RGB.
+    Detects the ground plane using RANSAC and returns the RGB image
+    with the ground mask overlaid in green.
 
     Args:
-        rgb_image: Imagen RGB/BGR original
-        ground_mask: Máscara binaria del suelo
-        processed_base: Imagen procesada base (unsharp) a usar en lugar de rgb_image
+        rgb_image (np.ndarray): RGB image (height x width x 3)
+        mapaProfundidad (np.ndarray): Depth map (height x width)
+        rays_cp (cp.ndarray): Precomputed rays (height x width x 3, CuPy array)
+        H (int): Image height
+        W (int): Image width
+        groundParams (Dict[str, Any]): Dictionary of RANSAC and segmentation parameters:
+            - subsample_stride (int): Subsampling stride for RANSAC (default: 4)
+            - min_inliers (int): Minimum inliers to accept a plane (default: 600)
+            - dist_thresh (float): Distance threshold for inliers (default: 0.03)
+            - max_iters (int): Maximum RANSAC iterations (default: 500)
+            - up_axis (tuple): World up vector (default: (0.0, -1.0, 0.0))
+            - max_angle_deg (float): Max angle for plane orientation (default: 45.0)
+            - seed (int): Random seed (default: 42)
+            - score_subset (int): Number of points for scoring models (default: 2048)
+            - orientation (str): Plane orientation ('ground', 'ceiling', 'any')
+            - time_budget_ms (float): Time budget per RANSAC run (default: 50)
+            - early_stop_ratio (float): Early stop ratio for RANSAC (default: 0.92)
+            - batch_size (int): Batch size for RANSAC models (default: 256)
 
     Returns:
-        np.array: Imagen con el suelo marcado
+        np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
-    # Base: priorizar la imagen procesada del secundario si está disponible; si no, usar RGB
-    base = _to_numpy(processed_base) if processed_base is not None else None
-    result = base if base is not None else _to_numpy(rgb_image)
-    if result is None:
-        return None
+    # Nota: esta función devuelve una máscara binaria (H x W)
+    # que indica los píxeles pertenecientes al suelo. El overlay
+    # RGB se aplica posteriormente en helpers.apply_mask_to_rgb.
+    # Extract parameters from groundParams dictionary
+    subsample_stride = groundParams.get("subsample_stride")
+    min_inliers = groundParams.get("min_inliers")
+    dist_thresh = groundParams.get("dist_thresh")
+    max_iters = groundParams.get("max_iters")
+    up_axis = groundParams.get("up_axis")
+    max_angle_deg = groundParams.get("max_angle_deg")
+    seed = groundParams.get("seed")
+    score_subset = groundParams.get("score_subset")
+    orientation = groundParams.get("orientation")
+    time_budget_ms = groundParams.get("time_budget_ms")
+    early_stop_ratio = groundParams.get("early_stop_ratio")
+    batch_size = groundParams.get("batch_size")
 
-    # Asegurar máscara válida; si viene None, usar máscara vacía
-    mask = _to_numpy(ground_mask)
-    if mask is None:
-        mask = np.zeros(result.shape[:2], dtype=np.uint8)
-
-    # Normalizar máscara a 2D y tipo booleano
-    if mask.ndim == 3 and mask.shape[-1] in (1, 3):
-        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY) if mask.shape[-1] == 3 else mask.squeeze(-1)
-    if mask.ndim == 1 and mask.size == result.shape[0] * result.shape[1]:
-        mask = mask.reshape(result.shape[:2])
-    if mask.shape[:2] != result.shape[:2]:
-        # Intentar redimensionar de forma segura (nearest) para máscaras
-        mask = cv2.resize(mask, (result.shape[1], result.shape[0]), interpolation=cv2.INTER_NEAREST)
-
-    mask_bool = (mask > 0)
-
-    # Crear overlay verde sobre el suelo
-    overlay = result.copy()
-    overlay[mask_bool] = (0, 255, 0)  # Verde en BGR
-    # Combinar original con overlay
-    cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
-    return result 
-
-
-last_n_cp = None
-last_d_cp = None
-last_thresh = DIST_THRESH_RUN
-
-def get_ground(rgb_image: np.ndarray, mapaProfundidad: np.ndarray, rays_cp: cp.ndarray, H: int, W: int, subsample_stride=SUBSAMPLE_STRIDE, min_inliers=MIN_INLIERS_RUN) -> Optional[np.ndarray]:
-    """
-    Detecta el plano de suelo (RANSAC) y devuelve la imagen RGB
-    con la máscara del suelo pintada en verde.
-
-    Args:
-        rgb_image: Imagen RGB
-        mapaProfundidad: Mapa de profundidad
-        rays_cp: Rayos precalculados en cupy
-        H, W: Alto y ancho de la imagen
-        subsample_stride: Submuestreo para RANSAC
-        min_inliers: Mínimo de inliers para aceptar plano
-
-    Returns:
-        np.ndarray | None: imagen BGR con el suelo pintado o None si no hay datos válidos.
-    """
-    # Convertir depth a cupy para RANSAC
+    # Convert depth map to CuPy array for RANSAC
     depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
-    # Submuestreo para RANSAC
+    # Subsample depth and rays for RANSAC efficiency
     Dsub = depth_cp[::subsample_stride, ::subsample_stride]
     Rsub = rays_cp[::subsample_stride, ::subsample_stride]
-    # Limitar al 50% inferior para sesgar hacia el suelo
+    # Limit to lower 50% of the image to bias towards ground
     sub_h = Dsub.shape[0]
     if sub_h >= 2:
         Dsub = Dsub[sub_h//2:, :]
         Rsub = Rsub[sub_h//2:, :]
     valid = Dsub > 0
-    global last_n_cp, last_d_cp, last_thresh
+    global last_n_cp, last_d_cp
     if int(cp.sum(valid)) >= min_inliers:
+        # Prepare 3D point cloud for RANSAC
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
         Psub = Psub[valid.reshape(-1)]
 
+        # Run RANSAC plane fitting on the subsampled points
         res = ransac_plane_gpu(
             Psub,
-            dist_thresh=last_thresh,
-            max_iters=MAX_ITERS_RUN,
+            dist_thresh=dist_thresh,
+            max_iters=max_iters,
             min_inliers=min_inliers,
-            up_axis=(0.0, -1.0, 0.0),
-            max_angle_deg=45.0,
-            seed=42,
-            score_subset=2048,
-            orientation='ground',
-            time_budget_ms=RANSAC_TIME_BUDGET_MS,
-            early_stop_ratio=0.92,
-            batch_size=256,
+            up_axis=up_axis,
+            max_angle_deg=max_angle_deg,
+            seed=seed,
+            score_subset=score_subset,
+            orientation=orientation,
+            time_budget_ms=time_budget_ms,
+            early_stop_ratio=early_stop_ratio,
+            batch_size=batch_size,
         )
 
         if res is not None:
+            # Store last valid plane parameters
             last_n_cp = res['n']
             last_d_cp = res['d']
-            # last_thresh se mantiene igual
         else:
             last_n_cp = None
             last_d_cp = None
     else:
-        # Datos insuficientes, no se ejecuta RANSAC este frame
+        # Not enough valid data, skip RANSAC for this frame
         pass
 
-    # Construir máscara del mejor plano actual (si existe)
+    # Build mask for the best current plane (if available)
     if last_n_cp is not None:
         dotnr = cp.tensordot(rays_cp, last_n_cp, axes=([2], [0]))
         dists = cp.abs(depth_cp * dotnr + last_d_cp)
         valid_depth = depth_cp > 0
-        mask = (dists <= last_thresh) & valid_depth
+        mask = (dists <= dist_thresh) & valid_depth
         ground_mask = _to_numpy(mask).astype(np.uint8)
     else:
         ground_mask = np.zeros((H, W), dtype=np.uint8)
 
-    img = apply_ground_mask_to_rgb(rgb_image, ground_mask)
+    ground_mask = _to_numpy(ground_mask)
 
-    return img
+    return ground_mask

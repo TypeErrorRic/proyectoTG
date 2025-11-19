@@ -101,6 +101,23 @@ def compute_rays_from_intrinsics(intr) -> np.ndarray:
     rays = np.stack([x, y, ones], axis=-1).astype(np.float32)
     return rays
 
+
+def compute_normalized_rays(H: int, W: int) -> np.ndarray:
+    """
+    Construye rayos \"normalizados\" para una imagen de tamaño (H, W)
+    cuando no se conocen intrínsecas reales de cámara.
+
+    Devuelve un array (H, W, 3) con vectores [x, y, 1] donde x,y están
+    en el rango aproximado [-1, 1]. Esto es suficiente para RANSAC sobre
+    un mapa de profundidad de dataset.
+    """
+    u = np.linspace(-1.0, 1.0, W, dtype=np.float32)
+    v = np.linspace(-1.0, 1.0, H, dtype=np.float32)
+    uu, vv = np.meshgrid(u, v)  # (H,W)
+    ones = np.ones_like(uu, dtype=np.float32)
+    rays = np.stack([uu, vv, ones], axis=-1).astype(np.float32)
+    return rays
+
 ###############################################
 # Alineación DEPTH→COLOR (GPU opcional)
 ###############################################

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import cv2
 from typing import Optional, Tuple
@@ -124,11 +125,115 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
 
 #Por el momento no hay mas funciones
 
-def wallSegmentation():
-    pass
+def apply_mask_to_rgb(
+        rgb_image: np.ndarray, 
+        ground_mask: np.ndarray
+        ) -> np.ndarray:
+    """
+    Aplica la máscara del suelo a una imagen RGB.
 
-def doorSegmentation():
-    pass
+    Args:
+        rgb_image: Imagen RGB/BGR original
+        ground_mask: Máscara binaria del suelo
+        processed_base: Imagen procesada base (unsharp) a usar en lugar de rgb_image
 
-def ColocarMascara(rgb_image):
-    return rgb_image
+    Returns:
+        np.array: Imagen con el suelo marcado
+    """
+    # Always use rgb_image as the base image
+    result = rgb_image
+
+    # Asegurar máscara válida; si viene None, usar máscara vacía
+    if ground_mask is None:
+        ground_mask = np.zeros(result.shape[:2], dtype=np.uint8)
+
+    # Normalizar máscara a 2D y tipo booleano
+    if ground_mask.ndim == 3 and ground_mask.shape[-1] in (1, 3):
+        ground_mask = cv2.cvtColor(ground_mask, cv2.COLOR_BGR2GRAY) if ground_mask.shape[-1] == 3 else ground_mask.squeeze(-1)
+    if ground_mask.ndim == 1 and ground_mask.size == result.shape[0] * result.shape[1]:
+        ground_mask = ground_mask.reshape(result.shape[:2])
+    if ground_mask.shape[:2] != result.shape[:2]:
+        # Intentar redimensionar de forma segura (nearest) para máscaras
+        ground_mask = cv2.resize(ground_mask, (result.shape[1], result.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    mask_bool = (ground_mask > 0)
+
+    # Crear overlay verde sobre el suelo
+    overlay = result.copy()
+    overlay[mask_bool] = (0, 255, 0)  # Verde en BGR
+    # Combinar original con overlay
+    cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
+    return result 
+
+
+_DATASET_IMAGE_FILES = None
+_DATASET_INDEX = 0
+
+
+def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Carga un par RGB + depth desde src/data/{images,depths}.
+
+    Asume depth en PNG uint16 (mm) y lo convierte a metros (float32).
+    """
+    global _DATASET_IMAGE_FILES, _DATASET_INDEX
+    try:
+        base_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "data",
+        )
+        images_dir = os.path.join(base_dir, "images")
+        depths_dir = os.path.join(base_dir, "depths")
+
+        if _DATASET_IMAGE_FILES is None:
+            if not os.path.isdir(images_dir):
+                print(f"[helpers] Carpeta de imágenes no encontrada: {images_dir}")
+                return None, None
+            _DATASET_IMAGE_FILES = sorted(
+                f
+                for f in os.listdir(images_dir)
+                if f.lower().endswith((".png", ".jpg", ".jpeg"))
+            )
+            _DATASET_INDEX = 0
+
+        if not _DATASET_IMAGE_FILES:
+            print(f"[helpers] No se encontraron imágenes en {images_dir}")
+            return None, None
+
+        if _DATASET_INDEX >= len(_DATASET_IMAGE_FILES):
+            _DATASET_INDEX = 0
+        filename = _DATASET_IMAGE_FILES[_DATASET_INDEX]
+        _DATASET_INDEX += 1
+
+        image_path = os.path.join(images_dir, filename)
+        depth_path = os.path.join(depths_dir, filename)
+
+        if not os.path.exists(depth_path):
+            print(
+                f"[helpers] No se encontró mapa de profundidad para "
+                f"{filename} en {depths_dir}"
+            )
+            return None, None
+
+        imagen_rgb = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        depth_raw = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+
+        if imagen_rgb is None or depth_raw is None:
+            print(
+                f"[helpers] Error al leer archivos:\n"
+                f"  RGB: {image_path}\n"
+                f"  Depth: {depth_path}"
+            )
+            return None, None
+
+        if depth_raw.dtype == np.uint16:
+            mapa_profundidad = depth_raw.astype(np.float32) / 1000.0
+        else:
+            mapa_profundidad = depth_raw.astype(np.float32)
+
+        return imagen_rgb, mapa_profundidad
+    except Exception as exc:
+        print(f"[helpers] Error cargando datos desde src/data: {exc}")
+        return None, None
+
+

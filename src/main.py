@@ -16,12 +16,16 @@ def main() -> None:
     window_name = "Segmentacion"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
+    # Modo de operación actual: "camera" o "funcional" (prueba/dataset)
+    mode: str = "camera"
+
     # Inicializar variables para cálculo de FPS
     prev_time = cv2.getTickCount()
-    fps = 0
+    fps = 0.0
 
     while True:
-        resultado = AlgoritmosSegmentacion()
+        resultado = AlgoritmosSegmentacion(mode=mode)
+
         # Calcular FPS
         curr_time = cv2.getTickCount()
         time_diff = (curr_time - prev_time) / cv2.getTickFrequency()
@@ -32,11 +36,27 @@ def main() -> None:
         if resultado is not None:
             # Dibujar FPS en la imagen
             resultado_fps = resultado.copy()
-            cv2.putText(resultado_fps, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            cv2.putText(
+                resultado_fps,
+                f"FPS: {fps:.2f}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 255, 0),
+                2,
+            )
             cv2.imshow(window_name, resultado_fps)
 
         key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC
+
+        # Cambiar de modo con teclas numéricas
+        if key == ord("1"):
+            mode = "camera"
+            print("[main] Modo cambiado a 'camera' (RealSense).")
+        elif key == ord("2"):
+            mode = "funcional"  # modo de prueba con dataset
+            print("[main] Modo cambiado a 'funcional' (prueba/dataset).")
+        elif key == 27:  # ESC
             break
 
     cv2.destroyWindow(window_name)
