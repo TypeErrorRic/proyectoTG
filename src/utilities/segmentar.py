@@ -39,7 +39,6 @@ _runtime = {
 
 # Parámetros por defecto para mantener FPS aceptable
 SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
-DIST_THRESH_RUN = 0.03      # tolerancia más estricta
 
 # Evento para detener el hilo de forma limpia
 _detener_evento = threading.Event()
@@ -169,7 +168,6 @@ def _lazy_init(color_width=640, color_height=480, depth_width=640,
     _runtime['W'] = W
     _runtime['align_depth_fn'] = align_depth_fn
     _runtime['params'] = params
-    _runtime['result_dict'] = {'dist_thresh': DIST_THRESH_RUN}
     _runtime['fps_t0'] = time.time()
     _runtime.setdefault('algoritmo', 1)
     _runtime.setdefault('mascara', None)
@@ -236,7 +234,7 @@ def AlgoritmosSegmentacion(color_width=640, color_height=480, depth_width=640,
         algoritmo = _runtime.get('algoritmo', 1)
         if algoritmo == 1:
             # Configurar tarea get_ground con los argumentos correctos
-            configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W)
+            configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W, _runtime['subsample_stride'], )
             iniciar_hilo_secundario()
 
         # Mientras el hilo calcula, usar al menos la imagen RGB actual

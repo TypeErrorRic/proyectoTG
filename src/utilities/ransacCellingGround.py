@@ -296,7 +296,6 @@ def get_ground(rgb_image: np.ndarray, mapaProfundidad: np.ndarray, rays_cp: cp.n
         Dsub = Dsub[sub_h//2:, :]
         Rsub = Rsub[sub_h//2:, :]
     valid = Dsub > 0
-    global last_n_cp, last_d_cp, last_thresh
     if int(cp.sum(valid)) >= min_inliers:
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
         Psub = Psub[valid.reshape(-1)]
