@@ -200,6 +200,10 @@ def _lazy_init(
     ground_params = _runtime.get("groundParams", {})
     if mode == "prueba":
         ground_params["up_axis"] = (0.0, 0.0, -1.0)
+        ground_params["orientation"] = "any"
+        ground_params["max_angle_deg"] = 75.0
+        ground_params["dist_thresh"] = 0.05
+        ground_params["min_inliers"] = 400
     else:
         ground_params["up_axis"] = (0.0, -1.0, 0.0)
     _runtime["groundParams"] = ground_params
