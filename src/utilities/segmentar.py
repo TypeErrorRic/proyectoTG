@@ -304,11 +304,10 @@ def AlgoritmosSegmentacion(
                 try:
                     # Get new data for the next task and store it in _runtime
                     ok = preprocesar(_runtime["pipeline"])
-                    imagenRGB = _runtime.get("imagenRGB")
 
                     # Placeholder: set up other segmentation task (wall/door)
-                    if ok and imagenRGB is not None:
-                        configurar_tarea(ColocarMascara, imagenRGB)
+                    if ok and _runtime["mascara"] is not None:
+                        configurar_tarea(ColocarMascara, _runtime["mascara"])
                         iniciar_hilo_secundario()
                         # Change back to the first algorithm
                         _runtime["algoritmo"] = 1
