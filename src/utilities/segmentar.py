@@ -28,16 +28,14 @@ _runtime: Dict[str, Any] = {
     "H": None,
     "W": None,
     "align_depth_fn": None,
-    "params": None,
-    "result_dict": {},
     "imagenRGB": None,
     "mapaProfundidad": None,
     "groundParams": {
         "dist_thresh": 0.03,
         "max_iters": 500,
         "min_inliers": 600,
-        "subsample_stride": 4,
-        "time_budget_ms": 50,
+        "subsample_stride": 2,
+        "time_budget_ms": 100,
         "up_axis": (0.0, -1.0, 0.0),
         "max_angle_deg": 45.0,
         "seed": 42,
@@ -198,8 +196,6 @@ def _lazy_init(
 
     if mode == "prueba":
         # Dataset mode: do not touch the RealSense pipeline; H/W and rays
-        # are derived later in `preprocesar` from the dataset images.
-        _runtime["params"] = {"stride": stride, "mode": mode}
         _runtime.setdefault("mascara", None)
         return
 
@@ -207,7 +203,7 @@ def _lazy_init(
     pipeline = _runtime.get("pipeline")
     if pipeline is None:
         print("Initializing RealSense camera...")
-        pipeline, params = viewCamera.init_camera(
+        pipeline, _ = viewCamera.init_camera(
             color_width,
             color_height,
             depth_width,
@@ -221,7 +217,6 @@ def _lazy_init(
             point_size=1,
         )
         _runtime["pipeline"] = pipeline
-        _runtime["params"] = params
 
     # If coming from dataset mode or rays are not ready, recompute rays
     # and depth->color aligner for the camera.
