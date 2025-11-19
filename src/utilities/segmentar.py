@@ -204,7 +204,7 @@ def _lazy_init(
         ground_params["dist_thresh"] = 0.05
         ground_params["min_inliers"] = 400
     else:
-    _runtime["groundParams"] = ground_params
+        _runtime["groundParams"] = ground_params
 
     if mode == "prueba":
         # Dataset mode: do not touch the RealSense pipeline; H/W and rays
