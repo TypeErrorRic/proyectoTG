@@ -34,11 +34,11 @@ _runtime: Dict[str, Any] = {
     "groundParams": {
         "dist_thresh": 0.03,
         "max_iters": 500,
-        "min_inliers": 600,
+        "min_inliers": 400,
         "subsample_stride": 2,
         "time_budget_ms": 100,
         "up_axis": (0.0, -1.0, 0.0),
-        "max_angle_deg": 45.0,
+        "max_angle_deg": 60.0,
         "seed": 42,
         "score_subset": 2048,
         "orientation": "ground",
@@ -65,10 +65,10 @@ _tarea_kwargs: Dict[str, Any] = {}
 
 def segmentar() -> Any:
     """
-    Ground segmentation worker.
+    Segmentation worker.
 
     Uses the current frame and parameters stored in _runtime to detect
-    the ground plane and returns the RGB image with the ground mask
+    the ground, wall and door plane and returns the RGB image with the ground mask
     overlaid.
     """
     ground = get_ground(
@@ -206,7 +206,7 @@ def _lazy_init(
     if mode == "prueba":
         # For the dataset, the ground normal is closer to -Y,
         # so we use +Y as the world "up" direction.
-        ground_params["up_axis"] = (0.0, 0.0, 1.0)
+        ground_params["up_axis"] = (0.0, -1.0, 0.0)
     else:
         ground_params["up_axis"] = (0.0, -1.0, 0.0)
     _runtime["groundParams"] = ground_params
@@ -398,4 +398,3 @@ def AlgoritmosSegmentacion(
                 return imagenRGB
 
     return None
-
