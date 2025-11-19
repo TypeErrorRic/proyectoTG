@@ -54,8 +54,8 @@ def main() -> None:
             mode = "camera"
             print("[main] Modo cambiado a 'camera' (RealSense).")
         elif key == ord("2"):
-            mode = "funcional"  # modo de prueba con dataset
-            print("[main] Modo cambiado a 'funcional' (prueba/dataset).")
+            mode = "prueba"  # modo de prueba con dataset
+            print("[main] Modo cambiado a 'prueba' (prueba/dataset).")
         elif key == 27:  # ESC
             break
 
