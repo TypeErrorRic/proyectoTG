@@ -70,27 +70,35 @@ def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
 
 
 def _bucle_hilo() -> None:
-    while not _detener_evento.is_set():
-        if _tarea_funcion is not None:
-            try:
-                resultado = _tarea_funcion(*_tarea_args, **_tarea_kwargs)
-                # Only the worker thread inserts results into the queue.
-                # If there is already a pending result, it blocks until
-                # the main thread consumes it.
-                if resultado is not None:
-                    while not _detener_evento.is_set():
-                        try:
-                            _resultados.put(resultado, timeout=0.1)
-                            break
-                        except queue.Full:
-                            # Wait until the main thread consumes the data
-                            continue
-            except Exception as exc:
-                # You can replace this print with logging if you prefer
-                print(f"[thread] Error en tarea de fondo: {exc}")
-        else:
-            # If no task has been configured yet, avoid a busy loop.
-            time.sleep(0.01)
+    """
+    Run the configured task once in a background thread.
+
+    When the task finishes, its result is placed in the shared queue
+    (if there is space) and the thread exits.
+    """
+    global _hilo_trabajador
+    if _tarea_funcion is None:
+        _hilo_trabajador = None
+        return
+    try:
+        resultado = _tarea_funcion(*_tarea_args, **_tarea_kwargs)
+        # Only the worker thread inserts results into the queue.
+        # If there is already a pending result, it blocks until
+        # the main thread consumes it.
+        if resultado is not None:
+            while not _detener_evento.is_set():
+                try:
+                    _resultados.put(resultado, timeout=0.1)
+                    break
+                except queue.Full:
+                    # Wait until the main thread consumes the data
+                    continue
+    except Exception as exc:
+        # You can replace this print with logging if you prefer
+        print(f"[thread] Error en tarea de fondo: {exc}")
+    finally:
+        # Mark thread as finished
+        _hilo_trabajador = None
 
 
 def obtener_resultado(
@@ -250,39 +258,67 @@ def AlgoritmosSegmentacion(
             _runtime["mascara"] = resultado
         algoritmo = _runtime.get("algoritmo", 1)
         if algoritmo == 1:
-            # Get new data for the next task and store it in _runtime
-            ok = preprocesar(_runtime["pipeline"])
-            imagenRGB = _runtime.get("imagenRGB")
-            mapaProfundidad = _runtime.get("mapaProfundidad")
-            rays_cp = _runtime.get("rays_cp")
-            H = _runtime.get("H")
-            W = _runtime.get("W")
+            # Ensure that the floor segmentation task is scheduled.
+            # If there is any error (invalid frame or exception), retry
+            # until it succeeds.
+            while True:
+                try:
+                    # Get new data for the next task and store it in _runtime
+                    ok = preprocesar(_runtime["pipeline"])
+                    imagenRGB = _runtime.get("imagenRGB")
+                    mapaProfundidad = _runtime.get("mapaProfundidad")
+                    rays_cp = _runtime.get("rays_cp")
+                    H = _runtime.get("H")
+                    W = _runtime.get("W")
 
-            # On the first frame, use the raw RGB image as a fallback mask
-            if _runtime.get("mascara") is None and imagenRGB is not None:
-                _runtime["mascara"] = imagenRGB
+                    # On the first frame, use the raw RGB image as a fallback mask
+                    if _runtime.get("mascara") is None and imagenRGB is not None:
+                        _runtime["mascara"] = imagenRGB
 
-            # Start floor segmentation task if we have valid frame data
-            if ok and imagenRGB is not None and mapaProfundidad is not None and rays_cp is not None:
-                configurar_tarea(
-                    get_ground,
-                    imagenRGB,
-                    mapaProfundidad,
-                    rays_cp,
-                    H,
-                    W,
-                    _runtime["subsample_stride"],
-                )
-                iniciar_hilo_secundario()
-                _runtime["algoritmo"] = 2
-            else:
-                if resultado is not None:
-                    return ColocarMascara(_runtime["mascara"])
-                return None
+                    # Start floor segmentation task if we have valid frame data
+                    if ok and imagenRGB is not None and mapaProfundidad is not None and rays_cp is not None:
+                        configurar_tarea(
+                            get_ground,
+                            imagenRGB,
+                            mapaProfundidad,
+                            rays_cp,
+                            H,
+                            W,
+                            _runtime["subsample_stride"],
+                        )
+                        iniciar_hilo_secundario()
+                        # Change to the next algorithm
+                        _runtime["algoritmo"] = 2
+                        break
+
+                    # If data is not valid yet, wait a bit and retry
+                    time.sleep(0.01)
+                except Exception as exc:
+                    # Retry until it works
+                    time.sleep(0.01)
         elif algoritmo == 2:
-            # Placeholder: set up other segmentation task (wall/door)
-            _runtime["algoritmo"] = 1
+            # Ensure that the secondary segmentation task is scheduled.
+            # If there is any error (invalid frame or exception), retry
+            # until it succeeds.
+            while True:
+                try:
+                    # Get new data for the next task and store it in _runtime
+                    ok = preprocesar(_runtime["pipeline"])
+                    imagenRGB = _runtime.get("imagenRGB")
 
+                    # Placeholder: set up other segmentation task (wall/door)
+                    if ok and imagenRGB is not None:
+                        configurar_tarea(ColocarMascara, imagenRGB)
+                        iniciar_hilo_secundario()
+                        # Change back to the first algorithm
+                        _runtime["algoritmo"] = 1
+                        break
+
+                    # If data is not valid yet, wait a bit and retry
+                    time.sleep(0.01)
+                except Exception as exc:
+                    # Retry until it works
+                    time.sleep(0.01)
         # Mark initialization as complete
         _runtime["initialized"] = True
         # If there is no new data, keep the last mask
