@@ -234,7 +234,7 @@ def AlgoritmosSegmentacion(color_width=640, color_height=480, depth_width=640,
         algoritmo = _runtime.get('algoritmo', 1)
         if algoritmo == 1:
             # Configurar tarea get_ground con los argumentos correctos
-            configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W, _runtime['subsample_stride'], )
+            configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W, _runtime['subsample_stride'])
             iniciar_hilo_secundario()
 
         # Mientras el hilo calcula, usar al menos la imagen RGB actual
