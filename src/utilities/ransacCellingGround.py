@@ -269,11 +269,12 @@ def get_ground(
     # Subsample depth and rays for RANSAC efficiency
     Dsub = depth_cp[::subsample_stride, ::subsample_stride]
     Rsub = rays_cp[::subsample_stride, ::subsample_stride]
-    # Limit to lower 50% of the image to bias towards ground
+    # Usar sólo el tercio inferior de la imagen para buscar suelo
     sub_h = Dsub.shape[0]
-    if sub_h >= 2:
-        Dsub = Dsub[sub_h//2:, :]
-        Rsub = Rsub[sub_h//2:, :]
+    if sub_h >= 3:
+        start = (2 * sub_h) // 3  # último tercio
+        Dsub = Dsub[start:, :]
+        Rsub = Rsub[start:, :]
     valid = Dsub > 0
     global last_n_cp, last_d_cp
     if int(cp.sum(valid)) >= min_inliers:

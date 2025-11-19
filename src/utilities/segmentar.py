@@ -5,7 +5,7 @@ Provides a background worker thread that executes a segmentation task
 and shares its result with the main thread through a small queue.
 """
 
-# Personal libraries
+# Project libraries
 import src.utilities.viewCamera as viewCamera
 from src.utilities.ransacCellingGround import get_ground
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
@@ -19,7 +19,8 @@ import time
 import queue
 from typing import Optional, Callable, Any, Tuple, Dict
 
-# Centralized state dictionary to avoid many loose globals
+
+# Centralized state dictionary to avoid loose globals
 _runtime: Dict[str, Any] = {
     "initialized": False,
     "mode": None,
@@ -46,14 +47,14 @@ _runtime: Dict[str, Any] = {
     },
 }
 
-# Event to stop the worker thread cleanly
+# Event used to stop the worker thread cleanly
 _detener_evento = threading.Event()
 _hilo_trabajador: Optional[threading.Thread] = None
 
-# Result queue shared with the main thread (buffer of 1 element).
+# Result queue shared with the main thread (buffer of 1 element)
 _resultados: "queue.Queue[Any]" = queue.Queue(maxsize=1)
 
-# Type of the function that will be executed in the worker thread.
+# Type of the function that will be executed in the worker thread
 TareaFuncion = Callable[..., Any]
 
 # Reference to the function that will run in the worker
@@ -81,6 +82,9 @@ def segmentar() -> Any:
 
 
 def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
+    """
+    Configure the function that will be executed in the worker thread.
+    """
     global _tarea_funcion, _tarea_args, _tarea_kwargs
     _tarea_funcion = funcion
     _tarea_args = args
@@ -99,7 +103,7 @@ def _bucle_hilo() -> None:
         _hilo_trabajador = None
         return
     try:
-        resultado = _tarea_funcion(*_tarea_args, **_tarea_kwargs)
+        resultado = _tarea_funcion(*_tarea_args, * _tarea_kwargs)
         if resultado is not None:
             while not _detener_evento.is_set():
                 try:
@@ -108,6 +112,7 @@ def _bucle_hilo() -> None:
                 except queue.Full:
                     continue
     except Exception as exc:
+        # Keep this message in Spanish as it is user-facing debug output
         print(f"[thread] Error en tarea de fondo: {exc}")
     finally:
         _hilo_trabajador = None
@@ -172,7 +177,7 @@ def _lazy_init(
     fps: int = 30,
     stride: int = 2,
     mode: str = "camera",
-    ) -> None:
+) -> None:
     """
     Initialize camera or dataset-related state.
 
@@ -194,24 +199,22 @@ def _lazy_init(
         _runtime["initialized"] = False
     _runtime["mode"] = mode
 
-    # Ajustar par�metros de plano seg�n el origen de datos.
-    # - En modo "camera" asumimos RealSense con eje Y como vertical.
-    # - En modo "prueba" (dataset RGB-D tipo NYUv2) usamos Z como eje vertical.
+    # Adjust plane parameters according to the data source.
+    # - In "camera" mode we assume RealSense with Y as the vertical axis.
+    # - In "prueba" (RGB-D dataset) we adapt the vertical axis to the dataset.
     ground_params = _runtime.get("groundParams", {})
     if mode == "prueba":
+        # For the dataset, the ground normal is closer to -Y,
+        # so we use +Y as the world "up" direction.
         ground_params["up_axis"] = (0.0, 1.0, 0.0)
-        ground_params["orientation"] = "any"
-        ground_params["max_angle_deg"] = 75.0
-        ground_params["dist_thresh"] = 0.05
-        ground_params["min_inliers"] = 400
     else:
         ground_params["up_axis"] = (0.0, -1.0, 0.0)
-        _runtime["groundParams"] = ground_params
+    _runtime["groundParams"] = ground_params
 
     if mode == "prueba":
-        # Dataset mode: do not touch the RealSense pipeline; H/W and rays
+        # Dataset mode: do not touch the RealSense pipeline; only image/depth/rays.
         _runtime.setdefault("mascara", None)
-        # Forzar rec�lculo de rayos al entrar en modo dataset
+        # Force recomputation of rays when entering dataset mode
         _runtime["rays_cp"] = None
         return
 
@@ -235,7 +238,7 @@ def _lazy_init(
         _runtime["pipeline"] = pipeline
 
     # If coming from dataset mode or rays are not ready, recompute rays
-    # and depth->color aligner for the camera.
+    # and the depth->color aligner for the camera.
     if last_mode != "camera" or _runtime.get("rays_cp") is None:
         rays_np, H, W, align_depth_fn = viewCamera.precompute_rays_for_stream(
             pipeline, viewCamera.rs.stream.color
@@ -275,8 +278,8 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
                 mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
             )
 
-        # En modo dataset siempre usamos rayos "normalizados" independientes
-        # de intr�nsecas reales, consistentes con un sistema Z-up.
+        # In dataset mode we always use "normalized" rays that are independent
+        # of real intrinsics and consistent with a simple Z-up camera model.
         rays_np = viewCamera.compute_normalized_rays(H, W)
         _runtime["rays_cp"] = cp.asarray(rays_np)
 
@@ -289,7 +292,8 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
             return False
         frames = pipeline.wait_for_frames()
         align_depth_fn = _runtime["align_depth_fn"]
-        # Extract native RGB and depth from camera
+
+        # Extract native RGB and depth from the camera
         imagenRGB = viewCamera.extract_rgb(frames)
         mapaProfundidad = (
             align_depth_fn(frames)
@@ -302,7 +306,7 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
             _runtime["mapaProfundidad"] = None
             return False
 
-        # Ensure shapes match expected HxW (from camera intrinsics)
+        # Ensure shapes match expected HxW (from camera intrinsics).
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
             mapaProfundidad = cv2.resize(
                 mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
@@ -327,13 +331,14 @@ def AlgoritmosSegmentacion(
     mode: str = "camera",
 ) -> Any:
     """
-    Read the result from the worker thread, perform preprocessing
-    and schedule the next segmentation algorithm (ground) for
-    the worker thread.
+    Entry point used by the main loop.
+
+    Reads the latest result from the worker thread, performs preprocessing
+    and schedules the next ground-segmentation task in the background.
 
     mode:
-        - "camera" (por defecto): usa la RealSense.
-        - "prueba": usa imágenes y depth desde src/data.
+        - "camera" (default): use the RealSense camera.
+        - "prueba": use RGB and depth frames from src/data.
     """
 
     _lazy_init(color_width, color_height, depth_width, depth_height, fps, stride, mode=mode)
@@ -345,7 +350,7 @@ def AlgoritmosSegmentacion(
         if resultado is not None:
             _runtime["mascara"] = resultado
 
-        # Ensure that the floor segmentation task is scheduled.
+        # Ensure that the ground segmentation task is scheduled.
         # If there is any error (invalid frame or exception), retry
         # until it succeeds.
         while True:
@@ -360,7 +365,7 @@ def AlgoritmosSegmentacion(
                 if _runtime.get("mascara") is None and imagenRGB is not None:
                     _runtime["mascara"] = imagenRGB
 
-                # Start floor segmentation task if we have valid frame data
+                # Start ground segmentation task if we have valid frame data
                 if ok and imagenRGB is not None and mapaProfundidad is not None and rays_cp is not None:
                     configurar_tarea(segmentar)
                     iniciar_hilo_secundario()
@@ -393,3 +398,4 @@ def AlgoritmosSegmentacion(
                 return imagenRGB
 
     return None
+
