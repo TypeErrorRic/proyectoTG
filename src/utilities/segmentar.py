@@ -206,7 +206,7 @@ def _lazy_init(
     if mode == "prueba":
         # For the dataset, the ground normal is closer to -Y,
         # so we use +Y as the world "up" direction.
-        ground_params["up_axis"] = (0.0, 1.0, 0.0)
+        ground_params["up_axis"] = (0.0, 0.0, 1.0)
     else:
         ground_params["up_axis"] = (0.0, -1.0, 0.0)
     _runtime["groundParams"] = ground_params
