@@ -1,17 +1,17 @@
 """
-Modulo de hilos para Jetson Nano.
+Thread module for Jetson Nano.
 
-Define un hilo secundario que ejecuta periodicamente una funcion de usuario
-(la "tarea") en segundo plano y comparte los resultados con el hilo principal
-mediante una cola.
+Provides a background worker thread that periodically executes a user-defined
+function (the "task") and shares its results with the main thread through a
+bounded queue.
 """
 
-#Librerías Personales:
+# Personal libraries
 import src.utilities.viewCamera as viewCamera
 from src.utilities.ransacCellingGround import get_ground
 from src.utilities.helpers import ColocarMascara
 
-#Librerias de Funcionamiento
+# Runtime libraries
 import cupy as cp
 import cv2
 import threading
@@ -20,43 +20,44 @@ import queue
 from typing import Optional, Callable, Any, Tuple, Dict
 
 # =======================
-# Estado y parámetros runtime (para inicialización de cámara y rayos)
+# Runtime state and parameters (camera and rays)
 # =======================
 
-# Diccionario de estado para evitar variables globales sueltas
+# Centralized state dictionary to avoid many loose globals
 _runtime = {
-    'initialized': False,
-    'pipeline': None,
-    'rays_cp': None,
-    'H': None,
-    'W': None,
-    'align_depth_fn': None,
-    'params': None,
-    'result_dict': {},
-    'fps_t0': None,
-    'subsample_stride': None,
+    "initialized": False,
+    "pipeline": None,
+    "rays_cp": None,
+    "H": None,
+    "W": None,
+    "align_depth_fn": None,
+    "params": None,
+    "result_dict": {},
+    "fps_t0": None,
+    "subsample_stride": None,
+    "imagenRGB": None,
+    "mapaProfundidad": None,
 }
 
-# Parámetros por defecto para mantener FPS aceptable
-SUBSAMPLE_STRIDE = 4        # muestreo 1/s^2 para RANSAC
+# Default parameters to keep an acceptable FPS
+SUBSAMPLE_STRIDE = 4  # 1/stride^2 subsampling for RANSAC
 
-# Evento para detener el hilo de forma limpia
+# Event to stop the worker thread cleanly
 _detener_evento = threading.Event()
 _hilo_trabajador: Optional[threading.Thread] = None
 
-# Cola de resultados compartida con el hilo principal (buffer de 1 elemento).
-# Esto hace que el hilo secundario se bloquee cuando ya hay un resultado
-# pendiente, y solo vuelva a ejecutar la tarea cuando el hilo principal
-# haya consumido ese resultado.
+# Result queue shared with the main thread (buffer of 1 element).
+# The worker thread blocks when there is already a pending result and
+# only runs the task again after the main thread has consumed it.
 _resultados: "queue.Queue[Any]" = queue.Queue(maxsize=1)
 
-# Tipo de la funcion que se ejecutara en el hilo secundario.
-# Debe devolver el "resultado" que se quiere compartir con el hilo principal.
+# Type of the function that will be executed in the worker thread.
+# It must return the "result" that will be shared with the main thread.
 TareaFuncion = Callable[..., Any]
 
-# Referencia a la funcion que se ejecutara en el hilo
+# Reference to the function that will run in the worker
 _tarea_funcion: Optional[TareaFuncion] = None
-# Argumentos con los que se llamara a la funcion en el hilo
+# Arguments with which the function will be called in the worker
 _tarea_args: Tuple[Any, ...] = ()
 _tarea_kwargs: Dict[str, Any] = {}
 
@@ -73,35 +74,37 @@ def _bucle_hilo() -> None:
         if _tarea_funcion is not None:
             try:
                 resultado = _tarea_funcion(*_tarea_args, **_tarea_kwargs)
-                # Solo el hilo secundario inserta resultados en la cola.
-                # Si ya hay un resultado pendiente, se bloquea hasta que
-                # el hilo principal lo consuma.
+                # Only the worker thread inserts results into the queue.
+                # If there is already a pending result, it blocks until
+                # the main thread consumes it.
                 if resultado is not None:
                     while not _detener_evento.is_set():
                         try:
                             _resultados.put(resultado, timeout=0.1)
                             break
                         except queue.Full:
-                            # Espera a que el hilo principal consuma el dato
+                            # Wait until the main thread consumes the data
                             continue
             except Exception as exc:
-                # Puedes cambiar este print por logging si lo prefieres
+                # You can replace this print with logging if you prefer
                 print(f"[thread] Error en tarea de fondo: {exc}")
         else:
-            # Si aún no se ha configurado una tarea, evita un bucle ocupado.
+            # If no task has been configured yet, avoid a busy loop.
             time.sleep(0.01)
 
-def obtener_resultado(bloqueante: bool = False,
-                      timeout: Optional[float] = None) -> Any:
-    """
-    Devuelve un resultado producido por la tarea.
 
-    - Si `bloqueante=False` (por defecto), devuelve inmediatamente:
-      * un resultado, o
-      * None si no hay nada disponible.
-    - Si `bloqueante=True`, espera hasta que haya un resultado o
-      hasta que expire `timeout` (si se indica). Si se agota el tiempo,
-      devuelve None.
+def obtener_resultado(
+    bloqueante: bool = False, timeout: Optional[float] = None
+) -> Any:
+    """
+    Return a result produced by the background task.
+
+    - If `bloqueante=False` (default), return immediately:
+      * a result, or
+      * None if nothing is available.
+    - If `bloqueante=True`, block until a result is available or
+      until `timeout` expires (if provided). If the timeout elapses,
+      return None.
     """
     try:
         if bloqueante:
@@ -113,7 +116,7 @@ def obtener_resultado(bloqueante: bool = False,
 
 def iniciar_hilo_secundario(daemon: bool = True) -> None:
     """
-    Crea e inicia el hilo secundario (si no esta ya iniciado).
+    Create and start the worker thread (if it is not already running).
     """
     global _hilo_trabajador
     if _hilo_trabajador is not None and _hilo_trabajador.is_alive():
@@ -130,7 +133,7 @@ def iniciar_hilo_secundario(daemon: bool = True) -> None:
 
 def detener_hilo_secundario(timeout: Optional[float] = 2.0) -> None:
     """
-    Solicita la parada del hilo y espera a que termine.
+    Request the worker thread to stop and wait for it to finish.
     """
     global _hilo_trabajador
     if _hilo_trabajador is None:
@@ -142,105 +145,153 @@ def detener_hilo_secundario(timeout: Optional[float] = 2.0) -> None:
     _hilo_trabajador = None
 
 
-def _lazy_init(color_width=640, color_height=480, depth_width=640,
-               depth_height=480, fps=30, stride=2,) -> None:
-    """Inicializa cámara y rayos en la primera llamada."""
-    if _runtime['initialized']:
+def _lazy_init(
+    color_width: int = 640,
+    color_height: int = 480,
+    depth_width: int = 640,
+    depth_height: int = 480,
+    fps: int = 30,
+    stride: int = 2,
+) -> None:
+    """Initialize camera and rays on the first call."""
+    if _runtime["initialized"]:
         return
-    print("Inicializando cámara RealSense…")
+    print("Initializing RealSense camera...")
     pipeline, params = viewCamera.init_camera(
         color_width,
         color_height,
         depth_width,
         depth_height,
         fps,
-        stride,        # submuestreo para nube
+        stride,  # subsampling for point cloud
         yaw=-45.0,
         pitch=25.0,
         roll=0.0,
         fov=60.0,
-        point_size=1
+        point_size=1,
     )
-    rays_np, H, W, align_depth_fn = viewCamera.precompute_rays_for_stream(pipeline, viewCamera.rs.stream.color)
-    _runtime['pipeline'] = pipeline
-    _runtime['rays_cp'] = cp.asarray(rays_np)
-    _runtime['H'] = H
-    _runtime['W'] = W
-    _runtime['align_depth_fn'] = align_depth_fn
-    _runtime['params'] = params
-    _runtime['fps_t0'] = time.time()
-    _runtime.setdefault('algoritmo', 1)
-    _runtime.setdefault('mascara', None)
-    # Usar el stride de params para el submuestreo de RANSAC si viene configurado
+    rays_np, H, W, align_depth_fn = viewCamera.precompute_rays_for_stream(
+        pipeline, viewCamera.rs.stream.color
+    )
+    _runtime["pipeline"] = pipeline
+    _runtime["rays_cp"] = cp.asarray(rays_np)
+    _runtime["H"] = H
+    _runtime["W"] = W
+    _runtime["align_depth_fn"] = align_depth_fn
+    _runtime["params"] = params
+    _runtime["fps_t0"] = time.time()
+    _runtime.setdefault("algoritmo", 1)
+    _runtime.setdefault("mascara", None)
+    # Use the stride from params for RANSAC subsampling if it is provided
     try:
-        _runtime['subsample_stride'] = int(params.get('stride', SUBSAMPLE_STRIDE))
+        _runtime["subsample_stride"] = int(params.get("stride", SUBSAMPLE_STRIDE))
     except Exception:
-        _runtime['subsample_stride'] = SUBSAMPLE_STRIDE
+        _runtime["subsample_stride"] = SUBSAMPLE_STRIDE
 
 
-def preprocesar(pipeline=None) -> Tuple[Any, Any, Any, Any]:
+def preprocesar(pipeline=None) -> bool:
     """
-    Extrae y prepara los datos necesarios para RANSAC:
-    - Imagen RGB
-    - Mapa de profundidad alineado
-    - Mapa de profundidad en cupy
-    - Rayos precalculados
+    Extract and store in _runtime the data needed for RANSAC.
+
+    Returns True on success and False if the current frame is invalid.
     """
     frames = pipeline.wait_for_frames()
-    H = _runtime['H']
-    W = _runtime['W']
-    align_depth_fn = _runtime['align_depth_fn']
-    rays_cp = _runtime['rays_cp']
+    H = _runtime["H"]
+    W = _runtime["W"]
+    align_depth_fn = _runtime["align_depth_fn"]
 
-    # Extraer RGB y Depth nativos
+    # Extract native RGB and depth
     imagenRGB = viewCamera.extract_rgb(frames)
-    mapaProfundidad = align_depth_fn(frames) if align_depth_fn is not None else viewCamera.extract_depth_meters(frames)
+    mapaProfundidad = (
+        align_depth_fn(frames)
+        if align_depth_fn is not None
+        else viewCamera.extract_depth_meters(frames)
+    )
     if imagenRGB is None or mapaProfundidad is None:
-        return None, None, None, None, None
+        # Clear stored frame data on invalid capture
+        _runtime["imagenRGB"] = None
+        _runtime["mapaProfundidad"] = None
+        return False
 
-    # Asegurar shape del depth al tamaño de COLOR
+    # Ensure depth shape matches COLOR size
     if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
-        mapaProfundidad = cv2.resize(mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST)
+        mapaProfundidad = cv2.resize(
+            mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
+        )
 
-    return imagenRGB, mapaProfundidad, rays_cp, H, W
+    # Persist current frame data in the runtime dictionary
+    _runtime["imagenRGB"] = imagenRGB
+    _runtime["mapaProfundidad"] = mapaProfundidad
 
-def AlgoritmosSegmentacion(color_width=640, color_height=480, depth_width=640,
-               depth_height=480, fps=30, stride=2,) -> Any:
+    return True
+
+
+def AlgoritmosSegmentacion(
+    color_width: int = 640,
+    color_height: int = 480,
+    depth_width: int = 640,
+    depth_height: int = 480,
+    fps: int = 30,
+    stride: int = 2,
+) -> Any:
     """
-    Lee el resultado del hilo secundario, hace el preprocesamiento
-    y programa el siguiente algoritmo de segmentacion (1 suelo,
-    2 pared, 3 puerta) para el hilo secundario.
+    Read the result from the worker thread, perform preprocessing
+    and schedule the next segmentation algorithm (1 floor,
+    2 wall, 3 door) for the worker thread.
     """
 
-    _lazy_init(color_width, color_height, depth_width, depth_height, fps, stride,)
+    _lazy_init(color_width, color_height, depth_width, depth_height, fps, stride)
 
-    # Intentar obtener un resultado reciente del hilo secundario
+    # Try to obtain a recent result from the worker thread
     resultado = obtener_resultado()
-    if resultado is not None or not _runtime['initialized']:
-        # El hilo ha terminado, consumir el resultado y lanzar uno nuevo
+    if resultado is not None or not _runtime["initialized"]:
+        # The worker has finished; consume the result and launch a new one
         if resultado is not None:
-            _runtime['mascara'] = resultado
+            _runtime["mascara"] = resultado
+        algoritmo = _runtime.get("algoritmo", 1)
+        if algoritmo == 1:
+            # Get new data for the next task and store it in _runtime
+            ok = preprocesar(_runtime["pipeline"])
+            imagenRGB = _runtime.get("imagenRGB")
+            mapaProfundidad = _runtime.get("mapaProfundidad")
+            rays_cp = _runtime.get("rays_cp")
+            H = _runtime.get("H")
+            W = _runtime.get("W")
 
-        # Obtener nuevos datos para la siguiente tarea
-        imagenRGB, mapaProfundidad, rays_cp, H, W = preprocesar(_runtime['pipeline'])
-        if imagenRGB is not None:
-            algoritmo = _runtime.get('algoritmo', 1)
-            if algoritmo == 1:
-                configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W, _runtime['subsample_stride'])
+            # On the first frame, use the raw RGB image as a fallback mask
+            if _runtime.get("mascara") is None and imagenRGB is not None:
+                _runtime["mascara"] = imagenRGB
+
+            # Start floor segmentation task if we have valid frame data
+            if ok and imagenRGB is not None and mapaProfundidad is not None and rays_cp is not None:
+                configurar_tarea(
+                    get_ground,
+                    imagenRGB,
+                    mapaProfundidad,
+                    rays_cp,
+                    H,
+                    W,
+                    _runtime["subsample_stride"],
+                )
                 iniciar_hilo_secundario()
-                _runtime['algoritmo'] = 2
-            elif algoritmo == 2:
-                # Set up other Segmentation task (placeholder)
-                _runtime['algoritmo'] = 1
-        _runtime['initialized'] = True
-        # Si no hay datos nuevos, se mantiene la última máscara
-        return ColocarMascara(_runtime['mascara'])
+                _runtime["algoritmo"] = 2
+            else:
+                if resultado is not None:
+                    return ColocarMascara(_runtime["mascara"])
+                return None
+        elif algoritmo == 2:
+            # Placeholder: set up other segmentation task (wall/door)
+            _runtime["algoritmo"] = 1
+
+        # Mark initialization as complete
+        _runtime["initialized"] = True
+        # If there is no new data, keep the last mask
+        return ColocarMascara(_runtime["mascara"])
     else:
-        # Si no hay resultado, mostrar la última máscara conocida o la imagen RGB actual
-        if _runtime['mascara'] is not None:
-            return ColocarMascara(_runtime['mascara'])
-        else:
-            imagenRGB = viewCamera.extract_rgb(_runtime['pipeline'].wait_for_frames())
-            if imagenRGB is not None:
-                _runtime['mascara'] = imagenRGB
-                return ColocarMascara(imagenRGB)
+        # If there is no result, show the last known mask or the current RGB image
+        if _runtime["mascara"] is not None:
+            return ColocarMascara(_runtime["mascara"])
+        imagenRGB = viewCamera.extract_rgb(_runtime["pipeline"].wait_for_frames())
+        if imagenRGB is not None:
+            return ColocarMascara(imagenRGB)
+        return None
