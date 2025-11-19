@@ -199,18 +199,6 @@ def _lazy_init(
         _runtime["initialized"] = False
     _runtime["mode"] = mode
 
-    # Adjust plane parameters according to the data source.
-    # - In "camera" mode we assume RealSense with Y as the vertical axis.
-    # - In "prueba" (RGB-D dataset) we adapt the vertical axis to the dataset.
-    ground_params = _runtime.get("groundParams", {})
-    if mode == "prueba":
-        # For the dataset, the ground normal is closer to -Y,
-        # so we use +Y as the world "up" direction.
-        ground_params["up_axis"] = (0.0, -1.0, 0.0)
-    else:
-        ground_params["up_axis"] = (0.0, -1.0, 0.0)
-    _runtime["groundParams"] = ground_params
-
     if mode == "prueba":
         # Dataset mode: do not touch the RealSense pipeline; only image/depth/rays.
         _runtime.setdefault("mascara", None)
