@@ -194,9 +194,21 @@ def _lazy_init(
         _runtime["initialized"] = False
     _runtime["mode"] = mode
 
+    # Ajustar par�metros de plano seg�n el origen de datos.
+    # - En modo "camera" asumimos RealSense con eje Y como vertical.
+    # - En modo "prueba" (dataset RGB-D tipo NYUv2) usamos Z como eje vertical.
+    ground_params = _runtime.get("groundParams", {})
+    if mode == "prueba":
+        ground_params["up_axis"] = (0.0, 0.0, -1.0)
+    else:
+        ground_params["up_axis"] = (0.0, -1.0, 0.0)
+    _runtime["groundParams"] = ground_params
+
     if mode == "prueba":
         # Dataset mode: do not touch the RealSense pipeline; H/W and rays
         _runtime.setdefault("mascara", None)
+        # Forzar rec�lculo de rayos al entrar en modo dataset
+        _runtime["rays_cp"] = None
         return
 
     # Camera mode: reuse pipeline if already created (do not stop camera).
@@ -259,11 +271,10 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
                 mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
             )
 
-        # Compute rays based on image size if needed (no alignment required).
-        rays_cp = _runtime.get("rays_cp")
-        if rays_cp is None or rays_cp.shape[0] != H or rays_cp.shape[1] != W:
-            rays_np = viewCamera.compute_normalized_rays(H, W)
-            _runtime["rays_cp"] = cp.asarray(rays_np)
+        # En modo dataset siempre usamos rayos "normalizados" independientes
+        # de intr�nsecas reales, consistentes con un sistema Z-up.
+        rays_np = viewCamera.compute_normalized_rays(H, W)
+        _runtime["rays_cp"] = cp.asarray(rays_np)
 
     else:
         # Camera mode: use RealSense pipeline and precomputed rays.
@@ -378,4 +389,3 @@ def AlgoritmosSegmentacion(
                 return imagenRGB
 
     return None
-
