@@ -302,19 +302,11 @@ def AlgoritmosSegmentacion(
             # until it succeeds.
             while True:
                 try:
-                    # Get new data for the next task and store it in _runtime
-                    ok = preprocesar(_runtime["pipeline"])
-
-                    # Placeholder: set up other segmentation task (wall/door)
-                    if ok and _runtime["mascara"] is not None:
-                        configurar_tarea(ColocarMascara, _runtime["mascara"])
-                        iniciar_hilo_secundario()
-                        # Change back to the first algorithm
-                        _runtime["algoritmo"] = 1
-                        break
-
-                    # If data is not valid yet, wait a bit and retry
-                    time.sleep(0.01)
+                    configurar_tarea(ColocarMascara, _runtime["mascara"])
+                    iniciar_hilo_secundario()
+                    # Change back to the first algorithm
+                    _runtime["algoritmo"] = 1
+                    break
                 except Exception as exc:
                     # Retry until it works
                     time.sleep(0.01)
