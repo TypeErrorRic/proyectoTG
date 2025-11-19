@@ -176,7 +176,6 @@ def _lazy_init(color_width=640, color_height=480, depth_width=640,
         _runtime['subsample_stride'] = int(params.get('stride', SUBSAMPLE_STRIDE))
     except Exception:
         _runtime['subsample_stride'] = SUBSAMPLE_STRIDE
-    _runtime['initialized'] = True
 
 
 def preprocesar(pipeline=None) -> Tuple[Any, Any, Any, Any]:
@@ -217,28 +216,31 @@ def AlgoritmosSegmentacion(color_width=640, color_height=480, depth_width=640,
 
     # Intentar obtener un resultado reciente del hilo secundario
     resultado = obtener_resultado()
-    if resultado is not None:
-        # Actualizar la mǭscara con el resultado mǭs reciente
-        _runtime['mascara'] = resultado
-    else:
-        # Preprocesamiento comun a los tres casos: debe devolver
-        # los parametros de entrada para el hilo secundario.
+    if resultado is not None or not _runtime['initialized']:
+        # El hilo ha terminado, consumir el resultado y lanzar uno nuevo
+        if resultado is not None:
+            _runtime['mascara'] = resultado
+
+        # Obtener nuevos datos para la siguiente tarea
         imagenRGB, mapaProfundidad, rays_cp, H, W = preprocesar(_runtime['pipeline'])
-
-        if imagenRGB is None:
-            # No hay datos nuevos; devolver la ǭltima mǭscara conocida (si existe)
-            if _runtime['mascara'] is not None:
-                return ColocarMascara(_runtime['mascara'])
-            return None
-
-        algoritmo = _runtime.get('algoritmo', 1)
-        if algoritmo == 1:
-            # Configurar tarea get_ground con los argumentos correctos
-            configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W, _runtime['subsample_stride'])
-            iniciar_hilo_secundario()
-
-        # Mientras el hilo calcula, usar al menos la imagen RGB actual
-        if _runtime['mascara'] is None:
-            _runtime['mascara'] = imagenRGB
-
-    return ColocarMascara(_runtime['mascara'])
+        if imagenRGB is not None:
+            algoritmo = _runtime.get('algoritmo', 1)
+            if algoritmo == 1:
+                configurar_tarea(get_ground, imagenRGB, mapaProfundidad, rays_cp, H, W, _runtime['subsample_stride'])
+                iniciar_hilo_secundario()
+                _runtime['algoritmo'] = 2
+            elif algoritmo == 2:
+                # Set up other Segmentation task (placeholder)
+                _runtime['algoritmo'] = 1
+        _runtime['initialized'] = True
+        # Si no hay datos nuevos, se mantiene la última máscara
+        return ColocarMascara(_runtime['mascara'])
+    else:
+        # Si no hay resultado, mostrar la última máscara conocida o la imagen RGB actual
+        if _runtime['mascara'] is not None:
+            return ColocarMascara(_runtime['mascara'])
+        else:
+            imagenRGB = viewCamera.extract_rgb(_runtime['pipeline'].wait_for_frames())
+            if imagenRGB is not None:
+                _runtime['mascara'] = imagenRGB
+                return ColocarMascara(imagenRGB)
