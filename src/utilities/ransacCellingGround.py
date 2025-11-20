@@ -321,4 +321,19 @@ def get_ground(
 
     ground_mask = _to_numpy(ground_mask)
 
+    # Solidify the mask (avoid dotted gaps) with a small close + hole fill
+    if ground_mask is None or ground_mask.size == 0:
+        return np.zeros((H, W), dtype=np.uint8)
+
+    mask_u8 = (ground_mask > 0).astype(np.uint8) * 255
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    # Fill internal holes so the region stays solid
+    flood = mask_u8.copy()
+    flood_mask = np.zeros((mask_u8.shape[0] + 2, mask_u8.shape[1] + 2), dtype=np.uint8)
+    cv2.floodFill(flood, flood_mask, (0, 0), 255)
+    holes = cv2.bitwise_not(flood)
+    ground_mask = cv2.bitwise_or(mask_u8, holes)
+
     return ground_mask

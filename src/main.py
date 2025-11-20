@@ -9,6 +9,7 @@ if __package__ is None or __package__ == "":
 
 from src.utilities.segmentar import AlgoritmosSegmentacion
 import cv2
+import tkinter as tk
 
 
 def main() -> None:
