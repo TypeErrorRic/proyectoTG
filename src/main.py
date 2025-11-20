@@ -27,7 +27,7 @@ from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 DISPLAY_MAX_W = 900
 DISPLAY_MAX_H = 520
 # Limite de FPS para ejecucion de AlgoritmosSegmentacion
-TARGET_FRAME_TIME = 0.02  # 50 fps max
+TARGET_FRAME_TIME = 1.0 / 30.0  # 30 fps max
 
 
 class SegmentacionApp:
@@ -316,13 +316,10 @@ class SegmentacionApp:
                     with self._frame_lock:
                         self.last_frame = frame
                         self._last_frame_ts = time.perf_counter()
-                # Pequenio descanso para no saturar CPU si hay errores
+                # Pausar para marcar el tope de 30 fps (TARGET_FRAME_TIME)
                 elapsed = time.perf_counter() - loop_start
-                remaining = TARGET_FRAME_TIME - elapsed
-                if remaining > 0:
-                    time.sleep(remaining)
-                else:
-                    time.sleep(0.0005)
+                sleep_for = max(0.0, TARGET_FRAME_TIME - elapsed)
+                time.sleep(sleep_for)
             except Exception:
                 time.sleep(0.01)
 
