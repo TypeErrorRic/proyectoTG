@@ -8,6 +8,7 @@ en la pestana de ejecucion, la imagen devuelta por AlgoritmosSegmentacion.
 import os
 import sys
 import time
+import threading
 from typing import Optional
 
 import cv2
@@ -42,6 +43,10 @@ class SegmentacionApp:
         self.prev_time = time.perf_counter()
         self.fps: float = 0.0
         self.last_frame: Optional = None
+        self._worker: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._frame_lock = threading.Lock()
+        self._last_frame_ts = 0.0
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
 
@@ -244,6 +249,8 @@ class SegmentacionApp:
         self._show_page("ejecucion")
         # Sincroniza estado inicial de modo
         self._set_mode(self.mode)
+        # Lanzar hilo de captura
+        self._start_worker()
 
     def _show_page(self, page: str) -> None:
         self.active_page = page
@@ -277,6 +284,39 @@ class SegmentacionApp:
             self.header_label.configure(
                 text=f"Exactitud de la Medicion (Modo {modo_txt} seleccionado)"
             )
+        # Reiniciar hilo con nuevo modo
+        self._restart_worker()
+
+    def _start_worker(self) -> None:
+        if self._worker and self._worker.is_alive():
+            return
+        self._stop_event.clear()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
+    def _restart_worker(self) -> None:
+        self._stop_event.set()
+        if self._worker and self._worker.is_alive():
+            self._worker.join(timeout=1.0)
+        self._stop_event.clear()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
+    def _worker_loop(self) -> None:
+        """
+        Hilo de captura: ejecuta AlgoritmosSegmentacion y guarda el ultimo frame.
+        """
+        while not self._stop_event.is_set():
+            try:
+                frame = AlgoritmosSegmentacion(mode=self.mode)
+                if frame is not None:
+                    with self._frame_lock:
+                        self.last_frame = frame
+                        self._last_frame_ts = time.perf_counter()
+                # Pequenio descanso para no saturar CPU si hay errores
+                time.sleep(0.001)
+            except Exception:
+                time.sleep(0.01)
 
     def _heartbeat(self) -> None:
         if not self.running:
@@ -291,15 +331,10 @@ class SegmentacionApp:
         """
         Obtiene la imagen segmentada y la dibuja en la etiqueta.
         """
-        try:
-            frame = AlgoritmosSegmentacion(mode=self.mode)
-        except Exception as exc:
-            self.display_area.configure(
-                text=f"Error al obtener imagen: {exc}",
-                image="",
-                bg="#d9534f",
-            )
-            return
+        # Leer ultimo frame producido por el hilo
+        with self._frame_lock:
+            frame = None if self.last_frame is None else self.last_frame.copy()
+            frame_ts = self._last_frame_ts
 
         if frame is None:
             self.display_area.configure(
@@ -310,9 +345,10 @@ class SegmentacionApp:
             return
 
         now = time.perf_counter()
-        delta = now - self.prev_time
+        delta = now - frame_ts if frame_ts else 0.0
         if delta > 0:
-            self.fps = 1.0 / delta
+            # fps de produccion, no del refresco de UI
+            self.fps = 1.0 / max(delta, 1e-3)
         self.prev_time = now
 
         # Dibujamos FPS sobre el mismo frame para evitar copias costosas.
@@ -338,7 +374,6 @@ class SegmentacionApp:
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame_rgb)
         self.photo_ref = ImageTk.PhotoImage(image=image)
-        self.last_frame = frame
 
         self.display_area.configure(
             image=self.photo_ref,
@@ -352,6 +387,9 @@ class SegmentacionApp:
         try:
             liberar_recursos()
         finally:
+            self._stop_event.set()
+            if self._worker and self._worker.is_alive():
+                self._worker.join(timeout=1.0)
             self.root.destroy()
 
 
