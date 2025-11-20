@@ -22,6 +22,10 @@ if __package__ is None or __package__ == "":
 
 from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 
+# Limitar el tamano al mostrar para reducir costo de reescalado
+DISPLAY_MAX_W = 900
+DISPLAY_MAX_H = 520
+
 
 class SegmentacionApp:
     """
@@ -37,6 +41,7 @@ class SegmentacionApp:
 
         self.prev_time = time.perf_counter()
         self.fps: float = 0.0
+        self.last_frame: Optional = None
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
 
@@ -279,7 +284,8 @@ class SegmentacionApp:
 
         if self.active_page == "ejecucion":
             self._update_image()
-        self.root.after(40, self._heartbeat)
+        # Intervalo corto para no estrangular la segmentacion; Tkinter cola el refresco.
+        self.root.after(10, self._heartbeat)
 
     def _update_image(self) -> None:
         """
@@ -309,9 +315,9 @@ class SegmentacionApp:
             self.fps = 1.0 / delta
         self.prev_time = now
 
-        frame_with_fps = frame.copy()
+        # Dibujamos FPS sobre el mismo frame para evitar copias costosas.
         cv2.putText(
-            frame_with_fps,
+            frame,
             f"FPS: {self.fps:.2f}",
             (12, 28),
             cv2.FONT_HERSHEY_SIMPLEX,
@@ -321,15 +327,24 @@ class SegmentacionApp:
             cv2.LINE_AA,
         )
 
-        frame_rgb = cv2.cvtColor(frame_with_fps, cv2.COLOR_BGR2RGB)
+        # Reducimos resolucion antes de pasar por PIL para minimizar overhead.
+        h, w = frame.shape[:2]
+        scale = min(DISPLAY_MAX_W / max(w, 1), DISPLAY_MAX_H / max(h, 1), 1.0)
+        if scale < 1.0:
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame_rgb)
-        image.thumbnail((980, 600), Image.Resampling.LANCZOS)
         self.photo_ref = ImageTk.PhotoImage(image=image)
+        self.last_frame = frame
 
         self.display_area.configure(
             image=self.photo_ref,
-            text="",
+            text=f"FPS: {self.fps:.2f}",
             bg="#7f7f7f",
+            compound=tk.BOTTOM,
         )
 
     def _on_close(self) -> None:
