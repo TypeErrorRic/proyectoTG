@@ -56,8 +56,11 @@ class SegmentacionApp:
         navbar = tk.Frame(self.root, bg="#e6e6e6")
         navbar.pack(fill=tk.X, padx=12, pady=(12, 6))
 
+        nav_inner = tk.Frame(navbar, bg="#e6e6e6")
+        nav_inner.pack(expand=True)
+
         self.btn_config = tk.Button(
-            navbar,
+            nav_inner,
             text="Configuracion",
             bg="#f2b24a",
             activebackground="#f4c065",
@@ -68,10 +71,10 @@ class SegmentacionApp:
             font=("Segoe UI", 11, "bold"),
             command=lambda: self._show_page("configuracion"),
         )
-        self.btn_config.pack(side=tk.LEFT, ipadx=4, ipady=2)
+        self.btn_config.pack(side=tk.LEFT, ipadx=4, ipady=2, padx=4)
 
         self.btn_exec = tk.Button(
-            navbar,
+            nav_inner,
             text="Ejecucion",
             bg="#00b86b",
             activebackground="#21d087",
@@ -82,7 +85,7 @@ class SegmentacionApp:
             font=("Segoe UI", 11, "bold"),
             command=lambda: self._show_page("ejecucion"),
         )
-        self.btn_exec.pack(side=tk.LEFT, ipadx=4, ipady=2)
+        self.btn_exec.pack(side=tk.LEFT, ipadx=4, ipady=2, padx=4)
 
     def _build_pages(self) -> None:
         self.container = tk.Frame(self.root, bg="#e6e6e6")
@@ -104,9 +107,17 @@ class SegmentacionApp:
         )
         label_config.pack(expand=True)
 
-        # Contenido de Ejecucion
-        header = tk.Label(
-            self.page_exec,
+        # Contenido de Ejecucion: dividir en panel izquierdo (imagen) y derecho (controles)
+        self.page_exec.columnconfigure(0, weight=3)
+        self.page_exec.columnconfigure(1, weight=1)
+
+        left_panel = tk.Frame(self.page_exec, bg="#f7f7f7")
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 12), pady=10)
+        right_panel = tk.Frame(self.page_exec, bg="#f7f7f7")
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 0), pady=10)
+
+        self.header_label = tk.Label(
+            left_panel,
             text="Exactitud de la Medicion (Modo prueba seleccionado)",
             bg="#bfbfbf",
             fg="#1f1f1f",
@@ -115,10 +126,10 @@ class SegmentacionApp:
             padx=14,
             pady=10,
         )
-        header.pack(fill=tk.X)
+        self.header_label.pack(fill=tk.X)
 
         self.display_area = tk.Label(
-            self.page_exec,
+            left_panel,
             text="Esperando imagen...",
             bg="#7f7f7f",
             fg="white",
@@ -133,7 +144,7 @@ class SegmentacionApp:
         self.display_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=12)
 
         footer = tk.Label(
-            self.page_exec,
+            left_panel,
             text="Camino transitable / Puertas / Muros",
             bg="#f7f7f7",
             fg="#444444",
@@ -144,7 +155,90 @@ class SegmentacionApp:
         )
         footer.pack(fill=tk.X)
 
+        # Panel lateral de control
+        ctrl_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
+        ctrl_card.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        mode_title = tk.Label(
+            ctrl_card,
+            text="Modos de Ejecucion",
+            bg="#eaeaea",
+            fg="#2d2d2d",
+            font=("Segoe UI", 11, "bold"),
+            pady=10,
+        )
+        mode_title.pack(fill=tk.X)
+
+        btn_group = tk.Frame(ctrl_card, bg="#eaeaea")
+        btn_group.pack(pady=6)
+
+        self.btn_mode_cam = tk.Button(
+            btn_group,
+            text="Transmision (camera)",
+            bg="#d1b3ff",
+            activebackground="#c59aff",
+            fg="#2d2d2d",
+            bd=0,
+            padx=16,
+            pady=10,
+            font=("Segoe UI", 10, "bold"),
+            command=lambda: self._set_mode("camera"),
+        )
+        self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
+
+        self.btn_mode_test = tk.Button(
+            btn_group,
+            text="Prueba (prueba)",
+            bg="#f6c04b",
+            activebackground="#f4d074",
+            fg="#2d2d2d",
+            bd=0,
+            padx=16,
+            pady=10,
+            font=("Segoe UI", 10, "bold"),
+            command=lambda: self._set_mode("prueba"),
+        )
+        self.btn_mode_test.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
+
+        params_title = tk.Label(
+            ctrl_card,
+            text="Parametros Configuracion",
+            bg="#eaeaea",
+            fg="#2d2d2d",
+            font=("Segoe UI", 11, "bold"),
+            pady=10,
+        )
+        params_title.pack(fill=tk.X, pady=(12, 2))
+
+        params_box = tk.Label(
+            ctrl_card,
+            text="Resumen de parametros de configuracion.",
+            bg="white",
+            fg="#555555",
+            font=("Segoe UI", 10),
+            bd=1,
+            relief=tk.SOLID,
+            padx=12,
+            pady=12,
+        )
+        params_box.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        selector_box = tk.Label(
+            ctrl_card,
+            text="Selector de elementos de la Base de Datos",
+            bg="white",
+            fg="#555555",
+            font=("Segoe UI", 10),
+            bd=1,
+            relief=tk.SOLID,
+            padx=12,
+            pady=12,
+        )
+        selector_box.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+
         self._show_page("ejecucion")
+        # Sincroniza estado inicial de modo
+        self._set_mode(self.mode)
 
     def _show_page(self, page: str) -> None:
         self.active_page = page
@@ -160,6 +254,24 @@ class SegmentacionApp:
             self.page_exec.pack(fill=tk.BOTH, expand=True)
             self.btn_exec.configure(relief=tk.SUNKEN)
             self.btn_config.configure(relief=tk.RAISED)
+
+    def _set_mode(self, mode: str, update_header: bool = True) -> None:
+        """
+        Cambia el modo y ajusta estilos de botones.
+        """
+        self.mode = mode
+        if mode == "camera":
+            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg="#c59aff")
+            self.btn_mode_test.configure(relief=tk.RAISED, bg="#f6c04b")
+        else:
+            self.btn_mode_test.configure(relief=tk.SUNKEN, bg="#f4d074")
+            self.btn_mode_cam.configure(relief=tk.RAISED, bg="#d1b3ff")
+
+        if update_header:
+            modo_txt = "camera" if mode == "camera" else "prueba"
+            self.header_label.configure(
+                text=f"Exactitud de la Medicion (Modo {modo_txt} seleccionado)"
+            )
 
     def _heartbeat(self) -> None:
         if not self.running:
