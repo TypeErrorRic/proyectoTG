@@ -1,9 +1,9 @@
 """
-Interfaz basica para visualizar la segmentacion.
+Basic interface for visualizing the segmentation.
 
-Incluye botones superiores (Configuracion y Ejecucion) y,
-en la pestana de ejecucion, muestra la imagen devuelta por AlgoritmosSegmentacion.
-La captura corre en un hilo separado y se limita a 20 fps.
+Includes top buttons (Configuration and Execution) and,
+on the execution tab, shows the image returned by AlgoritmosSegmentacion.
+The capture runs on a separate thread and is limited to 20 fps.
 """
 
 import os
@@ -16,7 +16,7 @@ import cv2
 import tkinter as tk
 from PIL import Image, ImageTk
 
-# Ajustar sys.path si se ejecuta como script
+# Adjust sys.path when executed as a script
 if __package__ is None or __package__ == "":
     sys.path.insert(
         0,
@@ -25,22 +25,21 @@ if __package__ is None or __package__ == "":
 
 from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 
-# Limitar el tamano al mostrar para reducir costo de reescalado
+# Limit display size to reduce rescale cost
 DISPLAY_MAX_W = 900
 DISPLAY_MAX_H = 520
-# Limite de FPS para ejecucion de AlgoritmosSegmentacion
+# FPS limit for running AlgoritmosSegmentacion
 TARGET_FRAME_TIME = 1.0 / 20.0  # 20 fps max
-
 
 class SegmentacionApp:
     """
-    Ventana principal con dos pestanas. La pestana de ejecucion muestra
-    continuamente la salida de AlgoritmosSegmentacion.
+    Main window with two tabs. The execution tab continually displays
+    the output from AlgoritmosSegmentacion.
     """
 
     def __init__(self, root: tk.Tk, mode: str = "prueba") -> None:
         self.root = root
-        self.mode = mode  # "camera" o "prueba"
+        self.mode = mode  # "camera" or "prueba" (test)
         self.active_page = "ejecucion"
         self.running = True
 
@@ -108,7 +107,7 @@ class SegmentacionApp:
         self.page_config = tk.Frame(self.container, bg="#f7f7f7", bd=2, relief=tk.GROOVE)
         self.page_exec = tk.Frame(self.container, bg="#f7f7f7", bd=2, relief=tk.GROOVE)
 
-        # Contenido de Configuracion (placeholder)
+        # Configuration content (placeholder)
         label_config = tk.Label(
             self.page_config,
             text="Pantalla de configuracion (pendiente de implementar).",
@@ -121,7 +120,7 @@ class SegmentacionApp:
         )
         label_config.pack(expand=True)
 
-        # Contenido de Ejecucion: dividir en panel izquierdo (imagen) y derecho (controles)
+        # Execution content: split into left (image) and right (controls) panels
         self.page_exec.columnconfigure(0, weight=3)
         self.page_exec.columnconfigure(1, weight=1)
 
@@ -169,7 +168,7 @@ class SegmentacionApp:
         )
         footer.pack(fill=tk.X)
 
-        # Panel lateral de control
+        # Side control panel
         ctrl_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
         ctrl_card.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
@@ -251,9 +250,9 @@ class SegmentacionApp:
         selector_box.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
 
         self._show_page("ejecucion")
-        # Sincroniza estado inicial de modo
+        # Sync initial mode state
         self._set_mode(self.mode)
-        # Lanzar hilo de captura
+        # Start capture thread
         self._start_worker()
 
     def _show_page(self, page: str) -> None:
@@ -273,7 +272,7 @@ class SegmentacionApp:
 
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
-        Cambia el modo y ajusta estilos de botones.
+        Switches the mode and updates button styles.
         """
         self.mode = mode
         if mode == "camera":
@@ -288,7 +287,7 @@ class SegmentacionApp:
             self.header_label.configure(
                 text=f"Exactitud de la Medicion (Modo {modo_txt} seleccionado)"
             )
-        # Reiniciar hilo con nuevo modo
+        # Restart worker with new mode
         self._restart_worker()
 
     def _start_worker(self) -> None:
@@ -308,7 +307,7 @@ class SegmentacionApp:
 
     def _worker_loop(self) -> None:
         """
-        Hilo de captura: ejecuta AlgoritmosSegmentacion y guarda el ultimo frame.
+        Capture thread: runs AlgoritmosSegmentacion and stores the latest frame.
         """
         while not self._stop_event.is_set():
             loop_start = time.perf_counter()
@@ -318,7 +317,7 @@ class SegmentacionApp:
                     with self._frame_lock:
                         self.last_frame = frame
                         self._last_frame_ts = time.perf_counter()
-                # Pausar para marcar el tope de 20 fps (TARGET_FRAME_TIME)
+                # Pause to enforce 20 fps cap (TARGET_FRAME_TIME)
                 elapsed = time.perf_counter() - loop_start
                 sleep_for = max(0.0, TARGET_FRAME_TIME - elapsed)
                 time.sleep(sleep_for)
@@ -331,14 +330,14 @@ class SegmentacionApp:
 
         if self.active_page == "ejecucion":
             self._update_image()
-        # Intervalo corto para no estrangular la segmentacion; Tkinter cola el refresco.
+        # Short interval to avoid choking segmentation; Tkinter queues the refresh.
         self.root.after(10, self._heartbeat)
 
     def _update_image(self) -> None:
         """
-        Obtiene la imagen segmentada y la dibuja en la etiqueta.
+        Fetches the segmented image and draws it on the label.
         """
-        # Leer ultimo frame producido por el hilo
+        # Read latest frame produced by the thread
         with self._frame_lock:
             frame = None if self.last_frame is None else self.last_frame.copy()
             frame_ts = self._last_frame_ts
@@ -354,11 +353,11 @@ class SegmentacionApp:
         now = time.perf_counter()
         delta = now - frame_ts if frame_ts else 0.0
         if delta > 0:
-            # fps de produccion, no del refresco de UI
+            # Production fps, not the UI refresh rate
             self.fps = 1.0 / max(delta, 1e-3)
         self.prev_time = now
 
-        # Dibujamos FPS sobre el mismo frame para evitar copias costosas.
+        # Draw FPS on the same frame to avoid expensive copies.
         cv2.putText(
             frame,
             f"FPS: {self.fps:.2f}",
@@ -370,7 +369,7 @@ class SegmentacionApp:
             cv2.LINE_AA,
         )
 
-        # Reducimos resolucion antes de pasar por PIL para minimizar overhead.
+        # Reduce resolution before converting with PIL to minimize overhead.
         h, w = frame.shape[:2]
         scale = min(DISPLAY_MAX_W / max(w, 1), DISPLAY_MAX_H / max(h, 1), 1.0)
         if scale < 1.0:
