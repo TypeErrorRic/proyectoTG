@@ -7,7 +7,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import AlgoritmosSegmentacion
+from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 import cv2
 import tkinter as tk
 
@@ -58,6 +58,7 @@ def main() -> None:
             mode = "prueba"  # modo de prueba con dataset
             print("[main] Modo cambiado a 'prueba' (prueba/dataset).")
         elif key == 27:  # ESC
+            liberar_recursos()
             break
 
     cv2.destroyWindow(window_name)

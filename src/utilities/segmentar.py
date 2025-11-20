@@ -386,3 +386,28 @@ def AlgoritmosSegmentacion(
                 return imagenRGB
 
     return None
+
+def liberar_recursos() -> None:
+    """
+    Detiene hilo y pipeline de cámara (si existe) para un cierre limpio.
+    """
+    detener_hilo_secundario()
+
+    pipeline = _runtime.get("pipeline")
+    if pipeline is not None:
+        try:
+            pipeline.stop()
+        except Exception as exc:
+            print(f"[segmentar] Error al detener pipeline: {exc}")
+
+    # Limpia estado básico para siguiente ejecución
+    _runtime["pipeline"] = None
+    _runtime["initialized"] = False
+    _runtime["align_depth_fn"] = None
+    _runtime["rays_cp"] = None
+
+    try:
+        while not _resultados.empty():
+            _resultados.get_nowait()
+    except queue.Empty:
+        pass
