@@ -125,46 +125,29 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
 
 #Por el momento no hay mas funciones
 
-def apply_mask_to_rgb(
-        rgb_image: np.ndarray, 
-        ground_mask: np.ndarray
-        ) -> np.ndarray:
+def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndarray:
     """
-    Aplica la máscara del suelo a una imagen RGB.
-
-    Args:
-        rgb_image: Imagen RGB/BGR original
-        ground_mask: Máscara binaria del suelo
-        processed_base: Imagen procesada base (unsharp) a usar en lugar de rgb_image
-
-    Returns:
-        np.array: Imagen con el suelo marcado
+    Marca en verde la zona de suelo sobre la imagen.
     """
-    # Always use rgb_image as the base image
-    result = rgb_image
-
-    # Asegurar máscara válida; si viene None, usar máscara vacía
+    if rgb_image is None:
+        return None
     if ground_mask is None:
-        ground_mask = np.zeros(result.shape[:2], dtype=np.uint8)
+        ground_mask = np.zeros(rgb_image.shape[:2], dtype=np.uint8)
 
-    # Normalizar máscara a 2D y tipo booleano
-    if ground_mask.ndim == 3 and ground_mask.shape[-1] in (1, 3):
-        ground_mask = cv2.cvtColor(ground_mask, cv2.COLOR_BGR2GRAY) if ground_mask.shape[-1] == 3 else ground_mask.squeeze(-1)
-    if ground_mask.ndim == 1 and ground_mask.size == result.shape[0] * result.shape[1]:
-        ground_mask = ground_mask.reshape(result.shape[:2])
-    if ground_mask.shape[:2] != result.shape[:2]:
-        # Intentar redimensionar de forma segura (nearest) para máscaras
-        ground_mask = cv2.resize(ground_mask, (result.shape[1], result.shape[0]), interpolation=cv2.INTER_NEAREST)
+    # Normalizar mask a 2D
+    if ground_mask.ndim == 3 and ground_mask.shape[-1] == 3:
+        ground_mask = cv2.cvtColor(ground_mask, cv2.COLOR_BGR2GRAY)
+    if ground_mask.shape[:2] != rgb_image.shape[:2]:
+        ground_mask = cv2.resize(
+            ground_mask,
+            (rgb_image.shape[1], rgb_image.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
 
-    mask_bool = (ground_mask > 0)
-
-    # Crear overlay verde sobre el suelo
-    overlay = result.copy()
-    overlay[mask_bool] = (0, 255, 0)  # Verde en BGR
-    # Combinar original con overlay
-    cv2.addWeighted(overlay, 0.3, result, 0.7, 0, result)
-    return result 
-
+    mask = ground_mask > 0
+    result = rgb_image.copy()
+    result[mask] = (0, 255, 0)
+    return result
 
 _DATASET_IMAGE_FILES = None
 _DATASET_INDEX = 0
