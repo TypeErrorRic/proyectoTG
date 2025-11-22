@@ -1,5 +1,6 @@
 # ==== Comunes (Py 3.8) ====
-numpy==1.24.4
+# CuPy 12.x + CUDA10.2 aun usa numpy.typeDict (eliminado en 1.24), por eso fijamos <1.24
+numpy==1.23.5
 Pillow==9.5.0
 tqdm==4.66.4
 PyYAML==6.0.1
