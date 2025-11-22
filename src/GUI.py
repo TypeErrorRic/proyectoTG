@@ -321,8 +321,10 @@ class SegmentacionApp:
                 elapsed = time.perf_counter() - loop_start
                 sleep_for = max(0.0, TARGET_FRAME_TIME - elapsed)
                 time.sleep(sleep_for)
-            except Exception:
-                time.sleep(0.01)
+            except Exception as exc:
+                # Log and throttle to avoid tight error loops
+                print(f"[GUI] error en loop de captura: {exc}")
+                time.sleep(0.05)
 
     def _heartbeat(self) -> None:
         if not self.running:

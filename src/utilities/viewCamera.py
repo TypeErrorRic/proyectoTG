@@ -9,6 +9,7 @@ import numpy as np
 import cv2
 import time
 from typing import Tuple, Callable, Optional
+import cupy as cp
 
 # =========================================================
 # ===============  U T I L I D A D E S  ===================
@@ -184,7 +185,6 @@ class DepthToColorAlignerGPU:
     """
 
     def __init__(self, pipeline: rs.pipeline, downsample: int = 1, max_depth_m: Optional[float] = None, reuse_output: bool = True) -> None:
-        import cupy as cp  # import local: solo si se usa GPU
         prof = pipeline.get_active_profile()
         depth_prof = prof.get_stream(rs.stream.depth).as_video_stream_profile()
         color_prof = prof.get_stream(rs.stream.color).as_video_stream_profile()

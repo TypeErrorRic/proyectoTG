@@ -103,7 +103,7 @@ def _bucle_hilo() -> None:
         _hilo_trabajador = None
         return
     try:
-        resultado = _tarea_funcion(*_tarea_args, * _tarea_kwargs)
+        resultado = _tarea_funcion(*_tarea_args, **_tarea_kwargs)
         if resultado is not None:
             while not _detener_evento.is_set():
                 try:
@@ -114,6 +114,8 @@ def _bucle_hilo() -> None:
     except Exception as exc:
         # Keep this message in Spanish as it is user-facing debug output
         print(f"[thread] Error en tarea de fondo: {exc}")
+        import traceback
+        traceback.print_exc()
     finally:
         _hilo_trabajador = None
 
