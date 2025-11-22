@@ -43,6 +43,34 @@ print(f"Python OK: {sys.version.split()[0]}")
 PY
 }
 
+# ================== CuPy helpers ===================
+setup_cupy_env() {
+  # Exporta rutas de includes para NVRTC/CUB cuando usamos CuPy + CUDA10.2 (Jetson).
+  # Evita fallos de compilacion JIT que no encuentran util_ptx.cuh.
+  local inc cub out
+  out="$("$PYTHON_BIN" - <<'PY'
+import os, sys
+try:
+    import cupy
+except Exception:
+    sys.exit(0)
+root = os.path.dirname(cupy.__file__)
+inc = os.path.join(root, "core", "include")
+cub = os.path.join(inc, "cupy", "cub")
+print(inc)
+print(cub)
+PY
+)" || return 0
+  # Solo configuramos si logramos resolver rutas
+  if [[ -n "$out" ]]; then
+    read -r inc cub <<<"$out" || true
+    if [[ -n "$inc" ]]; then
+      export CUPY_NVRTC_INCLUDE_DIRS="${inc}:${cub}:${CUPY_NVRTC_INCLUDE_DIRS:-}"
+      export CUPY_CUB_PATH="${cub}"
+    fi
+  fi
+}
+
 # ================== Pausa ===================
 pause_if_needed() {
   local want_pause=0
@@ -316,11 +344,13 @@ if missing_specs:
     else:
         print("\nTodos los paquetes faltantes fueron instalados correctamente.")
 PY
+    setup_cupy_env
     ;;
 
   realsense-test)
     require_jetson
     ensure_python
+    setup_cupy_env
     echo "Iniciando prueba de camara con pyrealsense2..."
     if [[ -f "src/utilities/viewCamera.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
@@ -333,6 +363,7 @@ PY
   test)
     require_jetson
     ensure_python
+    setup_cupy_env
     echo "Iniciando main..."
     if [[ -f "src/main.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
@@ -345,6 +376,7 @@ PY
   test-2)
     require_jetson
     ensure_python
+    setup_cupy_env
     echo "Iniciando prueba de camara (test-2)..."
     if [[ -f "src/utilities/viewCamera.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
