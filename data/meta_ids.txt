@@ -1,3 +1,0 @@
-WALL_ID=None
-FLOOR_ID=None
-CEIL_ID=None
