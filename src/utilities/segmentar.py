@@ -280,7 +280,10 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
 
         if pipeline is None:
             return False
-        frames = pipeline.wait_for_frames()
+        try:
+            frames = pipeline.wait_for_frames(500)  # timeout ms to avoid blocking forever
+        except Exception:
+            return False
         align_depth_fn = _runtime["align_depth_fn"]
 
         # Extract native RGB and depth from the camera
@@ -342,8 +345,8 @@ def AlgoritmosSegmentacion(
 
         # Ensure that the ground segmentation task is scheduled.
         # If there is any error (invalid frame or exception), retry
-        # until it succeeds.
-        while True:
+        # but bail out after a short budget to avoid blocking the GUI.
+        for _ in range(60):  # ~0.6 s budget (sleep 0.01 each)
             try:
                 # Get new data for the next task and store it in _runtime
                 ok = preprocesar(_runtime["pipeline"], mode=mode)
@@ -364,8 +367,12 @@ def AlgoritmosSegmentacion(
                 # If data is not valid yet, wait a bit and retry
                 time.sleep(0.01)
             except Exception:
-                # Retry until it works
+                # Retry until it works, but don't spin forever
                 time.sleep(0.01)
+        else:
+            # If we exhausted retries, return last known mask or None
+            print("[segmentar] No se pudo preparar frame (modo:", mode, ")")
+            return _runtime.get("mascara")
 
         # Mark initialization as complete
         _runtime["initialized"] = True
