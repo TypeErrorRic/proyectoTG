@@ -64,7 +64,7 @@ trap pause_if_needed EXIT
 install_jetson_system_prereqs() {
   echo "Instalando prerrequisitos del sistema (Jetson)..."
   sudo apt-get update
-  sudo apt-get install -y python3-pip
+  sudo apt-get install -y python3-pip python3-dev
   sudo apt-get install -y libssl-dev libusb-1.0-0-dev pkg-config \
                           libgtk-3-dev libglfw3-dev libgl1-mesa-dev libglu1-mesa-dev \
                           cmake build-essential git udev
