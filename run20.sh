@@ -33,7 +33,7 @@ ensure_python() {
     exit 2
   fi
   # Asegura que el PYTHONPATH incluya el site-packages donde está pyrealsense2
-  export PYTHONPATH="/usr/lib/python3.8/site-packages:$PYTHONPATH"
+  export PYTHONPATH="/usr/lib/python3.8/site-packages:${PYTHONPATH:-}"
   "$PYTHON_BIN" - <<'PY'
 import sys
 major, minor = sys.version_info[:2]
@@ -173,7 +173,7 @@ PY
   sudo make install
   sudo ldconfig
 
-  export PYTHONPATH="/usr/lib/python3.8/site-packages:$PYTHONPATH"
+  export PYTHONPATH="/usr/lib/python3.8/site-packages:${PYTHONPATH:-}"
   "$PYTHON_BIN" - <<'PY'
 import pyrealsense2 as rs, inspect, subprocess
 print("pyrealsense2 OK ->", getattr(rs, "__file__", "(sin ruta)"))
@@ -220,7 +220,7 @@ case "${1:-}" in
     ensure_python
 
     # Asegura que el PYTHONPATH incluya el site-packages donde está pyrealsense2
-    export PYTHONPATH="/usr/lib/python3.8/site-packages:$PYTHONPATH"
+    export PYTHONPATH="/usr/lib/python3.8/site-packages:${PYTHONPATH:-}"
 
     echo "==> Verificando pyrealsense2 y paquetes de requirements.txt..."
     "$PYTHON_BIN" - <<'PY'
@@ -323,7 +323,7 @@ PY
     ensure_python
     echo "Iniciando prueba de camara con pyrealsense2..."
     if [[ -f "src/utilities/viewCamera.py" ]]; then
-      export PYTHONPATH="/usr/lib/python3.8/site-packages:$PYTHONPATH"
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:${PYTHONPATH:-}"
       "$PYTHON_BIN" src/utilities/viewCamera.py
     else
       echo "ERROR: No se encontro src/utilities/viewCamera.py"
@@ -335,7 +335,7 @@ PY
     ensure_python
     echo "Iniciando main..."
     if [[ -f "src/main.py" ]]; then
-      export PYTHONPATH="/usr/lib/python3.8/site-packages:$PYTHONPATH"
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:${PYTHONPATH:-}"
       "$PYTHON_BIN" src/main.py
     else
       echo "ERROR: No se encontro src/main.py"
@@ -347,7 +347,7 @@ PY
     ensure_python
     echo "Iniciando prueba de camara (test-2)..."
     if [[ -f "src/utilities/viewCamera.py" ]]; then
-      export PYTHONPATH="/usr/lib/python3.8/site-packages:$PYTHONPATH"
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:${PYTHONPATH:-}"
       "$PYTHON_BIN" src/utilities/viewCamera.py
     else
       echo "ERROR: No se encontro src/utilities/viewCamera.py"
