@@ -64,7 +64,14 @@ trap pause_if_needed EXIT
 install_jetson_system_prereqs() {
   echo "Instalando prerrequisitos del sistema (Jetson)..."
   sudo apt-get update
-  sudo apt-get install -y python3-pip python3-dev
+  # Preferimos headers/lib de la misma version de Python (3.8); si no existe el paquete, caemos a python3-dev.
+  local py_dev_pkg="python${PYTHON_VER}-dev"
+  if apt-cache show "$py_dev_pkg" >/dev/null 2>&1; then
+    sudo apt-get install -y python3-pip "$py_dev_pkg"
+  else
+    echo "No se encontro $py_dev_pkg, intentando con python3-dev (puede ser 3.6 en JP4.x)."
+    sudo apt-get install -y python3-pip python3-dev
+  fi
   sudo apt-get install -y libssl-dev libusb-1.0-0-dev pkg-config \
                           libgtk-3-dev libglfw3-dev libgl1-mesa-dev libglu1-mesa-dev \
                           cmake build-essential git udev
