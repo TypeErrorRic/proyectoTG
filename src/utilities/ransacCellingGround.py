@@ -1,8 +1,16 @@
 import math
+import warnings
 import numpy as np
 import cv2
 import pyrealsense2 as rs
 import time
+# Evita que una advertencia de NumPy (subnormales a cero en ARM) detenga la importacion de CuPy
+warnings.filterwarnings(
+    "ignore",
+    message=r"The value of the smallest subnormal for <class 'numpy\.float64'> type is zero.",
+    category=UserWarning,
+    module="numpy.core.getlimits",
+)
 import cupy as cp
 from typing import Optional, Dict, Any
 
