@@ -9,7 +9,6 @@ import numpy as np
 import cv2
 import time
 from typing import Tuple, Callable, Optional
-import math
 
 # =========================================================
 # ===============  U T I L I D A D E S  ===================

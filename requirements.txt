@@ -1,13 +1,14 @@
 # ==== Comunes (Py 3.8) ====
-# CuPy 12.x + CUDA10.2 aun usa numpy.typeDict (eliminado en 1.24), por eso fijamos <1.24
-numpy==1.23.5
+# Paquete conservador para Jetson + CUDA10.2 (CuPy 10.x) sin avisos de subnormales recientes
+numpy==1.21.6
 Pillow==9.5.0
 tqdm==4.66.4
 PyYAML==6.0.1
 pandas==1.5.3
 json5==0.9.14
-scipy==1.10.1
+scipy==1.7.3
 
 # Matplotlib: evita aarch64 (Jetson) para no forzar builds pesados
 matplotlib==3.7.5 ; python_version >= "3.8" and platform_machine != "aarch64"
-cupy-cuda102==12.3.0 ; platform_system == "Linux" and platform_machine == "aarch64"
+# CuPy 10.6.0 soporta CUDA 10.2 y funciona con NumPy 1.21.x
+cupy-cuda102==10.6.0 ; platform_system == "Linux" and platform_machine == "aarch64"
