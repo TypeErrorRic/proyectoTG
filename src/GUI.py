@@ -184,6 +184,7 @@ class SegmentacionApp:
         label_config.pack(expand=True)
 
         # Execution content: split into left (image) and right (controls) panels
+        self.page_exec.rowconfigure(0, weight=1)
         self.page_exec.columnconfigure(0, weight=3)
         self.page_exec.columnconfigure(1, weight=2)
 
@@ -229,6 +230,7 @@ class SegmentacionApp:
             pady=10,
         )
         self.display_area.pack(fill=tk.BOTH, expand=True)
+        self.display_area.configure(width=DISPLAY_MAX_W, height=DISPLAY_MAX_H)
 
         footer = tk.Label(
             video_card,
@@ -243,15 +245,14 @@ class SegmentacionApp:
         footer.pack(fill=tk.X)
 
         right_panel = tk.Frame(self.page_exec, bg="#e6e6e6")
-        right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=6)
-        right_panel.columnconfigure(0, weight=1)
-        right_panel.columnconfigure(1, weight=1)
+        right_panel.grid(row=0, column=1, sticky="n", padx=(6, 0), pady=6)
+        right_panel.columnconfigure(0, weight=1, uniform="right")
+        right_panel.columnconfigure(1, weight=1, uniform="right")
         right_panel.rowconfigure(0, weight=0)
-        right_panel.rowconfigure(1, weight=1)
-        right_panel.rowconfigure(2, weight=0)
+        right_panel.rowconfigure(1, weight=0)
 
         mode_card = tk.Frame(right_panel, bg="#ededed", bd=1, relief=tk.SOLID, padx=10, pady=10)
-        mode_card.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 8))
+        mode_card.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
 
         mode_title = tk.Label(
             mode_card,
@@ -295,7 +296,7 @@ class SegmentacionApp:
         self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
 
         params_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
-        params_card.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
+        params_card.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         params_card.columnconfigure(0, weight=1)
         params_card.rowconfigure(1, weight=1)
 
@@ -325,7 +326,7 @@ class SegmentacionApp:
         params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
 
         selector_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=10, pady=10)
-        selector_card.grid(row=0, column=1, sticky="new", padx=(6, 0))
+        selector_card.grid(row=0, column=1, sticky="ew", padx=(0, 0), pady=(0, 6))
         selector_card.columnconfigure(0, weight=1)
 
         selector_title = tk.Label(
@@ -409,7 +410,7 @@ class SegmentacionApp:
         btn_next.pack(side=tk.LEFT, padx=6)
 
         db_image_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
-        db_image_card.grid(row=2, column=1, sticky="ew", padx=(6, 0))
+        db_image_card.grid(row=1, column=1, sticky="ew", padx=(0, 0))
 
         db_image_label = tk.Label(
             db_image_card,
