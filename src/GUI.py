@@ -127,6 +127,10 @@ class SegmentacionApp:
         self.container = tk.Frame(shell, bg="#e6e6e6")
         self.container.grid(row=0, column=1, sticky="nsew", padx=(0, 12), pady=12)
 
+        # Pages (shown/hidden via pack in _show_page)
+        self.page_config = tk.Frame(self.container, bg="#e6e6e6")
+        self.page_exec = tk.Frame(self.container, bg="#e6e6e6")
+
         self.btn_config = tk.Button(
             self.sidebar,
             image=self.icon_config,
