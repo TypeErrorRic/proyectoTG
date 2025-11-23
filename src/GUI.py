@@ -66,6 +66,18 @@ class SegmentacionApp:
         self.root.title("Segmentacion")
         self.root.geometry("1100x700")
         self.root.configure(bg="#e6e6e6")
+        try:
+            self.root.state("zoomed")
+        except Exception:
+            pass
+        try:
+            self.root.attributes("-zoomed", True)
+        except Exception:
+            # Fallback for environments that do not support zoomed attribute
+            self.root.update_idletasks()
+            w = self.root.winfo_screenwidth()
+            h = self.root.winfo_screenheight()
+            self.root.geometry(f"{w}x{h}+0+0")
 
     def _ensure_upload_dir(self) -> None:
         """
@@ -122,7 +134,8 @@ class SegmentacionApp:
         self.sidebar.grid(row=0, column=0, sticky="ns", padx=(12, 8), pady=12)
         self.sidebar.grid_propagate(False)
         self.sidebar.rowconfigure(0, weight=1)
-        self.sidebar.rowconfigure(1, weight=1)
+        self.sidebar.rowconfigure(1, weight=0)
+        self.sidebar.rowconfigure(2, weight=1)
 
         self.container = tk.Frame(shell, bg="#e6e6e6")
         self.container.grid(row=0, column=1, sticky="nsew", padx=(0, 12), pady=12)
