@@ -86,8 +86,17 @@ class SegmentacionApp:
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
     def _build_icons(self) -> None:
-        self.icon_config = self._make_icon(kind="gear")
+        self.icon_config = self._load_image_icon("analitica.png")
         self.icon_exec = self._make_icon(kind="camera")
+
+    def _load_image_icon(self, filename: str) -> ImageTk.PhotoImage:
+        """
+        Loads an icon from the images folder and resizes it to the sidebar size.
+        """
+        icon_path = os.path.join(os.path.dirname(__file__), "images", filename)
+        img = Image.open(icon_path).convert("RGBA")
+        img = img.resize((48, 48), Image.LANCZOS)
+        return ImageTk.PhotoImage(image=img)
 
     def _make_icon(self, kind: str) -> ImageTk.PhotoImage:
         """
@@ -227,41 +236,11 @@ class SegmentacionApp:
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=6)
         right_panel.columnconfigure(0, weight=1)
         right_panel.columnconfigure(1, weight=1)
-        right_panel.rowconfigure(0, weight=1)
-        right_panel.rowconfigure(1, weight=0)
-
-        params_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
-        params_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
-        params_card.columnconfigure(0, weight=1)
-        params_card.rowconfigure(1, weight=1)
-
-        params_title = tk.Label(
-            params_card,
-            text="Parametros Configuracion",
-            bg="#f2f2f2",
-            fg="#2d2d2d",
-            font=("Segoe UI", 11, "bold"),
-            pady=6,
-        )
-        params_title.grid(row=0, column=0, sticky="ew")
-
-        params_box = tk.Label(
-            params_card,
-            text="Resumen de parametros de configuracion.",
-            bg="white",
-            fg="#555555",
-            font=("Segoe UI", 10),
-            bd=1,
-            relief=tk.SOLID,
-            padx=12,
-            pady=12,
-            anchor="n",
-            justify=tk.LEFT,
-        )
-        params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
+        right_panel.rowconfigure(0, weight=0)
+        right_panel.rowconfigure(1, weight=1)
 
         mode_card = tk.Frame(right_panel, bg="#ededed", bd=1, relief=tk.SOLID, padx=10, pady=10)
-        mode_card.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        mode_card.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 8))
 
         mode_title = tk.Label(
             mode_card,
@@ -303,6 +282,36 @@ class SegmentacionApp:
             command=lambda: self._set_mode("camera"),
         )
         self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
+
+        params_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
+        params_card.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
+        params_card.columnconfigure(0, weight=1)
+        params_card.rowconfigure(1, weight=1)
+
+        params_title = tk.Label(
+            params_card,
+            text="Parametros Configuracion",
+            bg="#f2f2f2",
+            fg="#2d2d2d",
+            font=("Segoe UI", 11, "bold"),
+            pady=6,
+        )
+        params_title.grid(row=0, column=0, sticky="ew")
+
+        params_box = tk.Label(
+            params_card,
+            text="Resumen de parametros de configuracion.",
+            bg="white",
+            fg="#555555",
+            font=("Segoe UI", 10),
+            bd=1,
+            relief=tk.SOLID,
+            padx=12,
+            pady=12,
+            anchor="n",
+            justify=tk.LEFT,
+        )
+        params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
 
         selector_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=10, pady=10)
         selector_card.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
