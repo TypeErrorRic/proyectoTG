@@ -151,21 +151,24 @@ def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndar
             interpolation=cv2.INTER_NEAREST,
         )
 
-    # Asegurar m��scara binaria 0/255
+    # Asegurar m��scara binaria 0/255 y 1 canal
     _, mask_gpu = cv2.cuda.threshold(mask_gpu, 0, 255, cv2.THRESH_BINARY)
 
     # Subir RGB y preparar overlay verde en GPU
     rgb_gpu = cv2.cuda_GpuMat()
     rgb_gpu.upload(rgb_image)
-    mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
-
     green_cpu = np.zeros_like(rgb_image, dtype=rgb_image.dtype)
     green_cpu[..., 1] = 255
     green_gpu = cv2.cuda_GpuMat()
     green_gpu.upload(green_cpu)
 
-    fg_gpu = cv2.cuda.bitwise_and(green_gpu, green_gpu, mask=mask_gpu)
-    bg_gpu = cv2.cuda.bitwise_and(rgb_gpu, rgb_gpu, mask=mask_inv_gpu)
+    # Expandir m��scaras a 3 canales y aplicar sin argumento mask para evitar checks de tipo
+    mask3_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_GRAY2BGR)
+    mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
+    mask_inv3_gpu = cv2.cuda.cvtColor(mask_inv_gpu, cv2.COLOR_GRAY2BGR)
+
+    fg_gpu = cv2.cuda.bitwise_and(green_gpu, mask3_gpu)
+    bg_gpu = cv2.cuda.bitwise_and(rgb_gpu, mask_inv3_gpu)
     out_gpu = cv2.cuda.bitwise_or(bg_gpu, fg_gpu)
 
     return out_gpu.download()
