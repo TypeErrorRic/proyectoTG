@@ -412,7 +412,7 @@ class SegmentacionApp:
         db_image_label.pack(fill=tk.BOTH, expand=True)
 
         self.db_image_ref = None
-        img_path = os.path.join(os.path.dirname(__file__), "images", "70_Rojo.png")
+        img_path = os.path.join(os.path.dirname(__file__), "images", "70_Rojo.jpg")
         try:
             img = Image.open(img_path).convert("RGBA")
             max_w = 260
