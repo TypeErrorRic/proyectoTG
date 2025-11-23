@@ -409,7 +409,7 @@ def AlgoritmosSegmentacion(
 
 def liberar_recursos() -> None:
     """
-    Detiene hilo y pipeline de cámara (si existe) para un cierre limpio.
+    Stop worker thread and camera pipeline (if any) for a clean shutdown.
     """
     detener_hilo_secundario()
 
@@ -420,7 +420,7 @@ def liberar_recursos() -> None:
         except Exception as exc:
             print(f"[segmentar] Error al detener pipeline: {exc}")
 
-    # Limpia estado básico para siguiente ejecución
+    # Reset basic state for the next run
     _runtime["pipeline"] = None
     _runtime["initialized"] = False
     _runtime["align_depth_fn"] = None

@@ -1,15 +1,19 @@
+"""
+GPU-accelerated RANSAC and ground-plane masking utilities.
+
+Provides CUDA-friendly plane fitting, ground mask creation, and postprocessing
+to keep the segmentation pipeline on GPU.
+"""
 import math
 import numpy as np
-import cv2
 import time
 import cupy as cp
 import cupyx.scipy.ndimage as cnd
 from typing import Optional, Dict, Any
 
 def _to_xp(a):
-    """Asegura arreglo en GPU (CuPy)."""
+    """Ensure array lives on GPU (CuPy)."""
     return cp.asarray(a)
-
 
 def _to_numpy(a):
     """Convierte un arreglo (posiblemente CuPy) a NumPy, evitando copias innecesarias."""
@@ -22,8 +26,6 @@ def _to_numpy(a):
     except Exception:
         pass
     return np.asarray(a)
-
-
 
 def ransac_plane_gpu(points,
                      dist_thresh=0.02,
@@ -39,36 +41,34 @@ def ransac_plane_gpu(points,
                      time_budget_ms: Optional[float] = None,
                      early_stop_ratio: float = 0.92):
     """
-    RANSAC de un plano 'horizontal' (suelo/techo) optimizado para GPU.
+    GPU-optimized RANSAC for a horizontal plane (floor/ceiling).
 
-    Cambios clave de rendimiento:
-    - Evalúa muchos modelos por lote (vectorizado) para reducir lanzamientos de kernel.
-    - Evita sincronizaciones Host<->GPU en cada iteración; sólo por lote.
-    - Usa criterio de orientación sin arccos (umbral en coseno) para ahorrar cómputo.
+    Performance tweaks:
+    - Evaluates many models per batch (vectorized) to reduce kernel launches.
+    - Avoids host<->GPU sync on every iteration; only once per batch.
+    - Uses cosine-based orientation check instead of acos to save compute.
 
-    Parámetros:
-    - points: (N,3) (xp array o numpy; se convierte)
-    - dist_thresh: tolerancia (m)
-    - max_iters: iteraciones RANSAC totales (aprox. modelos evaluados)
-    - min_inliers: inliers mínimos para aceptar
-    - up_axis: vector 'vertical' del mundo (p.ej. (0,-1,0) RealSense; (0,0,1) mundo Z-up)
-    - max_angle_deg: |ángulo(n, up_axis)| <= umbral (se implementa con coseno)
-    - seed: semilla RNG
-    - batch_size: tamaño de lote de modelos (auto)
-    - point_chunk: tamaño de bloque de puntos para contar inliers (auto)
-        - score_subset: número de puntos para puntuar modelos por lote (luego se
-      valida el mejor con TODOS los puntos). Reduce K*N en Jetson.
-        - orientation: 'any' (suelo o techo), 'ground' (preferir normal opuesta a up),
-            'ceiling' (normal alineada con up)
+    Parameters:
+    - points: (N,3) array (NumPy or CuPy; converted internally)
+    - dist_thresh: inlier tolerance (m)
+    - max_iters: total RANSAC iterations (approx. models evaluated)
+    - min_inliers: minimum inliers to accept
+    - up_axis: world "up" vector (e.g., (0,-1,0) RealSense; (0,0,1) Z-up)
+    - max_angle_deg: |angle(n, up_axis)| <= threshold (implemented with cosine)
+    - seed: RNG seed
+    - batch_size: batch size for models (auto)
+    - point_chunk: block size of points for inlier counting (auto)
+    - score_subset: points to score models per batch (best validated with ALL points). Reduces K*N on Jetson.
+    - orientation: "any" (floor or ceiling), "ground" (prefer normal opposite to up), "ceiling" (normal aligned with up)
 
-    Return: dict con 'n', 'd', 'inliers_mask', 'inliers_idx', 'num_inliers'
+    Return: dict with "n", "d", "inliers_mask", "inliers_idx", "num_inliers"
     """
     P = _to_xp(points).astype(cp.float32)
     N = int(P.shape[0])
     if N < 3:
         return None
 
-    # Heurística por tamaño de GPU
+    # Heuristic based on GPU size
     small_gpu = False
     try:
         props = cp.cuda.runtime.getDeviceProperties(0)
@@ -107,7 +107,7 @@ def ransac_plane_gpu(points,
     try:
         samp_idx = rng_state.choice(N, size=score_subset, replace=False).astype(cp.int32)
     except Exception:
-        # Fallback si choice falla: usa randint y recorta únicos simples
+        # Fallback if choice fails: use randint and trim uniques
         tmp = rng_state.randint(0, N, size=score_subset * 2, dtype=cp.int32)
         samp_idx = cp.unique(tmp)[:score_subset]
         if samp_idx.size < score_subset:
@@ -123,7 +123,7 @@ def ransac_plane_gpu(points,
         K = int(min(batch_size, remaining))
         remaining -= K
 
-        # 1) Muestreo de índices (con reemplazo; degenerados se filtran por norma)
+        # 1) Sample indices (with replacement; degenerate filtered by norm)
         idxs = rand_fn((K, 3))
         a = P[idxs[:, 0]]
         b = P[idxs[:, 1]]
@@ -135,11 +135,11 @@ def ransac_plane_gpu(points,
         n = cp.cross(ab, ac)  # (K,3)
         norm = cp.linalg.norm(n, axis=1)  # (K,)
         valid = norm > 1e-8
-        # Evitar división por cero
+        # Avoid division by zero
         n_unit = cp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0)
         d = -cp.sum(n_unit * a, axis=1)
 
-        # 3) Filtro de orientación mediante coseno con preferencia opcional
+        # 3) Orientation filter via cosine with optional preference
         dot_up = n_unit @ up  # (K,)
         if orientation == 'ground':
             # normal opuesta a up (~-1)
@@ -152,12 +152,12 @@ def ransac_plane_gpu(points,
         valid = cp.logical_and(valid, cond)
 
         # 4) Conteo de inliers sobre SUBMUESTRA para elegir mejor modelo del lote
-        #    Mucho más eficiente en Jetson que KxN directo.
+        #    Much more efficient on Jetson than direct KxN
         counts = cp.zeros((K,), dtype=cp.int32)
         dists_s = cp.abs(n_unit @ P_samp.T + d[:, None])  # (K,S)
         counts = cp.sum(dists_s <= dist_thresh, axis=1)
 
-        # Invalida modelos no válidos
+        # Invalidate non-valid models
         counts = cp.where(valid, counts, -cp.ones_like(counts))
 
         # 5) Mejor del lote
@@ -182,7 +182,7 @@ def ransac_plane_gpu(points,
     if best_count < 0:
         return None
 
-    # 6) Recalcular máscara de inliers del mejor modelo sobre TODOS los puntos (una vez)
+    # 6) Recompute inlier mask of best model over ALL points (one pass)
     mask = cp.zeros((N,), dtype=bool)
     if N <= point_chunk:
         dists = cp.abs(best_n[None, :] @ P.T + best_d)
@@ -247,8 +247,8 @@ def get_ground(
     Returns:
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
-    # Nota: esta función devuelve una máscara binaria (H x W)
-    # que indica los píxeles pertenecientes al suelo. El overlay
+    # Note: this function returns a binary mask (H x W) for floor pixels.
+    # The RGB overlay is applied later in helpers.apply_mask_to_rgb.
     # RGB se aplica posteriormente en helpers.apply_mask_to_rgb.
     # Extract parameters from groundParams dictionary
     subsample_stride = groundParams.get("subsample_stride")
@@ -269,10 +269,10 @@ def get_ground(
     # Subsample depth and rays for RANSAC efficiency
     Dsub = depth_cp[::subsample_stride, ::subsample_stride]
     Rsub = rays_cp[::subsample_stride, ::subsample_stride]
-    # Usar sólo el tercio inferior de la imagen para buscar suelo
+    # Use only the bottom third of the image to look for floor
     sub_h = Dsub.shape[0]
     if sub_h >= 3:
-        start = (2 * sub_h) // 3  # último tercio
+        start = (2 * sub_h) // 3  # last third
         Dsub = Dsub[start:, :]
         Rsub = Rsub[start:, :]
     valid = Dsub > 0

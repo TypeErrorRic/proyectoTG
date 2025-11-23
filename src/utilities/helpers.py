@@ -1,17 +1,30 @@
+"""
+Helper utilities for point clouds, GPU overlays, and dataset loading.
+
+Used by viewCamera, ransacCellingGround, and segmentar to prepare geometry,
+apply masks, and stream sample data.
+"""
 import os
 import numpy as np
 import cv2
 from typing import Optional, Tuple
 
 
+"""
+Helper utilities for point clouds, GPU overlays, and dataset loading.
+
+Used by viewCamera, ransacCellingGround, and segmentar to prepare geometry,
+apply masks, and stream sample data.
+"""
+
 # ==================================================
-#  Utilidades de nubes para viewCamera.py
+#  Point cloud utilities for viewCamera.py
 # ==================================================
 
 
 def _rotation_matrix(yaw_deg: float, pitch_deg: float, roll_deg: float) -> np.ndarray:
     """
-    Construye una matriz de rotación R = Rz(roll) * Ry(yaw) * Rx(pitch) usando grados.
+    Build rotation matrix R = Rz(roll) * Ry(yaw) * Rx(pitch) in degrees.
     """
     yaw = np.deg2rad(yaw_deg)
     pitch = np.deg2rad(pitch_deg)
@@ -33,15 +46,15 @@ def points_from_rays_and_depth(rays: np.ndarray,
                                depth_m: np.ndarray,
                                stride: int = 4) -> np.ndarray:
     """
-    Construye puntos 3D (N,3) en metros a partir de rayos (H,W,3) y profundidad (H,W).
-    Aplica un submuestreo por 'stride' para reducir densidad.
+    Build 3D points (N,3) in meters from rays (H,W,3) and depth (H,W).
+    Applies subsampling by 'stride' to reduce density.
     """
     if rays is None or depth_m is None:
         return np.empty((0, 3), dtype=np.float32)
     
     H, W = depth_m.shape[:2]
     if rays.shape[:2] != (H, W):
-        # Si las dimensiones no coinciden, redimensionar depth_m
+        # If shapes differ, resize depth_m to match rays
         depth_m = cv2.resize(depth_m, (rays.shape[1], rays.shape[0]), interpolation=cv2.INTER_NEAREST)
         H, W = rays.shape[:2]
 
@@ -66,9 +79,9 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
                             fov_deg: float = 60.0,
                             point_size: int = 1) -> np.ndarray:
     """
-    Renderiza una nube de puntos como proyección en 2D (CPU, NumPy).
-    - points_xyz: (N,3) en metros
-    - colors_bgr: (N,3) uint8 opcional; si None usa gris
+    Render a point cloud as a 2D projection (CPU, NumPy).
+    - points_xyz: (N,3) in meters
+    - colors_bgr: optional (N,3) uint8; if None uses gray
     """
     H, W = out_size
     img = np.zeros((H, W, 3), dtype=np.uint8)
@@ -76,25 +89,25 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
         return img
 
     pts = points_xyz.astype(np.float32)
-    # Centrar para visualización estable
+    # Center for stable visualization
     center = np.median(pts, axis=0)
     pts_c = pts - center
     R = _rotation_matrix(yaw_deg, pitch_deg, roll_deg).astype(np.float32)
     pts_r = pts_c @ R.T
 
-    # Desplazar en Z para asegurar z>0
+    # Offset in Z to ensure z > 0
     z = pts_r[:, 2]
     z_min = np.percentile(z, 5) if z.size > 0 else 0.0
     tz = max(0.5, -float(z_min) + 1.5)
     pts_cam = pts_r + np.array([0.0, 0.0, tz], dtype=np.float32)
 
-    # Proyección perspectiva
+    # Perspective projection
     f = 0.5 * H / np.tan(np.deg2rad(fov_deg) * 0.5)
     Z = np.clip(pts_cam[:, 2], 1e-3, None)
     u = (W * 0.5 + (pts_cam[:, 0] * f) / Z).astype(np.int32)
     v = (H * 0.5 - (pts_cam[:, 1] * f) / Z).astype(np.int32)
 
-    # Recortar a pantalla
+    # Clip to viewport
     mask = (u >= 0) & (u < W) & (v >= 0) & (v < H)
     if not np.any(mask):
         return img
@@ -104,7 +117,7 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
     else:
         col = None
 
-    # Muestreo para evitar saturación
+    # Subsample to avoid saturation
     max_pts = 150_000
     if u.size > max_pts:
         step = int(np.ceil(u.size / max_pts))
@@ -123,11 +136,11 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
             cv2.circle(img, (int(u[i]), int(v[i])), point_size, c, -1, lineType=cv2.LINE_AA)
     return img
 
-#Por el momento no hay mas funciones
+# No additional helpers at the moment
 
 def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndarray:
     """
-    Marca en verde la zona de suelo sobre la imagen.
+    Paint floor region in green over the RGB image.
     """
     if rgb_image is None:
         return None
@@ -137,13 +150,13 @@ def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndar
     ground_mask = np.asarray(ground_mask)
     mask_h, mask_w = ground_mask.shape[:2]
 
-    # Normalizar mask a 1 canal usando GPU
+    # Normalize mask to a single channel using GPU
     mask_gpu = cv2.cuda_GpuMat()
     mask_gpu.upload(ground_mask)
     if ground_mask.ndim == 3 and ground_mask.shape[-1] == 3:
         mask_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_BGR2GRAY)
 
-    # Redimensionar en GPU si no coincide con el RGB
+    # Resize on GPU if shape differs from RGB
     if (mask_h, mask_w) != (rgb_image.shape[0], rgb_image.shape[1]):
         mask_gpu = cv2.cuda.resize(
             mask_gpu,
@@ -151,10 +164,10 @@ def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndar
             interpolation=cv2.INTER_NEAREST,
         )
 
-    # Asegurar m��scara binaria 0/255 y 1 canal
+    # Ensure binary mask 0/255 and single channel
     _, mask_gpu = cv2.cuda.threshold(mask_gpu, 0, 255, cv2.THRESH_BINARY)
 
-    # Subir RGB y preparar overlay verde en GPU
+    # Upload RGB and prepare green overlay on GPU
     rgb_gpu = cv2.cuda_GpuMat()
     rgb_gpu.upload(rgb_image)
     green_cpu = np.zeros_like(rgb_image, dtype=rgb_image.dtype)
@@ -162,7 +175,7 @@ def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndar
     green_gpu = cv2.cuda_GpuMat()
     green_gpu.upload(green_cpu)
 
-    # Expandir m��scaras a 3 canales y aplicar sin argumento mask para evitar checks de tipo
+    # Expand masks to 3 channels and apply without mask arg to avoid type checks
     mask3_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_GRAY2BGR)
     mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
     mask_inv3_gpu = cv2.cuda.cvtColor(mask_inv_gpu, cv2.COLOR_GRAY2BGR)
@@ -179,9 +192,9 @@ _DATASET_INDEX = 0
 
 def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """
-    Carga un par RGB + depth desde src/data/{images,depths}.
+    Load an RGB + depth pair from src/data/{images,depths}.
 
-    Asume depth en PNG uint16 (mm) y lo convierte a metros (float32).
+    Assumes depth in PNG uint16 (mm) and converts to meters (float32).
     """
     global _DATASET_IMAGE_FILES, _DATASET_INDEX
     try:
@@ -194,7 +207,7 @@ def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
 
         if _DATASET_IMAGE_FILES is None:
             if not os.path.isdir(images_dir):
-                print(f"[helpers] Carpeta de imágenes no encontrada: {images_dir}")
+                print(f"[helpers] Images folder not found: {images_dir}")
                 return None, None
             _DATASET_IMAGE_FILES = sorted(
                 f
@@ -204,7 +217,7 @@ def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
             _DATASET_INDEX = 0
 
         if not _DATASET_IMAGE_FILES:
-            print(f"[helpers] No se encontraron imágenes en {images_dir}")
+            print(f"[helpers] No images found in {images_dir}")
             return None, None
 
         if _DATASET_INDEX >= len(_DATASET_IMAGE_FILES):
@@ -217,8 +230,7 @@ def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
 
         if not os.path.exists(depth_path):
             print(
-                f"[helpers] No se encontró mapa de profundidad para "
-                f"{filename} en {depths_dir}"
+                f"[helpers] Depth map not found for {filename} in {depths_dir}"
             )
             return None, None
 
@@ -242,5 +254,4 @@ def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     except Exception as exc:
         print(f"[helpers] Error cargando datos desde src/data: {exc}")
         return None, None
-
 
