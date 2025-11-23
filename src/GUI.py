@@ -87,7 +87,7 @@ class SegmentacionApp:
 
     def _build_icons(self) -> None:
         self.icon_config = self._load_image_icon("analitica.png")
-        self.icon_exec = self._make_icon(kind="camera")
+        self.icon_exec = self._load_image_icon("camara.png")
 
     def _load_image_icon(self, filename: str) -> ImageTk.PhotoImage:
         """
@@ -238,6 +238,7 @@ class SegmentacionApp:
         right_panel.columnconfigure(1, weight=1)
         right_panel.rowconfigure(0, weight=0)
         right_panel.rowconfigure(1, weight=1)
+        right_panel.rowconfigure(2, weight=0)
 
         mode_card = tk.Frame(right_panel, bg="#ededed", bd=1, relief=tk.SOLID, padx=10, pady=10)
         mode_card.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 8))
@@ -314,7 +315,7 @@ class SegmentacionApp:
         params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
 
         selector_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=10, pady=10)
-        selector_card.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
+        selector_card.grid(row=0, column=1, sticky="new", padx=(6, 0))
         selector_card.columnconfigure(0, weight=1)
 
         selector_title = tk.Label(
@@ -396,6 +397,34 @@ class SegmentacionApp:
             command=lambda: None,
         )
         btn_next.pack(side=tk.LEFT, padx=6)
+
+        db_image_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
+        db_image_card.grid(row=2, column=1, sticky="ew", padx=(6, 0))
+
+        db_image_label = tk.Label(
+            db_image_card,
+            text="",
+            bg="#f2f2f2",
+            fg="#2d2d2d",
+            font=("Segoe UI", 10),
+            anchor="center",
+        )
+        db_image_label.pack(fill=tk.BOTH, expand=True)
+
+        self.db_image_ref = None
+        img_path = os.path.join(os.path.dirname(__file__), "images", "70_Rojo.png")
+        try:
+            img = Image.open(img_path).convert("RGBA")
+            max_w = 260
+            if img.width > max_w:
+                ratio = max_w / max(img.width, 1)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+            self.db_image_ref = ImageTk.PhotoImage(image=img)
+            db_image_label.configure(image=self.db_image_ref)
+        except Exception as exc:
+            print(f"[GUI] no se pudo cargar imagen '{img_path}': {exc}")
+            db_image_label.configure(text="Imagen no disponible", fg="#777777")
 
         self._show_page("ejecucion")
         # Sync initial mode state
