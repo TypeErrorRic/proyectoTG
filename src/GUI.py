@@ -25,19 +25,19 @@ if __package__ is None or __package__ == "":
 
 from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 
-# Limit display size to reduce rescale cost
-DISPLAY_MAX_W = 900
-DISPLAY_MAX_H = 520
+# Limit display size to reduce rescale cost (match camera feed 640x480)
+DISPLAY_MAX_W = 640
+DISPLAY_MAX_H = 480
 # FPS limit for running AlgoritmosSegmentacion
 TARGET_FRAME_TIME = 1.0 / 20.0  # 20 fps max
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
 # Fixed panel sizes to keep layout static
-SIDE_PANEL_W = 260
-EXEC_PANEL_H = 160
-PARAM_PANEL_H = 430
-DB_PANEL_H = 340
-LOGO_PANEL_H = 250
-COLUMN_HEIGHT = DISPLAY_MAX_H + 100
+SIDE_PANEL_W = 240
+EXEC_PANEL_H = 150
+PARAM_PANEL_H = 320
+DB_PANEL_H = 320
+LOGO_PANEL_H = 220
+COLUMN_HEIGHT = DISPLAY_MAX_H + 160
 
 class SegmentacionApp:
     """
@@ -199,7 +199,7 @@ class SegmentacionApp:
         left_panel = tk.Frame(
             self.page_exec,
             bg="#e6e6e6",
-            width=DISPLAY_MAX_W + 30,
+            width=DISPLAY_MAX_W + 20,
             height=COLUMN_HEIGHT,
         )
         left_panel.grid(row=0, column=0, sticky="nw", padx=(0, 6), pady=6)
