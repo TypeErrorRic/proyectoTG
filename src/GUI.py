@@ -113,32 +113,20 @@ class SegmentacionApp:
     def _build_layout(self) -> None:
         self._build_icons()
 
-        top_bar = tk.Frame(self.root, bg="#0f0f0f")
-        top_bar.pack(fill=tk.X)
-        title = tk.Label(
-            top_bar,
-            text="Aplicativo de Segmentacion",
-            bg="#0f0f0f",
-            fg="white",
-            font=("Segoe UI", 11, "bold"),
-            pady=6,
-        )
-        title.pack()
-
         shell = tk.Frame(self.root, bg="#e6e6e6")
-        shell.pack(fill=tk.BOTH, expand=True)
+        shell.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         shell.columnconfigure(1, weight=1)
         shell.rowconfigure(0, weight=1)
 
         self.sidebar = tk.Frame(shell, bg="#565656", width=90)
-        self.sidebar.grid(row=0, column=0, sticky="ns", padx=(12, 8), pady=12)
+        self.sidebar.grid(row=0, column=0, sticky="ns", padx=(4, 8), pady=4)
         self.sidebar.grid_propagate(False)
         self.sidebar.rowconfigure(0, weight=1)
         self.sidebar.rowconfigure(1, weight=0)
         self.sidebar.rowconfigure(2, weight=1)
 
         self.container = tk.Frame(shell, bg="#e6e6e6")
-        self.container.grid(row=0, column=1, sticky="nsew", padx=(0, 12), pady=12)
+        self.container.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=4)
 
         # Pages (shown/hidden via pack in _show_page)
         self.page_config = tk.Frame(self.container, bg="#e6e6e6")
@@ -152,9 +140,7 @@ class SegmentacionApp:
             fg="white",
             bd=2,
             relief=tk.RIDGE,
-            highlightthickness=2,
-            highlightbackground="#8c8c8c",
-            highlightcolor="#cfcfcf",
+            highlightthickness=0,
             command=lambda: self._show_page("configuracion"),
         )
         self.btn_config.grid(row=0, column=0, sticky="nsew", pady=(0, 4), ipadx=6, ipady=20)
@@ -170,9 +156,7 @@ class SegmentacionApp:
             fg="white",
             bd=2,
             relief=tk.RIDGE,
-            highlightthickness=2,
-            highlightbackground="#8c8c8c",
-            highlightcolor="#cfcfcf",
+            highlightthickness=0,
             command=lambda: self._show_page("ejecucion"),
         )
         self.btn_exec.grid(row=2, column=0, sticky="nsew", pady=(4, 0), ipadx=6, ipady=20)
@@ -421,11 +405,11 @@ class SegmentacionApp:
 
     def _update_sidebar(self, active: str) -> None:
         if active == "configuracion":
-            self.btn_config.configure(bg="#3b3b3b", relief=tk.SOLID, highlightbackground="#cfcfcf")
-            self.btn_exec.configure(bg="#5a5a5a", relief=tk.RIDGE, highlightbackground="#8c8c8c")
+            self.btn_config.configure(bg="#3b3b3b", relief=tk.SOLID)
+            self.btn_exec.configure(bg="#5a5a5a", relief=tk.RIDGE)
         else:
-            self.btn_exec.configure(bg="#3b3b3b", relief=tk.SOLID, highlightbackground="#cfcfcf")
-            self.btn_config.configure(bg="#5a5a5a", relief=tk.RIDGE, highlightbackground="#8c8c8c")
+            self.btn_exec.configure(bg="#3b3b3b", relief=tk.SOLID)
+            self.btn_config.configure(bg="#5a5a5a", relief=tk.RIDGE)
 
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
