@@ -240,6 +240,15 @@ def _lazy_init(
     _runtime.setdefault("mascara", None)
 
 
+def _resize_gpu(img, size, interpolation=cv2.INTER_NEAREST):
+    """
+    Resize helper using cv2.cuda to offload work to GPU.
+    """
+    gpu = cv2.cuda_GpuMat()
+    gpu.upload(img)
+    return cv2.cuda.resize(gpu, size, interpolation=interpolation).download()
+
+
 def preprocesar(pipeline=None, mode: str = "camera") -> bool:
     """
     Extract and store in _runtime the data needed for RANSAC.
@@ -264,7 +273,7 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
 
         # Ensure depth matches the RGB size.
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
-            mapaProfundidad = cv2.resize(
+            mapaProfundidad = _resize_gpu(
                 mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
             )
 
@@ -301,11 +310,13 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
 
         # Ensure shapes match expected HxW (from camera intrinsics).
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
-            mapaProfundidad = cv2.resize(
+            mapaProfundidad = _resize_gpu(
                 mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
             )
         if imagenRGB.shape[0] != H or imagenRGB.shape[1] != W:
-            imagenRGB = cv2.resize(imagenRGB, (W, H), interpolation=cv2.INTER_AREA)
+            imagenRGB = _resize_gpu(
+                imagenRGB, (W, H), interpolation=cv2.INTER_AREA
+            )
 
     # Persist current frame data in the runtime dictionary
     _runtime["imagenRGB"] = imagenRGB

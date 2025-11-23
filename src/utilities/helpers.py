@@ -134,20 +134,41 @@ def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndar
     if ground_mask is None:
         ground_mask = np.zeros(rgb_image.shape[:2], dtype=np.uint8)
 
-    # Normalizar mask a 2D
+    ground_mask = np.asarray(ground_mask)
+    mask_h, mask_w = ground_mask.shape[:2]
+
+    # Normalizar mask a 1 canal usando GPU
+    mask_gpu = cv2.cuda_GpuMat()
+    mask_gpu.upload(ground_mask)
     if ground_mask.ndim == 3 and ground_mask.shape[-1] == 3:
-        ground_mask = cv2.cvtColor(ground_mask, cv2.COLOR_BGR2GRAY)
-    if ground_mask.shape[:2] != rgb_image.shape[:2]:
-        ground_mask = cv2.resize(
-            ground_mask,
+        mask_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_BGR2GRAY)
+
+    # Redimensionar en GPU si no coincide con el RGB
+    if (mask_h, mask_w) != (rgb_image.shape[0], rgb_image.shape[1]):
+        mask_gpu = cv2.cuda.resize(
+            mask_gpu,
             (rgb_image.shape[1], rgb_image.shape[0]),
             interpolation=cv2.INTER_NEAREST,
         )
 
-    mask = ground_mask > 0
-    result = rgb_image.copy()
-    result[mask] = (0, 255, 0)
-    return result
+    # Asegurar m��scara binaria 0/255
+    _, mask_gpu = cv2.cuda.threshold(mask_gpu, 0, 255, cv2.THRESH_BINARY)
+
+    # Subir RGB y preparar overlay verde en GPU
+    rgb_gpu = cv2.cuda_GpuMat()
+    rgb_gpu.upload(rgb_image)
+    mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
+
+    green_cpu = np.zeros_like(rgb_image, dtype=rgb_image.dtype)
+    green_cpu[..., 1] = 255
+    green_gpu = cv2.cuda_GpuMat()
+    green_gpu.upload(green_cpu)
+
+    fg_gpu = cv2.cuda.bitwise_and(green_gpu, green_gpu, mask=mask_gpu)
+    bg_gpu = cv2.cuda.bitwise_and(rgb_gpu, rgb_gpu, mask=mask_inv_gpu)
+    out_gpu = cv2.cuda.bitwise_or(bg_gpu, fg_gpu)
+
+    return out_gpu.download()
 
 _DATASET_IMAGE_FILES = None
 _DATASET_INDEX = 0

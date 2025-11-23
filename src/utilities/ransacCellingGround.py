@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import time
 import cupy as cp
+import cupyx.scipy.ndimage as cnd
 from typing import Optional, Dict, Any
 
 def _to_xp(a):
@@ -313,26 +314,15 @@ def get_ground(
         dotnr = cp.tensordot(rays_cp, last_n_cp, axes=([2], [0]))
         dists = cp.abs(depth_cp * dotnr + last_d_cp)
         valid_depth = depth_cp > 0
-        mask = (dists <= dist_thresh) & valid_depth
-        ground_mask = _to_numpy(mask).astype(np.uint8)
+        mask_cp = (dists <= dist_thresh) & valid_depth
     else:
-        ground_mask = np.zeros((H, W), dtype=np.uint8)
+        mask_cp = cp.zeros((H, W), dtype=cp.bool_)
 
-    ground_mask = _to_numpy(ground_mask)
+    # Solidify the mask fully on GPU (close + fill holes) to avoid CPU hops
+    mask_cp = mask_cp.astype(cp.bool_)
+    structure = cp.ones((5, 5), dtype=cp.bool_)
+    closed = cnd.binary_closing(mask_cp, structure=structure, iterations=2)
+    filled = cnd.binary_fill_holes(closed)
+    ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
 
-    # Solidify the mask (avoid dotted gaps) with a small close + hole fill
-    if ground_mask is None or ground_mask.size == 0:
-        return np.zeros((H, W), dtype=np.uint8)
-
-    mask_u8 = (ground_mask > 0).astype(np.uint8) * 255
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask_u8 = cv2.morphologyEx(mask_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    # Fill internal holes so the region stays solid
-    flood = mask_u8.copy()
-    flood_mask = np.zeros((mask_u8.shape[0] + 2, mask_u8.shape[1] + 2), dtype=np.uint8)
-    cv2.floodFill(flood, flood_mask, (0, 0), 255)
-    holes = cv2.bitwise_not(flood)
-    ground_mask = cv2.bitwise_or(mask_u8, holes)
-
-    return ground_mask
+    return ground_mask_cp.get()
