@@ -31,6 +31,13 @@ DISPLAY_MAX_H = 520
 # FPS limit for running AlgoritmosSegmentacion
 TARGET_FRAME_TIME = 1.0 / 20.0  # 20 fps max
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
+# Fixed panel sizes to keep layout static
+SIDE_PANEL_W = 260
+EXEC_PANEL_H = 160
+PARAM_PANEL_H = 430
+DB_PANEL_H = 340
+LOGO_PANEL_H = 250
+COLUMN_HEIGHT = DISPLAY_MAX_H + 100
 
 class SegmentacionApp:
     """
@@ -183,15 +190,29 @@ class SegmentacionApp:
         )
         label_config.pack(expand=True)
 
-        # Execution content: split into left (image) and right (controls) panels
-        self.page_exec.rowconfigure(0, weight=1)
-        self.page_exec.columnconfigure(0, weight=3)
-        self.page_exec.columnconfigure(1, weight=2)
+        # Execution content: split into left (video) and two right columns (controls)
+        self.page_exec.rowconfigure(0, weight=0)
+        self.page_exec.columnconfigure(0, weight=0)
+        self.page_exec.columnconfigure(1, weight=0)
+        self.page_exec.columnconfigure(2, weight=0)
 
-        left_panel = tk.Frame(self.page_exec, bg="#e6e6e6")
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=6)
+        left_panel = tk.Frame(
+            self.page_exec,
+            bg="#e6e6e6",
+            width=DISPLAY_MAX_W + 30,
+            height=COLUMN_HEIGHT,
+        )
+        left_panel.grid(row=0, column=0, sticky="nw", padx=(0, 6), pady=6)
+        left_panel.grid_propagate(False)
 
-        video_card = tk.Frame(left_panel, bg="#bfbfbf", bd=2, relief=tk.GROOVE)
+        video_card = tk.Frame(
+            left_panel,
+            bg="#bfbfbf",
+            bd=2,
+            relief=tk.GROOVE,
+            width=DISPLAY_MAX_W + 10,
+            height=COLUMN_HEIGHT,
+        )
         video_card.pack(fill=tk.BOTH, expand=True)
         video_card.pack_propagate(False)
 
@@ -213,7 +234,7 @@ class SegmentacionApp:
             width=DISPLAY_MAX_W,
             height=DISPLAY_MAX_H,
         )
-        display_holder.pack(fill=tk.BOTH, expand=True, padx=10, pady=12)
+        display_holder.pack(padx=10, pady=12)
         display_holder.pack_propagate(False)
 
         self.display_area = tk.Label(
@@ -230,7 +251,6 @@ class SegmentacionApp:
             pady=10,
         )
         self.display_area.pack(fill=tk.BOTH, expand=True)
-        self.display_area.configure(width=DISPLAY_MAX_W, height=DISPLAY_MAX_H)
 
         footer = tk.Label(
             video_card,
@@ -244,15 +264,28 @@ class SegmentacionApp:
         )
         footer.pack(fill=tk.X)
 
-        right_panel = tk.Frame(self.page_exec, bg="#e6e6e6")
-        right_panel.grid(row=0, column=1, sticky="n", padx=(6, 0), pady=6)
-        right_panel.columnconfigure(0, weight=1, uniform="right")
-        right_panel.columnconfigure(1, weight=1, uniform="right")
-        right_panel.rowconfigure(0, weight=0)
-        right_panel.rowconfigure(1, weight=0)
+        # Middle column: execution modes and parameters
+        mid_column = tk.Frame(
+            self.page_exec,
+            bg="#e6e6e6",
+            width=SIDE_PANEL_W,
+            height=COLUMN_HEIGHT,
+        )
+        mid_column.grid(row=0, column=1, sticky="nw", padx=6, pady=6)
+        mid_column.grid_propagate(False)
 
-        mode_card = tk.Frame(right_panel, bg="#ededed", bd=1, relief=tk.SOLID, padx=10, pady=10)
-        mode_card.grid(row=0, column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
+        mode_card = tk.Frame(
+            mid_column,
+            bg="#ededed",
+            bd=1,
+            relief=tk.SOLID,
+            padx=10,
+            pady=10,
+            height=EXEC_PANEL_H,
+            width=SIDE_PANEL_W,
+        )
+        mode_card.pack(fill=tk.X, pady=(0, 6))
+        mode_card.pack_propagate(False)
 
         mode_title = tk.Label(
             mode_card,
@@ -295,8 +328,18 @@ class SegmentacionApp:
         )
         self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
 
-        params_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
-        params_card.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        params_card = tk.Frame(
+            mid_column,
+            bg="#f2f2f2",
+            bd=2,
+            relief=tk.SOLID,
+            padx=8,
+            pady=8,
+            height=PARAM_PANEL_H,
+            width=SIDE_PANEL_W,
+        )
+        params_card.pack(fill=tk.X)
+        params_card.pack_propagate(False)
         params_card.columnconfigure(0, weight=1)
         params_card.rowconfigure(1, weight=1)
 
@@ -325,8 +368,28 @@ class SegmentacionApp:
         )
         params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
 
-        selector_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=10, pady=10)
-        selector_card.grid(row=0, column=1, sticky="ew", padx=(0, 0), pady=(0, 6))
+        # Right column: database selector and logo
+        right_column = tk.Frame(
+            self.page_exec,
+            bg="#e6e6e6",
+            width=SIDE_PANEL_W,
+            height=COLUMN_HEIGHT,
+        )
+        right_column.grid(row=0, column=2, sticky="nw", padx=(6, 0), pady=6)
+        right_column.grid_propagate(False)
+
+        selector_card = tk.Frame(
+            right_column,
+            bg="#f2f2f2",
+            bd=2,
+            relief=tk.SOLID,
+            padx=10,
+            pady=10,
+            height=DB_PANEL_H,
+            width=SIDE_PANEL_W,
+        )
+        selector_card.pack(fill=tk.X, pady=(0, 6))
+        selector_card.pack_propagate(False)
         selector_card.columnconfigure(0, weight=1)
 
         selector_title = tk.Label(
@@ -409,8 +472,18 @@ class SegmentacionApp:
         )
         btn_next.pack(side=tk.LEFT, padx=6)
 
-        db_image_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
-        db_image_card.grid(row=1, column=1, sticky="ew", padx=(0, 0))
+        db_image_card = tk.Frame(
+            right_column,
+            bg="#f2f2f2",
+            bd=2,
+            relief=tk.SOLID,
+            padx=8,
+            pady=8,
+            height=LOGO_PANEL_H,
+            width=SIDE_PANEL_W,
+        )
+        db_image_card.pack(fill=tk.X)
+        db_image_card.pack_propagate(False)
 
         db_image_label = tk.Label(
             db_image_card,
