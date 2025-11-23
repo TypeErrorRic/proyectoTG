@@ -14,7 +14,8 @@ from typing import Optional
 
 import cv2
 import tkinter as tk
-from PIL import Image, ImageTk
+from tkinter import ttk
+from PIL import Image, ImageTk, ImageDraw
 
 # Adjust sys.path when executed as a script
 if __package__ is None or __package__ == "":
@@ -30,6 +31,7 @@ DISPLAY_MAX_W = 900
 DISPLAY_MAX_H = 520
 # FPS limit for running AlgoritmosSegmentacion
 TARGET_FRAME_TIME = 1.0 / 20.0  # 20 fps max
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
 
 class SegmentacionApp:
     """
@@ -53,8 +55,9 @@ class SegmentacionApp:
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
 
+        self._ensure_upload_dir()
         self._configure_window()
-        self._build_navbar()
+        self._build_layout()
         self._build_pages()
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -65,55 +68,102 @@ class SegmentacionApp:
         self.root.geometry("1100x700")
         self.root.configure(bg="#e6e6e6")
 
-    def _build_navbar(self) -> None:
-        navbar = tk.Frame(self.root, bg="#e6e6e6")
-        navbar.pack(fill=tk.X, padx=12, pady=(12, 6))
+    def _ensure_upload_dir(self) -> None:
+        """
+        Creates the uploads folder so users can drop images there.
+        """
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-        nav_inner = tk.Frame(navbar, bg="#e6e6e6")
-        nav_inner.pack(expand=True)
+    def _build_icons(self) -> None:
+        self.icon_config = self._make_icon(kind="gear")
+        self.icon_exec = self._make_icon(kind="camera")
 
-        self.btn_config = tk.Button(
-            nav_inner,
-            text="Configuracion",
-            bg="#f2b24a",
-            activebackground="#f4c065",
-            fg="#2d2d2d",
-            bd=0,
-            padx=50,
-            pady=12,
-            font=("Segoe UI", 11, "bold"),
-            command=lambda: self._show_page("configuracion"),
-        )
-        self.btn_config.pack(side=tk.LEFT, ipadx=4, ipady=2, padx=4)
+    def _make_icon(self, kind: str) -> ImageTk.PhotoImage:
+        """
+        Draws a simple icon using PIL so we do not depend on external assets.
+        """
+        size = 48
+        accent = "#f2f2f2"
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
 
-        self.btn_exec = tk.Button(
-            nav_inner,
-            text="Ejecucion",
-            bg="#00b86b",
-            activebackground="#21d087",
+        if kind == "gear":
+            draw.ellipse((10, 10, 38, 38), outline=accent, width=3)
+            draw.rectangle((22, 4, 26, 44), fill=accent)
+            draw.rectangle((4, 22, 44, 26), fill=accent)
+            draw.ellipse((18, 18, 30, 30), fill="#5a5a5a", outline=accent, width=2)
+        else:
+            draw.rounded_rectangle((6, 12, 42, 36), radius=6, outline=accent, width=3)
+            draw.rectangle((28, 6, 40, 14), fill=accent)
+            draw.ellipse((18, 16, 30, 28), outline=accent, width=3)
+
+        return ImageTk.PhotoImage(image=img)
+
+    def _build_layout(self) -> None:
+        self._build_icons()
+
+        top_bar = tk.Frame(self.root, bg="#0f0f0f")
+        top_bar.pack(fill=tk.X)
+        title = tk.Label(
+            top_bar,
+            text="Aplicativo de Segmentacion",
+            bg="#0f0f0f",
             fg="white",
-            bd=0,
-            padx=50,
-            pady=12,
             font=("Segoe UI", 11, "bold"),
-            command=lambda: self._show_page("ejecucion"),
+            pady=6,
         )
-        self.btn_exec.pack(side=tk.LEFT, ipadx=4, ipady=2, padx=4)
+        title.pack()
+
+        shell = tk.Frame(self.root, bg="#e6e6e6")
+        shell.pack(fill=tk.BOTH, expand=True)
+
+        style = ttk.Style(self.root)
+        style.configure("Sidebar.TNotebook", tabposition="wn")
+        style.configure(
+            "Sidebar.TNotebook.Tab",
+            padding=(10, 12),
+            foreground="white",
+            background="#5a5a5a",
+        )
+        style.map(
+            "Sidebar.TNotebook.Tab",
+            background=[("selected", "#3b3b3b"), ("active", "#707070")],
+            foreground=[("selected", "white")],
+        )
+
+        self.notebook = ttk.Notebook(shell, style="Sidebar.TNotebook")
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+
+        self.page_config = tk.Frame(self.notebook, bg="#e6e6e6")
+        self.page_exec = tk.Frame(self.notebook, bg="#e6e6e6")
+
+        self.notebook.add(
+            self.page_config,
+            text="Configuracion",
+            image=self.icon_config,
+            compound=tk.TOP,
+            padding=0,
+        )
+        self.notebook.add(
+            self.page_exec,
+            text="Ejecucion",
+            image=self.icon_exec,
+            compound=tk.TOP,
+            padding=0,
+        )
+
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_change)
 
     def _build_pages(self) -> None:
-        self.container = tk.Frame(self.root, bg="#e6e6e6")
-        self.container.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        config_card = tk.Frame(self.page_config, bg="#7f7f7f", bd=2, relief=tk.GROOVE)
+        config_card.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.page_config = tk.Frame(self.container, bg="#f7f7f7", bd=2, relief=tk.GROOVE)
-        self.page_exec = tk.Frame(self.container, bg="#f7f7f7", bd=2, relief=tk.GROOVE)
-
-        # Configuration content (placeholder)
         label_config = tk.Label(
-            self.page_config,
-            text="Pantalla de configuracion (pendiente de implementar).",
-            bg="#f7f7f7",
-            fg="#444444",
-            font=("Segoe UI", 11),
+            config_card,
+            text="Configuracion",
+            bg="#7f7f7f",
+            fg="#1f1f1f",
+            font=("Segoe UI", 16, "bold"),
             anchor="center",
             padx=20,
             pady=20,
@@ -122,15 +172,16 @@ class SegmentacionApp:
 
         # Execution content: split into left (image) and right (controls) panels
         self.page_exec.columnconfigure(0, weight=3)
-        self.page_exec.columnconfigure(1, weight=1)
+        self.page_exec.columnconfigure(1, weight=2)
 
-        left_panel = tk.Frame(self.page_exec, bg="#f7f7f7")
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 12), pady=10)
-        right_panel = tk.Frame(self.page_exec, bg="#f7f7f7")
-        right_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 0), pady=10)
+        left_panel = tk.Frame(self.page_exec, bg="#e6e6e6")
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=6)
+
+        video_card = tk.Frame(left_panel, bg="#bfbfbf", bd=2, relief=tk.GROOVE)
+        video_card.pack(fill=tk.BOTH, expand=True)
 
         self.header_label = tk.Label(
-            left_panel,
+            video_card,
             text="Exactitud de la Medicion (Modo prueba seleccionado)",
             bg="#bfbfbf",
             fg="#1f1f1f",
@@ -142,7 +193,7 @@ class SegmentacionApp:
         self.header_label.pack(fill=tk.X)
 
         self.display_area = tk.Label(
-            left_panel,
+            video_card,
             text="Esperando imagen...",
             bg="#7f7f7f",
             fg="white",
@@ -157,10 +208,10 @@ class SegmentacionApp:
         self.display_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=12)
 
         footer = tk.Label(
-            left_panel,
+            video_card,
             text="Camino transitable / Puertas / Muros",
-            bg="#f7f7f7",
-            fg="#444444",
+            bg="#bfbfbf",
+            fg="#222222",
             font=("Segoe UI", 10),
             anchor="w",
             padx=12,
@@ -168,12 +219,16 @@ class SegmentacionApp:
         )
         footer.pack(fill=tk.X)
 
-        # Side control panel
-        ctrl_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
-        ctrl_card.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        right_panel = tk.Frame(self.page_exec, bg="#e6e6e6")
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=6)
+        right_panel.columnconfigure(0, weight=1)
+        right_panel.rowconfigure(2, weight=1)
+
+        mode_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
+        mode_card.grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
         mode_title = tk.Label(
-            ctrl_card,
+            mode_card,
             text="Modos de Ejecucion",
             bg="#eaeaea",
             fg="#2d2d2d",
@@ -182,29 +237,15 @@ class SegmentacionApp:
         )
         mode_title.pack(fill=tk.X)
 
-        btn_group = tk.Frame(ctrl_card, bg="#eaeaea")
+        btn_group = tk.Frame(mode_card, bg="#eaeaea")
         btn_group.pack(pady=6)
-
-        self.btn_mode_cam = tk.Button(
-            btn_group,
-            text="Transmision (camera)",
-            bg="#d1b3ff",
-            activebackground="#c59aff",
-            fg="#2d2d2d",
-            bd=0,
-            padx=16,
-            pady=10,
-            font=("Segoe UI", 10, "bold"),
-            command=lambda: self._set_mode("camera"),
-        )
-        self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
 
         self.btn_mode_test = tk.Button(
             btn_group,
-            text="Prueba (prueba)",
-            bg="#f6c04b",
-            activebackground="#f4d074",
-            fg="#2d2d2d",
+            text="Prueba",
+            bg="#e53935",
+            activebackground="#f1625f",
+            fg="white",
             bd=0,
             padx=16,
             pady=10,
@@ -213,18 +254,35 @@ class SegmentacionApp:
         )
         self.btn_mode_test.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
 
+        self.btn_mode_cam = tk.Button(
+            btn_group,
+            text="Transmision",
+            bg="#c62828",
+            activebackground="#e34f4f",
+            fg="white",
+            bd=0,
+            padx=16,
+            pady=10,
+            font=("Segoe UI", 10, "bold"),
+            command=lambda: self._set_mode("camera"),
+        )
+        self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
+
+        params_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
+        params_card.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
         params_title = tk.Label(
-            ctrl_card,
+            params_card,
             text="Parametros Configuracion",
             bg="#eaeaea",
             fg="#2d2d2d",
             font=("Segoe UI", 11, "bold"),
             pady=10,
         )
-        params_title.pack(fill=tk.X, pady=(12, 2))
+        params_title.pack(fill=tk.X)
 
         params_box = tk.Label(
-            ctrl_card,
+            params_card,
             text="Resumen de parametros de configuracion.",
             bg="white",
             fg="#555555",
@@ -236,18 +294,88 @@ class SegmentacionApp:
         )
         params_box.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
 
-        selector_box = tk.Label(
-            ctrl_card,
-            text="Selector de elementos de la Base de Datos",
-            bg="white",
-            fg="#555555",
-            font=("Segoe UI", 10),
-            bd=1,
-            relief=tk.SOLID,
-            padx=12,
-            pady=12,
+        selector_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
+        selector_card.grid(row=2, column=0, sticky="nsew")
+        selector_card.columnconfigure(0, weight=1)
+
+        selector_title = tk.Label(
+            selector_card,
+            text="Selector de Base de Datos",
+            bg="#eaeaea",
+            fg="#2d2d2d",
+            font=("Segoe UI", 11, "bold"),
+            pady=10,
         )
-        selector_box.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        selector_title.pack(fill=tk.X)
+
+        selector_top = tk.Frame(selector_card, bg="#eaeaea")
+        selector_top.pack(fill=tk.X, padx=12, pady=(4, 4))
+
+        number_label = tk.Label(selector_top, text="Numero", bg="#eaeaea", fg="#2d2d2d", font=("Segoe UI", 10))
+        number_label.pack(side=tk.LEFT)
+
+        self.db_number_entry = tk.Entry(selector_top, width=8, font=("Segoe UI", 10))
+        self.db_number_entry.pack(side=tk.LEFT, padx=(6, 10))
+
+        btn_aplicar = tk.Button(
+            selector_top,
+            text="Aplicar",
+            bg="#00b86b",
+            activebackground="#21d087",
+            fg="white",
+            bd=0,
+            padx=10,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: None,
+        )
+        btn_aplicar.pack(side=tk.LEFT)
+
+        selector_scale = tk.Scale(
+            selector_card,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            length=180,
+            showvalue=False,
+            bg="#eaeaea",
+            highlightthickness=0,
+            troughcolor="#d5d5d5",
+        )
+        selector_scale.pack(padx=12, pady=8)
+
+        nav_btns = tk.Frame(selector_card, bg="#eaeaea")
+        nav_btns.pack(padx=12, pady=(6, 12))
+
+        btn_prev = tk.Button(
+            nav_btns,
+            text="Regresar",
+            bg="#e53935",
+            activebackground="#f1625f",
+            fg="white",
+            bd=0,
+            padx=12,
+            pady=8,
+            width=10,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: None,
+        )
+        btn_prev.pack(side=tk.LEFT, padx=4)
+
+        btn_next = tk.Button(
+            nav_btns,
+            text="Siguiente",
+            bg="#00b86b",
+            activebackground="#21d087",
+            fg="white",
+            bd=0,
+            padx=12,
+            pady=8,
+            width=10,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: None,
+        )
+        btn_next.pack(side=tk.LEFT, padx=4)
 
         self._show_page("ejecucion")
         # Sync initial mode state
@@ -258,17 +386,14 @@ class SegmentacionApp:
     def _show_page(self, page: str) -> None:
         self.active_page = page
 
-        for widget in (self.page_config, self.page_exec):
-            widget.pack_forget()
-
         if page == "configuracion":
-            self.page_config.pack(fill=tk.BOTH, expand=True)
-            self.btn_config.configure(relief=tk.SUNKEN)
-            self.btn_exec.configure(relief=tk.RAISED)
+            self.notebook.select(self.page_config)
         else:
-            self.page_exec.pack(fill=tk.BOTH, expand=True)
-            self.btn_exec.configure(relief=tk.SUNKEN)
-            self.btn_config.configure(relief=tk.RAISED)
+            self.notebook.select(self.page_exec)
+
+    def _on_tab_change(self, event: tk.Event) -> None:
+        tab_id = event.widget.select()
+        self.active_page = "ejecucion" if tab_id == str(self.page_exec) else "configuracion"
 
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
@@ -276,11 +401,11 @@ class SegmentacionApp:
         """
         self.mode = mode
         if mode == "camera":
-            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg="#c59aff")
-            self.btn_mode_test.configure(relief=tk.RAISED, bg="#f6c04b")
+            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg="#b71c1c")
+            self.btn_mode_test.configure(relief=tk.RAISED, bg="#e53935")
         else:
-            self.btn_mode_test.configure(relief=tk.SUNKEN, bg="#f4d074")
-            self.btn_mode_cam.configure(relief=tk.RAISED, bg="#d1b3ff")
+            self.btn_mode_test.configure(relief=tk.SUNKEN, bg="#b71c1c")
+            self.btn_mode_cam.configure(relief=tk.RAISED, bg="#c62828")
 
         if update_header:
             modo_txt = "camera" if mode == "camera" else "prueba"
