@@ -321,8 +321,17 @@ def get_ground(
     # Solidify the mask fully on GPU (close + fill holes) to avoid CPU hops
     mask_cp = mask_cp.astype(cp.bool_)
     structure = cp.ones((5, 5), dtype=cp.bool_)
-    closed = cnd.binary_closing(mask_cp, structure=structure, iterations=2)
-    filled = cnd.binary_fill_holes(closed)
+    dilated = cnd.binary_dilation(mask_cp, structure=structure, iterations=2, brute_force=True)
+    closed = cnd.binary_erosion(dilated, structure=structure, iterations=2, brute_force=True)
+
+    inv = cp.logical_not(closed)
+    labels, _ = cnd.label(inv)
+    border_labels = cp.concatenate(
+        [labels[0], labels[-1], labels[:, 0], labels[:, -1]], axis=None
+    )
+    keep_labels = cp.unique(border_labels)
+    holes_mask = cp.logical_not(cp.isin(labels, keep_labels))
+    filled = cp.logical_or(closed, holes_mask)
     ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
 
     return ground_mask_cp.get()
