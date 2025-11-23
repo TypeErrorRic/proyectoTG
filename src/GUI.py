@@ -147,13 +147,14 @@ class SegmentacionApp:
         self.btn_config = tk.Button(
             self.sidebar,
             image=self.icon_config,
-            text="Configuracion",
-            compound=tk.TOP,
             bg="#5a5a5a",
             activebackground="#707070",
             fg="white",
-            bd=0,
-            font=("Segoe UI", 9, "bold"),
+            bd=2,
+            relief=tk.RIDGE,
+            highlightthickness=2,
+            highlightbackground="#8c8c8c",
+            highlightcolor="#cfcfcf",
             command=lambda: self._show_page("configuracion"),
         )
         self.btn_config.grid(row=0, column=0, sticky="nsew", pady=(0, 4), ipadx=6, ipady=20)
@@ -164,13 +165,14 @@ class SegmentacionApp:
         self.btn_exec = tk.Button(
             self.sidebar,
             image=self.icon_exec,
-            text="Ejecucion",
-            compound=tk.TOP,
             bg="#5a5a5a",
             activebackground="#707070",
             fg="white",
-            bd=0,
-            font=("Segoe UI", 9, "bold"),
+            bd=2,
+            relief=tk.RIDGE,
+            highlightthickness=2,
+            highlightbackground="#8c8c8c",
+            highlightcolor="#cfcfcf",
             command=lambda: self._show_page("ejecucion"),
         )
         self.btn_exec.grid(row=2, column=0, sticky="nsew", pady=(4, 0), ipadx=6, ipady=20)
@@ -419,11 +421,11 @@ class SegmentacionApp:
 
     def _update_sidebar(self, active: str) -> None:
         if active == "configuracion":
-            self.btn_config.configure(bg="#3b3b3b")
-            self.btn_exec.configure(bg="#5a5a5a")
+            self.btn_config.configure(bg="#3b3b3b", relief=tk.SOLID, highlightbackground="#cfcfcf")
+            self.btn_exec.configure(bg="#5a5a5a", relief=tk.RIDGE, highlightbackground="#8c8c8c")
         else:
-            self.btn_exec.configure(bg="#3b3b3b")
-            self.btn_config.configure(bg="#5a5a5a")
+            self.btn_exec.configure(bg="#3b3b3b", relief=tk.SOLID, highlightbackground="#cfcfcf")
+            self.btn_config.configure(bg="#5a5a5a", relief=tk.RIDGE, highlightbackground="#8c8c8c")
 
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
