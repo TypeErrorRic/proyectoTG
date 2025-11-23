@@ -227,22 +227,53 @@ class SegmentacionApp:
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=6)
         right_panel.columnconfigure(0, weight=1)
         right_panel.columnconfigure(1, weight=1)
-        right_panel.rowconfigure(1, weight=1)
+        right_panel.rowconfigure(0, weight=1)
+        right_panel.rowconfigure(1, weight=0)
 
-        mode_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
-        mode_card.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        params_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=8, pady=8)
+        params_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
+        params_card.columnconfigure(0, weight=1)
+        params_card.rowconfigure(1, weight=1)
+
+        params_title = tk.Label(
+            params_card,
+            text="Parametros Configuracion",
+            bg="#f2f2f2",
+            fg="#2d2d2d",
+            font=("Segoe UI", 11, "bold"),
+            pady=6,
+        )
+        params_title.grid(row=0, column=0, sticky="ew")
+
+        params_box = tk.Label(
+            params_card,
+            text="Resumen de parametros de configuracion.",
+            bg="white",
+            fg="#555555",
+            font=("Segoe UI", 10),
+            bd=1,
+            relief=tk.SOLID,
+            padx=12,
+            pady=12,
+            anchor="n",
+            justify=tk.LEFT,
+        )
+        params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
+
+        mode_card = tk.Frame(right_panel, bg="#ededed", bd=1, relief=tk.SOLID, padx=10, pady=10)
+        mode_card.grid(row=1, column=0, sticky="ew", padx=(0, 6))
 
         mode_title = tk.Label(
             mode_card,
             text="Modos de Ejecucion",
-            bg="#eaeaea",
+            bg="#ededed",
             fg="#2d2d2d",
-            font=("Segoe UI", 11, "bold"),
-            pady=10,
+            font=("Segoe UI", 12, "bold"),
+            pady=4,
         )
-        mode_title.pack(fill=tk.X)
+        mode_title.pack()
 
-        btn_group = tk.Frame(mode_card, bg="#eaeaea")
+        btn_group = tk.Frame(mode_card, bg="#ededed")
         btn_group.pack(pady=6)
 
         self.btn_mode_test = tk.Button(
@@ -252,7 +283,7 @@ class SegmentacionApp:
             activebackground="#f1625f",
             fg="white",
             bd=0,
-            padx=16,
+            padx=18,
             pady=10,
             font=("Segoe UI", 10, "bold"),
             command=lambda: self._set_mode("prueba"),
@@ -266,61 +297,36 @@ class SegmentacionApp:
             activebackground="#e34f4f",
             fg="white",
             bd=0,
-            padx=16,
+            padx=18,
             pady=10,
             font=("Segoe UI", 10, "bold"),
             command=lambda: self._set_mode("camera"),
         )
         self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
 
-        params_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
-        params_card.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
-
-        params_title = tk.Label(
-            params_card,
-            text="Parametros Configuracion",
-            bg="#eaeaea",
-            fg="#2d2d2d",
-            font=("Segoe UI", 11, "bold"),
-            pady=10,
-        )
-        params_title.pack(fill=tk.X)
-
-        params_box = tk.Label(
-            params_card,
-            text="Resumen de parametros de configuracion.",
-            bg="white",
-            fg="#555555",
-            font=("Segoe UI", 10),
-            bd=1,
-            relief=tk.SOLID,
-            padx=12,
-            pady=12,
-        )
-        params_box.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
-
-        selector_card = tk.Frame(right_panel, bg="#eaeaea", bd=1, relief=tk.SOLID)
-        selector_card.grid(row=1, column=1, sticky="nsew", padx=(4, 0))
+        selector_card = tk.Frame(right_panel, bg="#f2f2f2", bd=2, relief=tk.SOLID, padx=10, pady=10)
+        selector_card.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
         selector_card.columnconfigure(0, weight=1)
 
         selector_title = tk.Label(
             selector_card,
             text="Selector de Base de Datos",
-            bg="#eaeaea",
+            bg="#f2f2f2",
             fg="#2d2d2d",
             font=("Segoe UI", 11, "bold"),
-            pady=10,
+            pady=4,
         )
-        selector_title.pack(fill=tk.X)
+        selector_title.grid(row=0, column=0, sticky="ew")
 
-        selector_top = tk.Frame(selector_card, bg="#eaeaea")
-        selector_top.pack(fill=tk.X, padx=12, pady=(4, 4))
+        selector_top = tk.Frame(selector_card, bg="#f2f2f2")
+        selector_top.grid(row=1, column=0, sticky="ew", pady=(6, 4))
+        selector_top.columnconfigure(1, weight=1)
 
-        number_label = tk.Label(selector_top, text="Numero", bg="#eaeaea", fg="#2d2d2d", font=("Segoe UI", 10))
-        number_label.pack(side=tk.LEFT)
+        number_label = tk.Label(selector_top, text="Numero", bg="#f2f2f2", fg="#2d2d2d", font=("Segoe UI", 10))
+        number_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
 
-        self.db_number_entry = tk.Entry(selector_top, width=8, font=("Segoe UI", 10))
-        self.db_number_entry.pack(side=tk.LEFT, padx=(6, 10))
+        self.db_number_entry = tk.Entry(selector_top, width=10, font=("Segoe UI", 10))
+        self.db_number_entry.grid(row=0, column=1, sticky="we", padx=(0, 6))
 
         btn_aplicar = tk.Button(
             selector_top,
@@ -334,23 +340,23 @@ class SegmentacionApp:
             font=("Segoe UI", 9, "bold"),
             command=lambda: None,
         )
-        btn_aplicar.pack(side=tk.LEFT)
+        btn_aplicar.grid(row=0, column=2, sticky="e")
 
         selector_scale = tk.Scale(
             selector_card,
             from_=0,
             to=100,
             orient=tk.HORIZONTAL,
-            length=180,
+            length=200,
             showvalue=False,
-            bg="#eaeaea",
+            bg="#f2f2f2",
             highlightthickness=0,
             troughcolor="#d5d5d5",
         )
-        selector_scale.pack(padx=12, pady=8)
+        selector_scale.grid(row=2, column=0, sticky="ew", pady=(4, 10))
 
-        nav_btns = tk.Frame(selector_card, bg="#eaeaea")
-        nav_btns.pack(padx=12, pady=(6, 12))
+        nav_btns = tk.Frame(selector_card, bg="#f2f2f2")
+        nav_btns.grid(row=3, column=0, pady=(4, 0))
 
         btn_prev = tk.Button(
             nav_btns,
@@ -359,13 +365,13 @@ class SegmentacionApp:
             activebackground="#f1625f",
             fg="white",
             bd=0,
-            padx=12,
+            padx=14,
             pady=8,
             width=10,
             font=("Segoe UI", 9, "bold"),
             command=lambda: None,
         )
-        btn_prev.pack(side=tk.LEFT, padx=4)
+        btn_prev.pack(side=tk.LEFT, padx=6)
 
         btn_next = tk.Button(
             nav_btns,
@@ -374,13 +380,13 @@ class SegmentacionApp:
             activebackground="#21d087",
             fg="white",
             bd=0,
-            padx=12,
+            padx=14,
             pady=8,
             width=10,
             font=("Segoe UI", 9, "bold"),
             command=lambda: None,
         )
-        btn_next.pack(side=tk.LEFT, padx=4)
+        btn_next.pack(side=tk.LEFT, padx=6)
 
         self._show_page("ejecucion")
         # Sync initial mode state
