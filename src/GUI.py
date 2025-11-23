@@ -192,6 +192,7 @@ class SegmentacionApp:
 
         video_card = tk.Frame(left_panel, bg="#bfbfbf", bd=2, relief=tk.GROOVE)
         video_card.pack(fill=tk.BOTH, expand=True)
+        video_card.pack_propagate(False)
 
         self.header_label = tk.Label(
             video_card,
@@ -205,8 +206,17 @@ class SegmentacionApp:
         )
         self.header_label.pack(fill=tk.X)
 
-        self.display_area = tk.Label(
+        display_holder = tk.Frame(
             video_card,
+            bg="#7f7f7f",
+            width=DISPLAY_MAX_W,
+            height=DISPLAY_MAX_H,
+        )
+        display_holder.pack(fill=tk.BOTH, expand=True, padx=10, pady=12)
+        display_holder.pack_propagate(False)
+
+        self.display_area = tk.Label(
+            display_holder,
             text="Esperando imagen...",
             bg="#7f7f7f",
             fg="white",
@@ -218,7 +228,7 @@ class SegmentacionApp:
             padx=10,
             pady=10,
         )
-        self.display_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=12)
+        self.display_area.pack(fill=tk.BOTH, expand=True)
 
         footer = tk.Label(
             video_card,
