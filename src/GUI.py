@@ -134,7 +134,7 @@ class SegmentacionApp:
             if raw is None:
                 continue
             width, height = btn.winfo_width(), btn.winfo_height()
-            margin = 70
+            margin = 80
             target_w = max(width - margin, 1)
             target_h = max(height - margin, 1)
             scale = min(target_w / max(raw.width, 1), target_h / max(raw.height, 1))
