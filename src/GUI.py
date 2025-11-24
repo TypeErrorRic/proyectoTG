@@ -87,8 +87,8 @@ class SegmentacionApp:
         """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-    def _make_icon(self, kind: str) -> ImageTk.PhotoImage:
-        """Fallback icon generator when image assets are missing."""
+    def _make_icon(self, kind: str) -> Image.Image:
+        """Fallback icon generator when image assets are missing (returns PIL image)."""
         size = 64
         accent = "#f2f2f2"
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -102,7 +102,7 @@ class SegmentacionApp:
             draw.rounded_rectangle((10, 18, 54, 46), radius=8, outline=accent, width=4)
             draw.rectangle((38, 10, 52, 20), fill=accent)
             draw.ellipse((26, 22, 40, 36), outline=accent, width=3)
-        return ImageTk.PhotoImage(image=img)
+        return img
 
     def _load_sidebar_icons(self) -> Dict[str, Image.Image]:
         """Carga los iconos en bruto para los botones laterales."""
@@ -118,7 +118,7 @@ class SegmentacionApp:
             except Exception as exc:
                 print(f"[GUI] no se pudo cargar icono {filename}: {exc}")
                 fallback_kind = "gear" if key == "config" else "camera"
-                self.sidebar_icons[key] = self._make_icon(fallback_kind)
+                icons[key] = self._make_icon(fallback_kind)
 
         return icons
 
@@ -131,14 +131,14 @@ class SegmentacionApp:
 
         for key, btn in buttons.items():
             raw = self.sidebar_icons_raw.get(key)
-            if not raw:
+            if raw is None:
                 continue
             width, height = btn.winfo_width(), btn.winfo_height()
-            margin = 50
+            margin = 20
             target_w = max(width - margin, 1)
-            scale = target_w / max(raw.width, 1)
-            target_h = max(int(raw.height * scale), 1)
-            resized = raw.resize((target_w, target_h), Image.LANCZOS)
+            target_h = max(height - margin, 1)
+            scale = min(target_w / max(raw.width, 1), target_h / max(raw.height, 1))
+            resized = raw.resize((max(int(raw.width * scale), 1), max(int(raw.height * scale), 1)), Image.LANCZOS)
             photo = ImageTk.PhotoImage(resized)
             self.sidebar_icons[key] = photo
             btn.configure(image=photo, text="")
