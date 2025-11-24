@@ -9,7 +9,10 @@ class GUICompuApp:
         self.mode = "exec"
         self._configure_window()
         self._build_grid()
+        self.sidebar_icons_raw = self._load_sidebar_icons()
+        self.sidebar_icons: dict[str, ImageTk.PhotoImage] = {}
         self._build_panels()
+        self.root.after(30, self._update_sidebar_icons)
         self._show_mode(self.mode)
 
     def _configure_window(self) -> None:
@@ -69,6 +72,44 @@ class GUICompuApp:
             "config": frame_config,
         }
 
+    def _load_sidebar_icons(self) -> dict[str, Image.Image]:
+        """Carga los iconos en bruto para los botones laterales."""
+        icons: dict[str, Image.Image] = {}
+        assets = {"config": "analitica.png", "exec": "camara.png"}
+        base_path = os.path.join(os.path.dirname(__file__), "images")
+
+        for key, filename in assets.items():
+            path = os.path.join(base_path, filename)
+            try:
+                img = Image.open(path).convert("RGBA")
+                icons[key] = img
+            except Exception as exc:
+                print(f"[GUI] no se pudo cargar icono {filename}: {exc}")
+
+        return icons
+
+    def _update_sidebar_icons(self) -> None:
+        """Redimensiona los iconos para que ocupen el tamano real de los botones."""
+        buttons = {"config": getattr(self, "btn_config", None), "exec": getattr(self, "btn_exec", None)}
+        # Espera a que los botones tengan dimensiones reales
+        if not all(btn and btn.winfo_width() > 1 and btn.winfo_height() > 1 for btn in buttons.values()):
+            self.root.after(30, self._update_sidebar_icons)
+            return
+
+        for key, btn in buttons.items():
+            raw = self.sidebar_icons_raw.get(key)
+            if not raw:
+                continue
+            width, height = btn.winfo_width(), btn.winfo_height()
+            margin = 50
+            target_w = max(width - margin, 1)
+            scale = target_w / max(raw.width, 1)
+            target_h = max(int(raw.height * scale), 1)
+            resized = raw.resize((target_w, target_h), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(resized)
+            self.sidebar_icons[key] = photo
+            btn.configure(image=photo, text="")
+
     def _build_display_area(self, container: tk.Frame) -> None:
         frame_video_inner = tk.Frame(container, bg="#7f7f7f", width=640, height=480, bd=1, relief=tk.SOLID)
         frame_video_inner.pack(side="top", pady=15)
@@ -111,24 +152,34 @@ class GUICompuApp:
         container.rowconfigure(0, weight=1)
         container.rowconfigure(1, weight=1)
         container.columnconfigure(0, weight=1)
-        btn_config = tk.Button(
+        config_icon = self.sidebar_icons.get("config")
+        self.btn_config = tk.Button(
             container,
-            text="Config",
+            image=config_icon,
+            text="" if config_icon else "Config",
             bg="#4a4a4a",
             fg="white",
             bd=0,
+            width=10,
+            height=4,
+            compound="center",
             command=lambda: self._show_mode("config"),
         )
-        btn_config.grid(row=0, column=0, sticky="nsew")
-        btn_exec = tk.Button(
+        self.btn_config.grid(row=0, column=0, sticky="nsew")
+        exec_icon = self.sidebar_icons.get("exec")
+        self.btn_exec = tk.Button(
             container,
-            text="Ejecucion",
+            image=exec_icon,
+            text="" if exec_icon else "Ejecucion",
             bg="#5c5c5c",
             fg="white",
             bd=0,
+            width=10,
+            height=4,
+            compound="center",
             command=lambda: self._show_mode("exec"),
         )
-        btn_exec.grid(row=1, column=0, sticky="nsew")
+        self.btn_exec.grid(row=1, column=0, sticky="nsew")
 
     def _build_exec_controls(self, container: tk.Frame) -> None:
         # Evita que los hijos modifiquen el tamano del panel de parametros
