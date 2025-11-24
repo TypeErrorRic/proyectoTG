@@ -1,9 +1,10 @@
 """
-Basic interface for visualizing the segmentation.
+Interfaz con el layout de GUI_compu y la logica funcional de segmentacion.
 
-Includes top buttons (Configuration and Execution) and,
-on the execution tab, shows the image returned by AlgoritmosSegmentacion.
-The capture runs on a separate thread and is limited to 20 fps.
+El panel lateral alterna entre Configuracion y Ejecucion; en el modo de
+ejecucion se muestra la imagen devuelta por AlgoritmosSegmentacion con
+botones para cambiar entre prueba y transmision. La captura se ejecuta en
+un hilo secundario limitado a ~20 fps.
 """
 
 import os
@@ -31,23 +32,17 @@ DISPLAY_MAX_H = 480
 # FPS limit for running AlgoritmosSegmentacion
 TARGET_FRAME_TIME = 1.0 / 20.0  # 20 fps max
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
-# Fixed panel sizes to keep layout static
-SIDE_PANEL_W = 240
-EXEC_PANEL_H = 150
-PARAM_PANEL_H = 320
-DB_PANEL_H = 320
-LOGO_PANEL_H = 220
-COLUMN_HEIGHT = DISPLAY_MAX_H + 160
+
 
 class SegmentacionApp:
     """
-    Main window with two tabs. The execution tab continually displays
-    the output from AlgoritmosSegmentacion.
+    Ventana principal: usa el layout de GUI_compu y mantiene la logica de
+    captura/segmentacion del proyecto.
     """
 
     def __init__(self, root: tk.Tk, mode: str = "prueba") -> None:
         self.root = root
-        self.mode = mode  # "camera" or "prueba" (test)
+        self.mode = mode  # "camera" o "prueba"
         self.active_page = "ejecucion"
         self.running = True
 
@@ -60,31 +55,31 @@ class SegmentacionApp:
         self._last_frame_ts = 0.0
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
+        self.logo_image: Optional[ImageTk.PhotoImage] = None
+        self.sidebar_icons_raw: dict[str, Image.Image] = {}
+        self.sidebar_icons: dict[str, ImageTk.PhotoImage] = {}
 
         self._ensure_upload_dir()
         self._configure_window()
-        self._build_layout()
-        self._build_pages()
+        self._build_grid()
+        self.sidebar_icons_raw = self._load_sidebar_icons()
+        self._build_panels()
+        self.root.after(30, self._update_sidebar_icons)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._show_mode("exec")
+        self._set_mode(self.mode, update_header=True)
         self._heartbeat()
 
     def _configure_window(self) -> None:
         self.root.title("Segmentacion")
-        self.root.geometry("1100x700")
-        self.root.configure(bg="#e6e6e6")
+        self.root.geometry("1200x600")
+        self.root.resizable(False, False)
+        self.root.configure(bg="#2f2f2f")
         try:
-            self.root.state("zoomed")
+            self.root.attributes("-fullscreen", False)
         except Exception:
             pass
-        try:
-            self.root.attributes("-zoomed", True)
-        except Exception:
-            # Fallback for environments that do not support zoomed attribute
-            self.root.update_idletasks()
-            w = self.root.winfo_screenwidth()
-            h = self.root.winfo_screenheight()
-            self.root.geometry(f"{w}x{h}+0+0")
 
     def _ensure_upload_dir(self) -> None:
         """
@@ -92,153 +87,154 @@ class SegmentacionApp:
         """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-    def _build_icons(self) -> None:
-        self.icon_config = self._load_image_icon("analitica.png")
-        self.icon_exec = self._load_image_icon("camara.png")
-
-    def _load_image_icon(self, filename: str) -> ImageTk.PhotoImage:
-        """
-        Loads an icon from the images folder and resizes it to the sidebar size.
-        """
-        icon_path = os.path.join(os.path.dirname(__file__), "images", filename)
-        img = Image.open(icon_path).convert("RGBA")
-        img = img.resize((48, 48), Image.LANCZOS)
-        return ImageTk.PhotoImage(image=img)
-
     def _make_icon(self, kind: str) -> ImageTk.PhotoImage:
-        """
-        Draws a simple icon using PIL so we do not depend on external assets.
-        """
-        size = 48
+        """Fallback icon generator when image assets are missing."""
+        size = 64
         accent = "#f2f2f2"
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-
         if kind == "gear":
-            draw.ellipse((10, 10, 38, 38), outline=accent, width=3)
-            draw.rectangle((22, 4, 26, 44), fill=accent)
-            draw.rectangle((4, 22, 44, 26), fill=accent)
-            draw.ellipse((18, 18, 30, 30), fill="#5a5a5a", outline=accent, width=2)
+            draw.ellipse((12, 12, 52, 52), outline=accent, width=4)
+            draw.rectangle((30, 6, 34, 58), fill=accent)
+            draw.rectangle((6, 30, 58, 34), fill=accent)
+            draw.ellipse((22, 22, 42, 42), fill="#5a5a5a", outline=accent, width=3)
         else:
-            draw.rounded_rectangle((6, 12, 42, 36), radius=6, outline=accent, width=3)
-            draw.rectangle((28, 6, 40, 14), fill=accent)
-            draw.ellipse((18, 16, 30, 28), outline=accent, width=3)
-
+            draw.rounded_rectangle((10, 18, 54, 46), radius=8, outline=accent, width=4)
+            draw.rectangle((38, 10, 52, 20), fill=accent)
+            draw.ellipse((26, 22, 40, 36), outline=accent, width=3)
         return ImageTk.PhotoImage(image=img)
 
-    def _build_layout(self) -> None:
-        self._build_icons()
+    def _load_sidebar_icons(self) -> dict[str, Image.Image]:
+        """Carga los iconos en bruto para los botones laterales."""
+        icons: dict[str, Image.Image] = {}
+        assets = {"config": "analitica.png", "exec": "camara.png"}
+        base_path = os.path.join(os.path.dirname(__file__), "images")
 
-        shell = tk.Frame(self.root, bg="#e6e6e6")
-        shell.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
-        shell.columnconfigure(1, weight=1)
-        shell.rowconfigure(0, weight=1)
+        for key, filename in assets.items():
+            path = os.path.join(base_path, filename)
+            try:
+                img = Image.open(path).convert("RGBA")
+                icons[key] = img
+            except Exception as exc:
+                print(f"[GUI] no se pudo cargar icono {filename}: {exc}")
+                fallback_kind = "gear" if key == "config" else "camera"
+                self.sidebar_icons[key] = self._make_icon(fallback_kind)
 
-        self.sidebar = tk.Frame(shell, bg="#565656", width=90)
-        self.sidebar.grid(row=0, column=0, sticky="ns", padx=(4, 8), pady=4)
-        self.sidebar.grid_propagate(False)
-        self.sidebar.rowconfigure(0, weight=1, uniform="sidebar")
-        self.sidebar.rowconfigure(1, weight=1, uniform="sidebar")
-        self.sidebar.columnconfigure(0, weight=1)
+        return icons
 
-        self.container = tk.Frame(shell, bg="#e6e6e6")
-        self.container.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=4)
+    def _update_sidebar_icons(self) -> None:
+        """Redimensiona los iconos para que ocupen el tamano real de los botones."""
+        buttons = {"config": getattr(self, "btn_config", None), "exec": getattr(self, "btn_exec", None)}
+        if not all(btn and btn.winfo_width() > 1 and btn.winfo_height() > 1 for btn in buttons.values()):
+            self.root.after(30, self._update_sidebar_icons)
+            return
 
-        # Pages (shown/hidden via pack in _show_page)
-        self.page_config = tk.Frame(self.container, bg="#e6e6e6")
-        self.page_exec = tk.Frame(self.container, bg="#e6e6e6")
+        for key, btn in buttons.items():
+            raw = self.sidebar_icons_raw.get(key)
+            if not raw:
+                continue
+            width, height = btn.winfo_width(), btn.winfo_height()
+            margin = 50
+            target_w = max(width - margin, 1)
+            scale = target_w / max(raw.width, 1)
+            target_h = max(int(raw.height * scale), 1)
+            resized = raw.resize((target_w, target_h), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(resized)
+            self.sidebar_icons[key] = photo
+            btn.configure(image=photo, text="")
 
+    def _build_grid(self) -> None:
+        # Columnas: 40 | 670 | 280 | 200 -> 1190 (aprox 1200 con bordes)
+        self.root.grid_columnconfigure(0, minsize=40)
+        self.root.grid_columnconfigure(1, minsize=670)
+        self.root.grid_columnconfigure(2, minsize=280)
+        self.root.grid_columnconfigure(3, minsize=200)
+        # Filas: 6 x 100 -> 600
+        for r in range(6):
+            self.root.grid_rowconfigure(r, minsize=100)
+
+    def _build_panels(self) -> None:
+        # Barra lateral
+        frame_sidebar = tk.Frame(self.root, bg="#333333")
+        frame_sidebar.grid(row=0, column=0, rowspan=6, sticky="nsew")
+        self._build_sidebar(frame_sidebar)
+
+        # Panel de video
+        frame_video = tk.Frame(self.root, bg="#999999")
+        frame_video.grid(row=0, column=1, rowspan=6, sticky="nsew")
+        self._build_display_area(frame_video)
+
+        # Panel de parametros ocupa toda la columna (incluye botones de modo)
+        frame_params = tk.Frame(self.root, bg="#999999")
+        frame_params.grid(row=0, column=2, rowspan=6, sticky="nsew")
+        self._build_exec_controls(frame_params)
+
+        # Panel de base de datos (filas 0-3) -> columna 3
+        frame_db = tk.Frame(self.root, bg="#999999")
+        frame_db.grid(row=0, column=3, rowspan=4, sticky="nsew")
+        self._build_db_panel(frame_db)
+
+        # Panel de logo (filas 4-5, columna 3)
+        frame_logo = tk.Frame(self.root, bg="#999999")
+        frame_logo.grid(row=4, column=3, rowspan=2, sticky="nsew")
+        self._build_logo(frame_logo)
+
+        # Panel de configuracion a pantalla completa (excepto sidebar)
+        frame_config = tk.Frame(self.root, bg="#cccccc")
+        frame_config.grid(row=0, column=1, rowspan=6, columnspan=3, sticky="nsew")
+        self._build_config_placeholder(frame_config)
+        frame_config.grid_remove()
+
+        # Referencias
+        self.frames = {
+            "sidebar": frame_sidebar,
+            "video": frame_video,
+            "params": frame_params,
+            "db": frame_db,
+            "logo": frame_logo,
+            "config": frame_config,
+        }
+
+    def _build_sidebar(self, container: tk.Frame) -> None:
+        container.rowconfigure(0, weight=1)
+        container.rowconfigure(1, weight=1)
+        container.columnconfigure(0, weight=1)
+        config_icon = self.sidebar_icons.get("config")
         self.btn_config = tk.Button(
-            self.sidebar,
-            image=self.icon_config,
-            bg="#5a5a5a",
-            activebackground="#707070",
+            container,
+            image=config_icon,
+            text="" if config_icon else "Config",
+            bg="#4a4a4a",
             fg="white",
-            bd=2,
-            relief=tk.RIDGE,
-            highlightthickness=0,
-            command=lambda: self._show_page("configuracion"),
+            bd=0,
+            width=10,
+            height=4,
+            compound="center",
+            command=lambda: self._show_mode("config"),
         )
         self.btn_config.grid(row=0, column=0, sticky="nsew")
-
+        exec_icon = self.sidebar_icons.get("exec")
         self.btn_exec = tk.Button(
-            self.sidebar,
-            image=self.icon_exec,
-            bg="#5a5a5a",
-            activebackground="#707070",
+            container,
+            image=exec_icon,
+            text="" if exec_icon else "Ejecucion",
+            bg="#5c5c5c",
             fg="white",
-            bd=2,
-            relief=tk.RIDGE,
-            highlightthickness=0,
-            command=lambda: self._show_page("ejecucion"),
+            bd=0,
+            width=10,
+            height=4,
+            compound="center",
+            command=lambda: self._show_mode("exec"),
         )
         self.btn_exec.grid(row=1, column=0, sticky="nsew")
 
-    def _build_pages(self) -> None:
-        config_card = tk.Frame(self.page_config, bg="#7f7f7f", bd=2, relief=tk.GROOVE)
-        config_card.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        label_config = tk.Label(
-            config_card,
-            text="Configuracion",
-            bg="#7f7f7f",
-            fg="#1f1f1f",
-            font=("Segoe UI", 16, "bold"),
-            anchor="center",
-            padx=20,
-            pady=20,
-        )
-        label_config.pack(expand=True)
-
-        # Execution content: split into left (video) and two right columns (controls)
-        self.page_exec.rowconfigure(0, weight=0)
-        self.page_exec.columnconfigure(0, weight=0)
-        self.page_exec.columnconfigure(1, weight=0)
-        self.page_exec.columnconfigure(2, weight=0)
-
-        left_panel = tk.Frame(
-            self.page_exec,
-            bg="#e6e6e6",
-            width=DISPLAY_MAX_W + 20,
-            height=COLUMN_HEIGHT,
-        )
-        left_panel.grid(row=0, column=0, sticky="nw", padx=(0, 6), pady=6)
-        left_panel.grid_propagate(False)
-
-        video_card = tk.Frame(
-            left_panel,
-            bg="#bfbfbf",
-            bd=2,
-            relief=tk.GROOVE,
-            width=DISPLAY_MAX_W + 10,
-            height=COLUMN_HEIGHT,
-        )
-        video_card.pack(fill=tk.BOTH, expand=True)
-        video_card.pack_propagate(False)
-
-        self.header_label = tk.Label(
-            video_card,
-            text="Exactitud de la Medicion (Modo prueba seleccionado)",
-            bg="#bfbfbf",
-            fg="#1f1f1f",
-            font=("Segoe UI", 11, "bold"),
-            anchor="w",
-            padx=14,
-            pady=10,
-        )
-        self.header_label.pack(fill=tk.X)
-
-        display_holder = tk.Frame(
-            video_card,
-            bg="#7f7f7f",
-            width=DISPLAY_MAX_W,
-            height=DISPLAY_MAX_H,
-        )
-        display_holder.pack(padx=10, pady=12)
-        display_holder.pack_propagate(False)
+    def _build_display_area(self, container: tk.Frame) -> None:
+        frame_video_inner = tk.Frame(container, bg="#7f7f7f", width=DISPLAY_MAX_W, height=DISPLAY_MAX_H, bd=1, relief=tk.SOLID)
+        frame_video_inner.pack(side="top", pady=15)
+        frame_video_inner.pack_propagate(False)
 
         self.display_area = tk.Label(
-            display_holder,
+            frame_video_inner,
             text="Esperando imagen...",
             bg="#7f7f7f",
             fg="white",
@@ -246,315 +242,283 @@ class SegmentacionApp:
             bd=0,
             relief=tk.FLAT,
             anchor="center",
-            compound=tk.TOP,
+            compound="top",
             padx=10,
             pady=10,
         )
-        self.display_area.pack(fill=tk.BOTH, expand=True)
+        self.display_area.pack(fill="both", expand=True)
 
-        footer = tk.Label(
-            video_card,
-            text="Camino transitable / Puertas / Muros",
-            bg="#bfbfbf",
-            fg="#222222",
-            font=("Segoe UI", 10),
-            anchor="w",
-            padx=12,
-            pady=6,
-        )
-        footer.pack(fill=tk.X)
-
-        # Middle column: execution modes and parameters
-        mid_column = tk.Frame(
-            self.page_exec,
-            bg="#e6e6e6",
-            width=SIDE_PANEL_W,
-            height=COLUMN_HEIGHT,
-        )
-        mid_column.grid(row=0, column=1, sticky="nw", padx=6, pady=6)
-        mid_column.grid_propagate(False)
-
-        mode_card = tk.Frame(
-            mid_column,
-            bg="#ededed",
+        mode_panel = tk.Frame(
+            container,
+            bg="#7f7f7f",
             bd=1,
             relief=tk.SOLID,
-            padx=10,
-            pady=10,
-            height=EXEC_PANEL_H,
-            width=SIDE_PANEL_W,
+            width=DISPLAY_MAX_W,
+            height=80,
+            highlightthickness=0,
         )
-        mode_card.pack(fill=tk.X, pady=(0, 6))
-        mode_card.pack_propagate(False)
+        mode_panel.pack(side="top", pady=0)
+        mode_panel.pack_propagate(False)
 
-        mode_title = tk.Label(
-            mode_card,
-            text="Modos de Ejecucion",
-            bg="#ededed",
-            fg="#2d2d2d",
-            font=("Segoe UI", 12, "bold"),
-            pady=4,
+        self.mode_label_text = tk.StringVar(
+            value="Modo de ejecucion: Camara RGB-D" if self.mode == "camera" else "Modo de ejecucion: Dataset de pruebas"
         )
-        mode_title.pack()
+        mode_label = tk.Label(
+            mode_panel,
+            textvariable=self.mode_label_text,
+            bg="#7f7f7f",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+        )
+        mode_label.pack(side="top", pady=(6, 2))
 
-        btn_group = tk.Frame(mode_card, bg="#ededed")
-        btn_group.pack(pady=6)
+        indicators = tk.Frame(mode_panel, bg="#7f7f7f")
+        indicators.pack(side="top", pady=(0, 10))
+        for color, text in (("#e53935", "Suelo"), ("#00b86b", "Muro"), ("#1e88e5", "Puerta")):
+            item = tk.Frame(indicators, bg="#7f7f7f")
+            item.pack(side="left", padx=12)
+            dot = tk.Canvas(item, width=32, height=32, highlightthickness=0, bg="#7f7f7f", bd=0)
+            dot.create_oval(4, 4, 28, 28, fill=color, outline=color)
+            dot.pack(side="left")
+            lbl = tk.Label(item, text=text, bg="#7f7f7f", fg="white", font=("Segoe UI", 11, "bold"))
+            lbl.pack(side="left", padx=8)
+
+    def _build_exec_controls(self, container: tk.Frame) -> None:
+        # Evita que los hijos modifiquen el tamano del panel de parametros
+        container.pack_propagate(False)
+        container_bg = container.cget("bg")
+        row_holder = tk.Frame(container, bg=container_bg)
+        row_holder.pack(fill="x", padx=8, pady=15)
 
         self.btn_mode_test = tk.Button(
-            btn_group,
+            row_holder,
             text="Prueba",
             bg="#e53935",
-            activebackground="#f1625f",
             fg="white",
             bd=0,
-            padx=18,
-            pady=10,
             font=("Segoe UI", 10, "bold"),
+            padx=12,
+            pady=10,
             command=lambda: self._set_mode("prueba"),
         )
-        self.btn_mode_test.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
+        self.btn_mode_test.pack(side="left", padx=6, expand=True, fill="x")
 
         self.btn_mode_cam = tk.Button(
-            btn_group,
+            row_holder,
             text="Transmision",
-            bg="#c62828",
-            activebackground="#e34f4f",
+            bg="#e53935",
             fg="white",
             bd=0,
-            padx=18,
-            pady=10,
             font=("Segoe UI", 10, "bold"),
+            padx=12,
+            pady=10,
             command=lambda: self._set_mode("camera"),
         )
-        self.btn_mode_cam.pack(side=tk.LEFT, padx=6, ipadx=4, ipady=2)
+        self.btn_mode_cam.pack(side="left", padx=6, expand=True, fill="x")
 
-        params_card = tk.Frame(
-            mid_column,
-            bg="#f2f2f2",
-            bd=2,
-            relief=tk.SOLID,
-            padx=8,
-            pady=8,
-            height=PARAM_PANEL_H,
-            width=SIDE_PANEL_W,
+        params_panel = tk.Frame(
+            container,
+            bg="#b3b3b3",
+            bd=0,
+            relief=tk.FLAT,
+            highlightthickness=0,
         )
-        params_card.pack(fill=tk.X)
-        params_card.pack_propagate(False)
-        params_card.columnconfigure(0, weight=1)
-        params_card.rowconfigure(1, weight=1)
+        params_panel.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        params_panel.columnconfigure(0, weight=1)
+        params_panel.rowconfigure(1, weight=1)
 
         params_title = tk.Label(
-            params_card,
-            text="Parametros Configuracion",
-            bg="#f2f2f2",
-            fg="#2d2d2d",
+            params_panel,
+            text="Panel de parametros",
+            bg="#b3b3b3",
+            fg="#1f1f1f",
             font=("Segoe UI", 11, "bold"),
-            pady=6,
+            anchor="center",
+            padx=8,
         )
-        params_title.grid(row=0, column=0, sticky="ew")
+        params_title.grid(row=0, column=0, sticky="ew", pady=(8, 4))
 
-        params_box = tk.Label(
-            params_card,
-            text="Resumen de parametros de configuracion.",
-            bg="white",
-            fg="#555555",
-            font=("Segoe UI", 10),
-            bd=1,
-            relief=tk.SOLID,
-            padx=12,
-            pady=12,
-            anchor="n",
-            justify=tk.LEFT,
-        )
-        params_box.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
-
-        # Right column: database selector and logo
-        right_column = tk.Frame(
-            self.page_exec,
-            bg="#e6e6e6",
-            width=SIDE_PANEL_W,
-            height=COLUMN_HEIGHT,
-        )
-        right_column.grid(row=0, column=2, sticky="nw", padx=(6, 0), pady=6)
-        right_column.grid_propagate(False)
-
-        selector_card = tk.Frame(
-            right_column,
+        params_body = tk.Label(
+            params_panel,
+            text="Espacio reservado para los\ncontroles de configuracion.",
             bg="#f2f2f2",
-            bd=2,
-            relief=tk.SOLID,
+            fg="#333333",
+            font=("Segoe UI", 10),
+            bd=0,
+            relief=tk.FLAT,
+            justify=tk.LEFT,
+            anchor="nw",
             padx=10,
             pady=10,
-            height=DB_PANEL_H,
-            width=SIDE_PANEL_W,
         )
-        selector_card.pack(fill=tk.X, pady=(0, 6))
-        selector_card.pack_propagate(False)
-        selector_card.columnconfigure(0, weight=1)
+        params_body.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
-        selector_title = tk.Label(
-            selector_card,
-            text="Selector de Base de Datos",
-            bg="#f2f2f2",
-            fg="#2d2d2d",
-            font=("Segoe UI", 11, "bold"),
-            pady=4,
+    def _build_db_panel(self, container: tk.Frame) -> None:
+        """Construye el encabezado del panel de base de datos."""
+        container_bg = container.cget("bg")
+        panel = tk.Frame(container, bg="#b3b3b3", width=165, height=380, highlightthickness=0, bd=0)
+        panel.pack(anchor="center", padx=12, pady=8)
+        panel.pack_propagate(False)
+
+        header = tk.Label(
+            panel,
+            text="Control de\nBase de datos",
+            bg="#b3b3b3",
+            fg="black",
+            font=("Segoe UI", 12, "bold"),
+            anchor="center",
+            pady=8,
         )
-        selector_title.grid(row=0, column=0, sticky="ew")
+        header.pack(side="top", fill="x", padx=10, pady=(10, 6))
 
-        selector_top = tk.Frame(selector_card, bg="#f2f2f2")
-        selector_top.grid(row=1, column=0, sticky="ew", pady=(6, 4))
-        selector_top.columnconfigure(1, weight=1)
+        body = tk.Frame(panel, bg=container_bg)
+        body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        number_label = tk.Label(selector_top, text="Numero", bg="#f2f2f2", fg="#2d2d2d", font=("Segoe UI", 10))
-        number_label.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        content = tk.Frame(body, bg=container_bg)
+        content.pack(fill="both", expand=True)
 
-        self.db_number_entry = tk.Entry(selector_top, width=10, font=("Segoe UI", 10))
-        self.db_number_entry.grid(row=0, column=1, sticky="we", padx=(0, 6))
+        slider = tk.Scale(
+            content,
+            from_=0,
+            to=100,
+            orient=tk.VERTICAL,
+            length=140,
+            showvalue=False,
+            bg=container_bg,
+            highlightthickness=0,
+            troughcolor="#d5d5d5",
+        )
+        slider.pack(side="left", fill="y", pady=6, padx=(10, 0))
 
+        controls = tk.Frame(content, bg=container_bg)
+        controls.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=6)
+
+        input_row = tk.Frame(controls, bg=container_bg)
+        input_row.pack(side="top", anchor="n", pady=(0, 10), fill="x")
+        entry_numero = tk.Entry(input_row, width=15, font=("Segoe UI", 10))
+        entry_numero.pack(side="left", padx=(0, 10), ipady=6)
+        entry_numero.insert(0, "Numero")
         btn_aplicar = tk.Button(
-            selector_top,
+            controls,
             text="Aplicar",
             bg="#00b86b",
             activebackground="#21d087",
             fg="white",
             bd=0,
-            padx=10,
-            pady=6,
+            padx=15,
+            pady=8,
             font=("Segoe UI", 9, "bold"),
-            command=lambda: None,
         )
-        btn_aplicar.grid(row=0, column=2, sticky="e")
+        btn_aplicar.pack(side="top", anchor="n", fill="x", padx=(0, 10))
 
-        selector_scale = tk.Scale(
-            selector_card,
-            from_=0,
-            to=100,
-            orient=tk.HORIZONTAL,
-            length=200,
-            showvalue=False,
-            bg="#f2f2f2",
-            highlightthickness=0,
-            troughcolor="#d5d5d5",
-        )
-        selector_scale.grid(row=2, column=0, sticky="ew", pady=(4, 10))
-
-        nav_btns = tk.Frame(selector_card, bg="#f2f2f2")
-        nav_btns.grid(row=3, column=0, pady=(4, 0))
-
-        btn_prev = tk.Button(
-            nav_btns,
-            text="Regresar",
+        nav_row = tk.Frame(panel, bg=panel.cget("bg"))
+        nav_row.pack(side="bottom", fill="x", padx=5, pady=(0, 10))
+        btn_atras = tk.Button(
+            nav_row,
+            text="Atras",
             bg="#e53935",
             activebackground="#f1625f",
             fg="white",
             bd=0,
-            padx=14,
-            pady=8,
-            width=10,
+            padx=12,
+            pady=6,
             font=("Segoe UI", 9, "bold"),
-            command=lambda: None,
         )
-        btn_prev.pack(side=tk.LEFT, padx=6)
-
-        btn_next = tk.Button(
-            nav_btns,
+        btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 6))
+        btn_siguiente = tk.Button(
+            nav_row,
             text="Siguiente",
             bg="#00b86b",
             activebackground="#21d087",
             fg="white",
             bd=0,
-            padx=14,
-            pady=8,
-            width=10,
+            padx=12,
+            pady=6,
             font=("Segoe UI", 9, "bold"),
-            command=lambda: None,
         )
-        btn_next.pack(side=tk.LEFT, padx=6)
+        btn_siguiente.pack(side="left", expand=True, fill="x", padx=(6, 0))
 
-        db_image_card = tk.Frame(
-            right_column,
-            bg="#f2f2f2",
-            bd=2,
-            relief=tk.SOLID,
-            padx=8,
-            pady=8,
-            height=LOGO_PANEL_H,
-            width=SIDE_PANEL_W,
-        )
-        db_image_card.pack(fill=tk.X)
-        db_image_card.pack_propagate(False)
+    def _build_logo(self, container: tk.Frame) -> None:
+        """Carga y centra el logo en el panel sin cambiar su tamano."""
+        container_bg = container.cget("bg")
+        max_w = max(container.winfo_reqwidth(), container.winfo_width(), 1)
+        max_h = max(container.winfo_reqheight(), container.winfo_height(), 1)
+        if max_w <= 1:
+            max_w = 200
+        if max_h <= 1:
+            max_h = 200
 
-        db_image_label = tk.Label(
-            db_image_card,
-            text="",
-            bg="#f2f2f2",
-            fg="#2d2d2d",
-            font=("Segoe UI", 10),
-            anchor="center",
-        )
-        db_image_label.pack(fill=tk.BOTH, expand=True)
-
-        self.db_image_ref = None
-        img_path = os.path.join(os.path.dirname(__file__), "images", "70_Rojo.jpg")
+        img_path = os.path.join(os.path.dirname(__file__), "images", "univalle.png")
         try:
             img = Image.open(img_path).convert("RGBA")
-            max_w = 260
-            if img.width > max_w:
-                ratio = max_w / max(img.width, 1)
+            ratio = min(max_w / max(img.width, 1), max_h / max(img.height, 1), 1.0)
+            if ratio < 1.0:
                 new_size = (int(img.width * ratio), int(img.height * ratio))
                 img = img.resize(new_size, Image.LANCZOS)
-            self.db_image_ref = ImageTk.PhotoImage(image=img)
-            db_image_label.configure(image=self.db_image_ref)
+            self.logo_image = ImageTk.PhotoImage(img)
+            logo_label = tk.Label(container, image=self.logo_image, bg=container_bg, bd=0)
+            logo_label.pack(expand=True)
         except Exception as exc:
-            print(f"[GUI] no se pudo cargar imagen '{img_path}': {exc}")
-            db_image_label.configure(text="Imagen no disponible", fg="#777777")
+            fallback = tk.Label(
+                container,
+                text="No se pudo cargar\n70_rojo.png",
+                bg=container_bg,
+                fg="white",
+                font=("Segoe UI", 10, "bold"),
+                justify="center",
+            )
+            fallback.pack(expand=True)
+            print(f"[GUI] error cargando logo: {exc}")
 
-        self._show_page("ejecucion")
-        # Sync initial mode state
-        self._set_mode(self.mode)
-        # Start capture thread
-        self._start_worker()
-
-    def _show_page(self, page: str) -> None:
-        self.active_page = page
-
-        if page == "configuracion":
-            self.page_exec.pack_forget()
-            self.page_config.pack(fill=tk.BOTH, expand=True)
-            self._update_sidebar(active="configuracion")
-        else:
-            self.page_config.pack_forget()
-            self.page_exec.pack(fill=tk.BOTH, expand=True)
-            self._update_sidebar(active="ejecucion")
+    def _build_config_placeholder(self, container: tk.Frame) -> None:
+        container.configure(bg="#d9d9d9")
+        lbl = tk.Label(
+            container,
+            text="Panel de configuracion",
+            bg="#d9d9d9",
+            fg="#1f1f1f",
+            font=("Segoe UI", 16, "bold"),
+            pady=20,
+        )
+        lbl.pack(expand=True)
 
     def _update_sidebar(self, active: str) -> None:
-        if active == "configuracion":
+        if active == "config":
             self.btn_config.configure(bg="#3b3b3b", relief=tk.SOLID)
-            self.btn_exec.configure(bg="#5a5a5a", relief=tk.RIDGE)
+            self.btn_exec.configure(bg="#5c5c5c", relief=tk.RIDGE)
         else:
             self.btn_exec.configure(bg="#3b3b3b", relief=tk.SOLID)
-            self.btn_config.configure(bg="#5a5a5a", relief=tk.RIDGE)
+            self.btn_config.configure(bg="#4a4a4a", relief=tk.RIDGE)
+
+    def _show_mode(self, mode: str) -> None:
+        self.active_page = "configuracion" if mode == "config" else "ejecucion"
+        if mode == "config":
+            for key in ("video", "params", "db", "logo"):
+                self.frames[key].grid_remove()
+            self.frames["config"].grid()
+        else:
+            self.frames["config"].grid_remove()
+            for key in ("video", "params", "db", "logo"):
+                self.frames[key].grid()
+        self._update_sidebar(mode)
 
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
-        Switches the mode and updates button styles.
+        Cambia el modo y actualiza estilos de los botones.
         """
         self.mode = mode
         if mode == "camera":
-            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg="#b71c1c")
-            self.btn_mode_test.configure(relief=tk.RAISED, bg="#e53935")
+            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg="#00b86b", activebackground="#21d087")
+            self.btn_mode_test.configure(relief=tk.RAISED, bg="#e53935", activebackground="#f1625f")
+            self.mode_label_text.set("Modo de ejecucion: Camara RGB-D")
         else:
-            self.btn_mode_test.configure(relief=tk.SUNKEN, bg="#b71c1c")
-            self.btn_mode_cam.configure(relief=tk.RAISED, bg="#c62828")
+            self.btn_mode_test.configure(relief=tk.SUNKEN, bg="#00b86b", activebackground="#21d087")
+            self.btn_mode_cam.configure(relief=tk.RAISED, bg="#e53935", activebackground="#f1625f")
+            self.mode_label_text.set("Modo de ejecucion: Dataset de pruebas")
 
         if update_header:
-            modo_txt = "camera" if mode == "camera" else "prueba"
-            self.header_label.configure(
-                text=f"Exactitud de la Medicion (Modo {modo_txt} seleccionado)"
-            )
-        # Restart worker with new mode
-        self._restart_worker()
+            # Reinicia el hilo con el nuevo modo seleccionado.
+            self._restart_worker()
 
     def _start_worker(self) -> None:
         if self._worker and self._worker.is_alive():
@@ -573,7 +537,7 @@ class SegmentacionApp:
 
     def _worker_loop(self) -> None:
         """
-        Capture thread: runs AlgoritmosSegmentacion and stores the latest frame.
+        Hilo de captura: ejecuta AlgoritmosSegmentacion y guarda el frame mas reciente.
         """
         while not self._stop_event.is_set():
             loop_start = time.perf_counter()
@@ -583,12 +547,11 @@ class SegmentacionApp:
                     with self._frame_lock:
                         self.last_frame = frame
                         self._last_frame_ts = time.perf_counter()
-                # Pause to enforce 20 fps cap (TARGET_FRAME_TIME)
                 elapsed = time.perf_counter() - loop_start
                 sleep_for = max(0.0, TARGET_FRAME_TIME - elapsed)
                 time.sleep(sleep_for)
             except Exception as exc:
-                # Log and throttle to avoid tight error loops
+                # Log y desacelera para evitar bucles de error ajustados
                 print(f"[GUI] error en loop de captura: {exc}")
                 time.sleep(0.05)
 
@@ -598,14 +561,12 @@ class SegmentacionApp:
 
         if self.active_page == "ejecucion":
             self._update_image()
-        # Short interval to avoid choking segmentation; Tkinter queues the refresh.
         self.root.after(10, self._heartbeat)
 
     def _update_image(self) -> None:
         """
-        Fetches the segmented image and draws it on the label.
+        Obtiene la imagen segmentada y la dibuja en la etiqueta.
         """
-        # Read latest frame produced by the thread
         with self._frame_lock:
             frame = None if self.last_frame is None else self.last_frame.copy()
             frame_ts = self._last_frame_ts
@@ -621,11 +582,9 @@ class SegmentacionApp:
         now = time.perf_counter()
         delta = now - frame_ts if frame_ts else 0.0
         if delta > 0:
-            # Production fps, not the UI refresh rate
             self.fps = 1.0 / max(delta, 1e-3)
         self.prev_time = now
 
-        # Draw FPS on the same frame to avoid expensive copies.
         cv2.putText(
             frame,
             f"FPS: {self.fps:.2f}",
@@ -637,7 +596,6 @@ class SegmentacionApp:
             cv2.LINE_AA,
         )
 
-        # Reduce resolution before converting with PIL to minimize overhead.
         h, w = frame.shape[:2]
         scale = min(DISPLAY_MAX_W / max(w, 1), DISPLAY_MAX_H / max(h, 1), 1.0)
         if scale < 1.0:
@@ -671,3 +629,4 @@ def run_app(mode: str = "prueba") -> None:
     root = tk.Tk()
     SegmentacionApp(root, mode=mode)
     root.mainloop()
+
