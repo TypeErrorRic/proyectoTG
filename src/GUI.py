@@ -11,7 +11,7 @@ import os
 import sys
 import time
 import threading
-from typing import Optional
+from typing import Optional, Dict
 
 import cv2
 import tkinter as tk
@@ -56,8 +56,8 @@ class SegmentacionApp:
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
         self.logo_image: Optional[ImageTk.PhotoImage] = None
-        self.sidebar_icons_raw: dict[str, Image.Image] = {}
-        self.sidebar_icons: dict[str, ImageTk.PhotoImage] = {}
+        self.sidebar_icons_raw: Dict[str, Image.Image] = {}
+        self.sidebar_icons: Dict[str, ImageTk.PhotoImage] = {}
 
         self._ensure_upload_dir()
         self._configure_window()
@@ -104,9 +104,9 @@ class SegmentacionApp:
             draw.ellipse((26, 22, 40, 36), outline=accent, width=3)
         return ImageTk.PhotoImage(image=img)
 
-    def _load_sidebar_icons(self) -> dict[str, Image.Image]:
+    def _load_sidebar_icons(self) -> Dict[str, Image.Image]:
         """Carga los iconos en bruto para los botones laterales."""
-        icons: dict[str, Image.Image] = {}
+        icons: Dict[str, Image.Image] = {}
         assets = {"config": "analitica.png", "exec": "camara.png"}
         base_path = os.path.join(os.path.dirname(__file__), "images")
 
