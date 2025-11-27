@@ -43,3 +43,4 @@ Notas:
 Progreso (completadas): 48%  
 `[########################--------------------------]` 12/25  
 ![Progreso 48%](https://img.shields.io/badge/Progreso-48%25-00b86b?labelColor=111&color=00b86b)
+![Gráfico de progreso 48%](https://quickchart.io/chart?c=%7B%0A%20%20type%3A%20%27doughnut%27%2C%0A%20%20data%3A%20%7B%0A%20%20%20%20datasets%3A%20%5B%7B%0A%20%20%20%20%20%20data%3A%20%5B48%2C%2052%5D%2C%0A%20%20%20%20%20%20backgroundColor%3A%20%5B%27%2300b86b%27%2C%20%27%23e5e7eb%27%5D%2C%0A%20%20%20%20%7D%5D%0A%20%20%7D%2C%0A%20%20options%3A%20%7B%0A%20%20%20%20plugins%3A%20%7Blegend%3A%20false%7D%2C%0A%20%20%20%20cutout%3A%20%2770%25%27%0A%20%20%7D%0A%7D)
