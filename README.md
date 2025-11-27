@@ -1,7 +1,3 @@
-# Desarrollo de Trabajo de Grado
-
-Lista de Requirimientos.
-
 ## Aceleración GPU opcional (CuPy)
 
 Este proyecto usa CuPy para acelerar cómputo intensivo en GPU cuando está disponible, manteniendo compatibilidad en CPU (NumPy) sin cambios:
@@ -42,16 +38,16 @@ Notas:
   - [ ] 5.2 Ejecución del protocolo de pruebas en entornos reales para validar la exactitud en el reconocimiento y la funcionalidad del sistema.
   - [ ] 5.3 Realización del registro de los resultados de desempeño, errores y observaciones técnicas.
 
-**Resumen:** Pendientes 21 de 25 actividades (4 completadas).
+**Resumen:** Pendientes 13 de 25 actividades (12 completadas).
 
-Progreso (completadas): 16%  
-`[########------------------------------------------]` 4/25
+Progreso (completadas): 48%  
+`[########################--------------------------]` 12/25
 
-<svg width="140" height="140" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="0% completado">
+<svg width="140" height="140" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="48% completado">
   <circle cx="60" cy="60" r="54" fill="none" stroke="#e5e7eb" stroke-width="12"/>
   <circle cx="60" cy="60" r="54" fill="none" stroke="#00b86b" stroke-width="12"
-          stroke-dasharray="54.29 339.292" stroke-dashoffset="0" transform="rotate(-90 60 60)"/>
+          stroke-dasharray="162.86 339.292" stroke-dashoffset="0" transform="rotate(-90 60 60)"/>
   <text x="60" y="65" text-anchor="middle" font-size="18" font-family="Segoe UI, sans-serif" fill="#111">
-    16%
+    48%
   </text>
 </svg>

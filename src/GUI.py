@@ -1,10 +1,8 @@
 """
-Interfaz con el layout de GUI_compu y la logica funcional de segmentacion.
-
-El panel lateral alterna entre Configuracion y Ejecucion; en el modo de
-ejecucion se muestra la imagen devuelta por AlgoritmosSegmentacion con
-botones para cambiar entre prueba y transmision. La captura se ejecuta en
-un hilo secundario limitado a ~20 fps.
+\brief Interface with a sidebar, video display, parameter controls, database
+header, and logo panel.
+\details Execution mode shows segmented frames with buttons to switch between
+test and streaming; a background thread handles capture at ~20 fps.
 """
 
 import os
@@ -17,7 +15,7 @@ import cv2
 import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
 
-# Adjust sys.path when executed as a script
+# @note Adjust sys.path when executed as a script.
 if __package__ is None or __package__ == "":
     sys.path.insert(
         0,
@@ -26,23 +24,25 @@ if __package__ is None or __package__ == "":
 
 from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 
-# Limit display size to reduce rescale cost (match camera feed 640x480)
+# @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
 DISPLAY_MAX_H = 480
-# FPS limit for running AlgoritmosSegmentacion
-TARGET_FRAME_TIME = 1.0 / 20.0  # 20 fps max
+# @note FPS limit for running AlgoritmosSegmentacion (20 fps max).
+TARGET_FRAME_TIME = 1.0 / 20.0
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
 
 
 class SegmentacionApp:
     """
-    Ventana principal: usa el layout de GUI_compu y mantiene la logica de
-    captura/segmentacion del proyecto.
+    \brief Main window wiring panels with the capture/segmentation logic.
+    \details Connects the sidebar, video view, parameter panel, database
+    controls, and logo panel with the project's capture/segmentation logic.
     """
 
     def __init__(self, root: tk.Tk, mode: str = "prueba") -> None:
         self.root = root
-        self.mode = mode  # "camera" o "prueba"
+        # @note Mode can be "camera" or "prueba".
+        self.mode = mode
         self.active_page = "ejecucion"
         self.running = True
 
@@ -72,6 +72,9 @@ class SegmentacionApp:
         self._heartbeat()
 
     def _configure_window(self) -> None:
+        """
+        \brief Sets up the base window properties (title, size, and style flags).
+        """
         self.root.title("Segmentacion")
         self.root.geometry("1200x600")
         self.root.resizable(False, False)
@@ -83,12 +86,15 @@ class SegmentacionApp:
 
     def _ensure_upload_dir(self) -> None:
         """
-        Creates the uploads folder so users can drop images there.
+        \brief Creates the uploads folder so users can drop images there.
         """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
     def _make_icon(self, kind: str) -> Image.Image:
-        """Fallback icon generator when image assets are missing (returns PIL image)."""
+        """
+        \brief Fallback icon generator when image assets are missing.
+        \return PIL image used as a placeholder icon.
+        """
         size = 64
         accent = "#f2f2f2"
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -105,7 +111,10 @@ class SegmentacionApp:
         return img
 
     def _load_sidebar_icons(self) -> Dict[str, Image.Image]:
-        """Carga los iconos en bruto para los botones laterales."""
+        """
+        \brief Loads the raw icons for the sidebar buttons.
+        \return Mapping from icon key to loaded PIL image.
+        """
         icons: Dict[str, Image.Image] = {}
         assets = {"config": "analitica.png", "exec": "camara.png"}
         base_path = os.path.join(os.path.dirname(__file__), "images")
@@ -123,7 +132,9 @@ class SegmentacionApp:
         return icons
 
     def _update_sidebar_icons(self) -> None:
-        """Redimensiona los iconos para que ocupen el tamano real de los botones."""
+        """
+        \brief Resizes icons so they match the actual size of the buttons.
+        """
         buttons = {"config": getattr(self, "btn_config", None), "exec": getattr(self, "btn_exec", None)}
         if not all(btn and btn.winfo_width() > 1 and btn.winfo_height() > 1 for btn in buttons.values()):
             self.root.after(30, self._update_sidebar_icons)
@@ -144,48 +155,54 @@ class SegmentacionApp:
             btn.configure(image=photo, text="")
 
     def _build_grid(self) -> None:
-        # Columnas: 40 | 670 | 280 | 200 -> 1190 (aprox 1200 con bordes)
+        """
+        \brief Configures the window grid for layout.
+        \details Columns: 40 | 670 | 280 | 200 -> 1190 (approx 1200 with
+        borders). Rows: 6 x 100 -> 600.
+        """
         self.root.grid_columnconfigure(0, minsize=40)
         self.root.grid_columnconfigure(1, minsize=670)
         self.root.grid_columnconfigure(2, minsize=280)
         self.root.grid_columnconfigure(3, minsize=200)
-        # Filas: 6 x 100 -> 600
         for r in range(6):
             self.root.grid_rowconfigure(r, minsize=100)
 
     def _build_panels(self) -> None:
-        # Barra lateral
+        """
+        \brief Creates and arranges the main UI panels.
+        """
+        # @note Sidebar panel.
         frame_sidebar = tk.Frame(self.root, bg="#333333")
         frame_sidebar.grid(row=0, column=0, rowspan=6, sticky="nsew")
         self._build_sidebar(frame_sidebar)
 
-        # Panel de video
+        # @note Video panel.
         frame_video = tk.Frame(self.root, bg="#999999")
         frame_video.grid(row=0, column=1, rowspan=6, sticky="nsew")
         self._build_display_area(frame_video)
 
-        # Panel de parametros ocupa toda la columna (incluye botones de modo)
+        # @note Parameter panel uses the full column (includes mode buttons).
         frame_params = tk.Frame(self.root, bg="#999999")
         frame_params.grid(row=0, column=2, rowspan=6, sticky="nsew")
         self._build_exec_controls(frame_params)
 
-        # Panel de base de datos (filas 0-3) -> columna 3
+        # @note Database panel (rows 0-3) -> column 3.
         frame_db = tk.Frame(self.root, bg="#999999")
         frame_db.grid(row=0, column=3, rowspan=4, sticky="nsew")
         self._build_db_panel(frame_db)
 
-        # Panel de logo (filas 4-5, columna 3)
+        # @note Logo panel (rows 4-5, column 3).
         frame_logo = tk.Frame(self.root, bg="#999999")
         frame_logo.grid(row=4, column=3, rowspan=2, sticky="nsew")
         self._build_logo(frame_logo)
 
-        # Panel de configuracion a pantalla completa (excepto sidebar)
+        # @note Full-screen configuration panel (except sidebar).
         frame_config = tk.Frame(self.root, bg="#cccccc")
         frame_config.grid(row=0, column=1, rowspan=6, columnspan=3, sticky="nsew")
         self._build_config_placeholder(frame_config)
         frame_config.grid_remove()
 
-        # Referencias
+        # @note References to visible frames.
         self.frames = {
             "sidebar": frame_sidebar,
             "video": frame_video,
@@ -196,6 +213,9 @@ class SegmentacionApp:
         }
 
     def _build_sidebar(self, container: tk.Frame) -> None:
+        """
+        \brief Builds the sidebar with configuration and execution buttons.
+        """
         container.rowconfigure(0, weight=1)
         container.rowconfigure(1, weight=1)
         container.columnconfigure(0, weight=1)
@@ -229,6 +249,9 @@ class SegmentacionApp:
         self.btn_exec.grid(row=1, column=0, sticky="nsew")
 
     def _build_display_area(self, container: tk.Frame) -> None:
+        """
+        \brief Builds the video display area and legend.
+        """
         frame_video_inner = tk.Frame(container, bg="#7f7f7f", width=DISPLAY_MAX_W, height=DISPLAY_MAX_H, bd=1, relief=tk.SOLID)
         frame_video_inner.pack(side="top", pady=15)
         frame_video_inner.pack_propagate(False)
@@ -274,7 +297,7 @@ class SegmentacionApp:
 
         indicators = tk.Frame(mode_panel, bg="#7f7f7f")
         indicators.pack(side="top", pady=(0, 10))
-        for color, text in (("#e53935", "Suelo"), ("#00b86b", "Muro"), ("#1e88e5", "Puerta")):
+        for color, text in (("#00b86b", "Suelo"), ("#1e88e5", "Muro"), ("#e53935", "Puerta")):
             item = tk.Frame(indicators, bg="#7f7f7f")
             item.pack(side="left", padx=12)
             dot = tk.Canvas(item, width=32, height=32, highlightthickness=0, bg="#7f7f7f", bd=0)
@@ -284,7 +307,10 @@ class SegmentacionApp:
             lbl.pack(side="left", padx=8)
 
     def _build_exec_controls(self, container: tk.Frame) -> None:
-        # Evita que los hijos modifiquen el tamano del panel de parametros
+        """
+        \brief Builds execution-mode controls and parameter placeholder panel.
+        """
+        # @note Prevent children from resizing the parameters panel.
         container.pack_propagate(False)
         container_bg = container.cget("bg")
         row_holder = tk.Frame(container, bg=container_bg)
@@ -354,7 +380,9 @@ class SegmentacionApp:
         params_body.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
     def _build_db_panel(self, container: tk.Frame) -> None:
-        """Construye el encabezado del panel de base de datos."""
+        """
+        \brief Builds the header for the database panel.
+        """
         container_bg = container.cget("bg")
         panel = tk.Frame(container, bg="#b3b3b3", width=165, height=380, highlightthickness=0, bd=0)
         panel.pack(anchor="center", padx=12, pady=8)
@@ -439,7 +467,9 @@ class SegmentacionApp:
         btn_siguiente.pack(side="left", expand=True, fill="x", padx=(6, 0))
 
     def _build_logo(self, container: tk.Frame) -> None:
-        """Carga y centra el logo en el panel sin cambiar su tamano."""
+        """
+        \brief Loads and centers the logo in the panel without changing its size.
+        """
         container_bg = container.cget("bg")
         max_w = max(container.winfo_reqwidth(), container.winfo_width(), 1)
         max_h = max(container.winfo_reqheight(), container.winfo_height(), 1)
@@ -471,6 +501,9 @@ class SegmentacionApp:
             print(f"[GUI] error cargando logo: {exc}")
 
     def _build_config_placeholder(self, container: tk.Frame) -> None:
+        """
+        \brief Placeholder panel for configuration controls.
+        """
         container.configure(bg="#d9d9d9")
         lbl = tk.Label(
             container,
@@ -483,6 +516,9 @@ class SegmentacionApp:
         lbl.pack(expand=True)
 
     def _update_sidebar(self, active: str) -> None:
+        """
+        \brief Updates sidebar button styles based on the active page.
+        """
         if active == "config":
             self.btn_config.configure(bg="#3b3b3b", relief=tk.SOLID)
             self.btn_exec.configure(bg="#5c5c5c", relief=tk.RIDGE)
@@ -491,6 +527,9 @@ class SegmentacionApp:
             self.btn_config.configure(bg="#4a4a4a", relief=tk.RIDGE)
 
     def _show_mode(self, mode: str) -> None:
+        """
+        \brief Toggles between configuration and execution panels.
+        """
         self.active_page = "configuracion" if mode == "config" else "ejecucion"
         if mode == "config":
             for key in ("video", "params", "db", "logo"):
@@ -504,7 +543,7 @@ class SegmentacionApp:
 
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
-        Cambia el modo y actualiza estilos de los botones.
+        \brief Switches the mode and updates button styles.
         """
         self.mode = mode
         if mode == "camera":
@@ -517,10 +556,13 @@ class SegmentacionApp:
             self.mode_label_text.set("Modo de ejecucion: Dataset de pruebas")
 
         if update_header:
-            # Reinicia el hilo con el nuevo modo seleccionado.
+            # @note Restart the thread with the newly selected mode.
             self._restart_worker()
 
     def _start_worker(self) -> None:
+        """
+        \brief Starts the capture worker thread if not already running.
+        """
         if self._worker and self._worker.is_alive():
             return
         self._stop_event.clear()
@@ -528,6 +570,9 @@ class SegmentacionApp:
         self._worker.start()
 
     def _restart_worker(self) -> None:
+        """
+        \brief Restarts the capture worker thread to apply mode changes.
+        """
         self._stop_event.set()
         if self._worker and self._worker.is_alive():
             self._worker.join(timeout=1.0)
@@ -537,7 +582,9 @@ class SegmentacionApp:
 
     def _worker_loop(self) -> None:
         """
-        Hilo de captura: ejecuta AlgoritmosSegmentacion y guarda el frame mas reciente.
+        \brief Capture thread that runs AlgoritmosSegmentacion.
+        \details Stores the most recent frame and throttles to the target frame
+        rate.
         """
         while not self._stop_event.is_set():
             loop_start = time.perf_counter()
@@ -551,11 +598,14 @@ class SegmentacionApp:
                 sleep_for = max(0.0, TARGET_FRAME_TIME - elapsed)
                 time.sleep(sleep_for)
             except Exception as exc:
-                # Log y desacelera para evitar bucles de error ajustados
+                # @note Log and slow down to avoid tight error loops.
                 print(f"[GUI] error en loop de captura: {exc}")
                 time.sleep(0.05)
 
     def _heartbeat(self) -> None:
+        """
+        \brief Periodic callback to refresh the UI and schedule the next tick.
+        """
         if not self.running:
             return
 
@@ -565,7 +615,7 @@ class SegmentacionApp:
 
     def _update_image(self) -> None:
         """
-        Obtiene la imagen segmentada y la dibuja en la etiqueta.
+        \brief Retrieves the segmented image and draws it on the label.
         """
         with self._frame_lock:
             frame = None if self.last_frame is None else self.last_frame.copy()
@@ -615,6 +665,9 @@ class SegmentacionApp:
         )
 
     def _on_close(self) -> None:
+        """
+        \brief Handles window close: stops threads and releases resources.
+        """
         self.running = False
         try:
             liberar_recursos()
@@ -626,7 +679,9 @@ class SegmentacionApp:
 
 
 def run_app(mode: str = "prueba") -> None:
+    """
+    \brief Entry point to launch the segmentation GUI.
+    """
     root = tk.Tk()
     SegmentacionApp(root, mode=mode)
     root.mainloop()
-
