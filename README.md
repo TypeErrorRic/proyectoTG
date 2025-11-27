@@ -1,14 +1,19 @@
-## Aceleración GPU opcional (CuPy)
 
-Este proyecto usa CuPy para acelerar cómputo intensivo en GPU cuando está disponible, manteniendo compatibilidad en CPU (NumPy) sin cambios:
+# Segmentacion RGB-D embebida para interiores
 
-- `utilities/ransacCellingGround.py` detecta CuPy automáticamente y acelera el RANSAC de planos en GPU; si CuPy no está instalado, usa NumPy.
-- `utilities/tx_fifo.py` minimiza copias y evita conversiones costosas; la parte pesada (detección de plano) ya se ejecuta con CuPy a través del módulo anterior.
+> Trabajo enfocado en el reconocimiento de camino transitable, muro, puertas aprovechando la GPU de la Jetson Nano.
 
-Notas:
+## .git
 
-- Para CuPy, instala la variante adecuada a tu versión de CUDA: consulta https://docs.cupy.dev/ para el comando `pip` correcto.
-- No es obligatorio CuPy; el código funciona íntegramente en CPU.
+[Repositorio .git (Lottie)](https://lottie.host/a6ba3ec7-3044-4141-b3f3-a356e35e1824/QlR0IclYTr.lottie) 
+
+## Requerimientos clave
+
+1. Utilizar una cámara Intel RealSense D435i para la adquisición de datos RGB-D.
+2. Implementar el sistema en la plataforma NVIDIA Jetson Nano 4 GB Developer Kit.
+3. Optimizar el rendimiento del sistema mediante la aceleración por GPU aprovechando CUDA 10.2 disponible en la Jetson Nano.
+4. Desarrollar el sistema en el lenguaje Python versión 3.8.
+5. La interfaz gráfica de usuario (GUI) debe implementarse utilizando la biblioteca Tkinter sobre Tcl/Tk versión 8.6.
 
 ## Actividades y estado
 
@@ -42,5 +47,8 @@ Notas:
 
 Progreso (completadas): 48%  
 `[########################--------------------------]` 12/25  
-![Progreso 48%](https://img.shields.io/badge/Progreso-48%25-00b86b?labelColor=111&color=00b86b)
-![Gráfico de progreso 48%](https://quickchart.io/chart?c=%7B%0A%20%20type%3A%20%27doughnut%27%2C%0A%20%20data%3A%20%7B%0A%20%20%20%20datasets%3A%20%5B%7B%0A%20%20%20%20%20%20data%3A%20%5B48%2C%2052%5D%2C%0A%20%20%20%20%20%20backgroundColor%3A%20%5B%27%2300b86b%27%2C%20%27%23e5e7eb%27%5D%2C%0A%20%20%20%20%7D%5D%0A%20%20%7D%2C%0A%20%20options%3A%20%7B%0A%20%20%20%20plugins%3A%20%7Blegend%3A%20false%7D%2C%0A%20%20%20%20cutout%3A%20%2770%25%27%0A%20%20%7D%0A%7D)
+<p align="center">
+  <img alt="Progreso 48%" src="https://img.shields.io/badge/Progreso-48%25-00b86b?labelColor=111&color=00b86b" />
+  <br/>
+  <img alt="Grafico de progreso 48%" src="https://quickchart.io/chart?c=%7B%0A%20%20type%3A%20%27doughnut%27%2C%0A%20%20data%3A%20%7B%0A%20%20%20%20datasets%3A%20%5B%7B%0A%20%20%20%20%20%20data%3A%20%5B48%2C%2052%5D%2C%0A%20%20%20%20%20%20backgroundColor%3A%20%5B%27%2300b86b%27%2C%20%27%23e5e7eb%27%5D%2C%0A%20%20%20%20%7D%5D%0A%20%20%7D%2C%0A%20%20options%3A%20%7B%0A%20%20%20%20plugins%3A%20%7Blegend%3A%20false%7D%2C%0A%20%20%20%20cutout%3A%20%2770%25%27%0A%20%20%7D%0A%7D" />
+</p>
