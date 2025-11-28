@@ -1,54 +1,53 @@
+# Embedded RGB-D Segmentation for Indoor Spaces
 
-# Segmentacion RGB-D embebida para interiores
-
-> Trabajo enfocado en el reconocimiento de camino transitable, muro, puertas aprovechando la GPU de la Jetson Nano.
+> Work focused on recognizing walkable paths, walls, and doors by leveraging the Jetson Nano GPU.
 
 ## .git
 
-[Repositorio .git (Lottie)](https://lottie.host/a6ba3ec7-3044-4141-b3f3-a356e35e1824/QlR0IclYTr.lottie) 
+[Git repository (Lottie)](https://lottie.host/a6ba3ec7-3044-4141-b3f3-a356e35e1824/QlR0IclYTr.lottie) 
 
-## Requerimientos clave
+## Key requirements
 
-1. Utilizar una cámara Intel RealSense D435i para la adquisición de datos RGB-D.
-2. Implementar el sistema en la plataforma NVIDIA Jetson Nano 4 GB Developer Kit.
-3. Optimizar el rendimiento del sistema mediante la aceleración por GPU aprovechando CUDA 10.2 disponible en la Jetson Nano.
-4. Desarrollar el sistema en el lenguaje Python versión 3.8.
-5. La interfaz gráfica de usuario (GUI) debe implementarse utilizando la biblioteca Tkinter sobre Tcl/Tk versión 8.6.
+1. Use an Intel RealSense D435i camera to capture RGB-D data.
+2. Implement the system on the NVIDIA Jetson Nano 4 GB Developer Kit.
+3. Optimize system performance through GPU acceleration using CUDA 10.2 available on the Jetson Nano.
+4. Develop the system in Python 3.8.
+5. Implement the graphical user interface (GUI) using the Tkinter library on Tcl/Tk 8.6.
 
-## Actividades y estado
+## Activities and status
 
-- [x] ~~1. Realizar una revisión bibliográfica de antecedentes para definir los requerimientos funcionales y no funcionales.~~
-  - [x] ~~1.1 Elaboración de un análisis comparativo de antecedentes técnicos para la identificación de requerimientos funcionales relevantes al sistema propuesto.~~
-  - [x] ~~1.2 Realización de un análisis de las limitaciones comunes en los antecedentes técnicos consultados.~~
-  - [x] ~~1.3 Documentación de los requerimientos funcionales y no funcionales del sistema, con base en las funcionalidades y limitaciones identificadas en los antecedentes.~~
-- [ ] 2. Construir un dataset de prueba con anotaciones para reconocimiento de muros, puertas y caminos transitables en entornos interiores estructurados, a partir de nubes de puntos capturadas o de bases de datos existentes.
-  - [x] ~~2.1 Recolección de datos mediante cámaras RGB-D propias o a partir de bases de datos existentes en entornos interiores estructurados.~~
-  - [x] ~~2.2 Procesamiento de las nubes de puntos para la eliminación de ruido y optimización de la estructura espacial.~~
-  - [x] ~~2.3 Anotación semántica de muros, puertas, caminos transitables y otros objetos en los datos recopilados.~~
-  - [ ] 2.4 Validación del dataset en un formato estructurado para el entrenamiento, con documentación de los resultados obtenidos.
-- [ ] 3. Diseñar un modelo de reconocimiento de muros, puertas, caminos transitables y otros objetos usando el dataset de prueba.
-  - [x] ~~3.1 Elaboración del diagrama conceptual del modelo de reconocimiento, según la metodología SCRUM.~~
-  - [x] ~~3.2 Definición de las historias de usuario en una herramienta de planificación de proyectos, según la metodología SCRUM.~~
-  - [x] ~~3.3 Priorización del backlog con los elementos técnicos y operativos necesarios para el entrenamiento del modelo, conforme a la metodología SCRUM.~~
-  - [ ] 3.4 Diseño del modelo de reconocimiento según la metodología SCRUM.
-  - [ ] 3.5 Elaboración del informe técnico del modelo de reconocimiento junto con el diseño de los esbozos de la interfaz gráfica de usuario (GUI).
-- [ ] 4. Implementar en un sistema embebido el modelo de reconocimiento de muros, puertas, caminos transitables y otros objetos.
-  - [x] ~~4.1 Implementación de la configuración del entorno del sistema embebido para garantizar la compatibilidad y el despliegue del modelo entrenado.~~
-  - [x] ~~4.2 Implementación del módulo de percepción mediante la integración del modelo de reconocimiento en el sistema embebido.~~
-  - [ ] 4.3 Implementación del módulo de procesamiento para aplicar el modelo integrado sobre los datos de entrada, generando salidas clasificadas en condiciones operativas controladas.
-  - [ ] 4.4 Implementación del módulo de realimentación con registro de métricas de desempeño.
-  - [ ] 4.5 Documentación de la integración del modelo de reconocimiento en el sistema embebido.
-- [ ] 5. Validar la funcionalidad del aplicativo, así como su exactitud, en el reconocimiento de las clases seleccionadas del sistema en entornos reales mediante un protocolo de pruebas.
-  - [ ] 5.1 Definición del protocolo de validación de la exactitud del reconocimiento y la funcionalidad, con métricas, escenarios y criterios de aceptación.
-  - [ ] 5.2 Ejecución del protocolo de pruebas en entornos reales para validar la exactitud en el reconocimiento y la funcionalidad del sistema.
-  - [ ] 5.3 Realización del registro de los resultados de desempeño, errores y observaciones técnicas.
+- [x] ~~1. Conduct a literature review to define functional and non-functional requirements.~~
+  - [x] ~~1.1 Prepare a comparative analysis of technical background to identify functional requirements relevant to the proposed system.~~
+  - [x] ~~1.2 Analyze the common limitations found in the consulted technical background.~~
+  - [x] ~~1.3 Document the functional and non-functional requirements of the system based on the identified capabilities and limitations.~~
+- [ ] 2. Build a test dataset with annotations for recognizing walls, doors, and walkable paths in structured indoor environments, using captured point clouds or existing databases.
+  - [x] ~~2.1 Collect data using RGB-D cameras or from existing databases in structured indoor environments.~~
+  - [x] ~~2.2 Process point clouds to remove noise and optimize spatial structure.~~
+  - [x] ~~2.3 Provide semantic annotations for walls, doors, walkable paths, and other objects in the collected data.~~
+  - [x] 2.4 Validate the dataset in a structured format for training, with documentation of the results obtained.
+- [ ] 3. Design a recognition model for walls, doors, walkable paths, and other objects using the test dataset.
+  - [x] ~~3.1 Create the conceptual diagram of the recognition model according to the SCRUM methodology.~~
+  - [x] ~~3.2 Define user stories in a project planning tool according to the SCRUM methodology.~~
+  - [x] ~~3.3 Prioritize the backlog with the technical and operational items needed for training the model, following the SCRUM methodology.~~
+  - [ ] 3.4 Design the recognition model according to the SCRUM methodology.
+  - [ ] 3.5 Prepare the technical report of the recognition model along with the design sketches of the graphical user interface (GUI).
+- [ ] 4. Implement on an embedded system the recognition model for walls, doors, walkable paths, and other objects.
+  - [] ~~4.1 Configure the embedded system environment to ensure compatibility and deployment of the trained model.~~
+  - [x] ~~4.2 Implement the perception module by integrating the recognition model into the embedded system.~~
+  - [ ] 4.3 Implement the processing module to apply the integrated model to input data, generating classified outputs under controlled operating conditions.
+  - [ ] 4.4 Implement the feedback module with performance metric logging.
+  - [ ] 4.5 Document the integration of the recognition model into the embedded system.
+- [ ] 5. Validate the application's functionality and accuracy in recognizing the selected classes in real environments through a test protocol.
+  - [ ] 5.1 Define the validation protocol for recognition accuracy and functionality, including metrics, scenarios, and acceptance criteria.
+  - [ ] 5.2 Execute the test protocol in real environments to validate recognition accuracy and system functionality.
+  - [ ] 5.3 Record the performance results, errors, and technical observations.
 
-**Resumen:** Pendientes 13 de 25 actividades (12 completadas).
+**Summary:** 13 of 25 activities pending (12 completed).
 
-Progreso (completadas): 48%  
+Progress (completed): 48%  
 `[########################--------------------------]` 12/25  
 <p align="center">
-  <img alt="Progreso 48%" src="https://img.shields.io/badge/Progreso-48%25-00b86b?labelColor=111&color=00b86b" />
+  <img alt="Progress 48%" src="https://img.shields.io/badge/Progress-48%25-00b86b?labelColor=111&color=00b86b" />
   <br/>
-  <img alt="Grafico de progreso 48%" src="https://quickchart.io/chart?c=%7B%0A%20%20type%3A%20%27doughnut%27%2C%0A%20%20data%3A%20%7B%0A%20%20%20%20datasets%3A%20%5B%7B%0A%20%20%20%20%20%20data%3A%20%5B48%2C%2052%5D%2C%0A%20%20%20%20%20%20backgroundColor%3A%20%5B%27%2300b86b%27%2C%20%27%23e5e7eb%27%5D%2C%0A%20%20%20%20%7D%5D%0A%20%20%7D%2C%0A%20%20options%3A%20%7B%0A%20%20%20%20plugins%3A%20%7Blegend%3A%20false%7D%2C%0A%20%20%20%20cutout%3A%20%2770%25%27%0A%20%20%7D%0A%7D" />
+  <img alt="Progress chart 48%" src="https://quickchart.io/chart?c=%7B%0A%20%20type%3A%20%27doughnut%27%2C%0A%20%20data%3A%20%7B%0A%20%20%20%20datasets%3A%20%5B%7B%0A%20%20%20%20%20%20data%3A%20%5B48%2C%2052%5D%2C%0A%20%20%20%20%20%20backgroundColor%3A%20%5B%27%2300b86b%27%2C%20%27%23e5e7eb%27%5D%2C%0A%20%20%20%20%7D%5D%0A%20%20%7D%2C%0A%20%20options%3A%20%7B%0A%20%20%20%20plugins%3A%20%7Blegend%3A%20false%7D%2C%0A%20%20%20%20cutout%3A%20%2770%25%27%0A%20%20%7D%0A%7D" />
 </p>
