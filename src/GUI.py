@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import threading
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 
 import cv2
 import tkinter as tk
@@ -969,7 +969,7 @@ class SegmentacionApp:
 
         self._apply_status_after_id = self.root.after(duration_ms, _reset)
 
-    def _param_summary_fields(self) -> list[tuple[str, str]]:
+    def _param_summary_fields(self) -> List[Tuple[str, str]]:
         """
         Keys and labels to show in the execution summary panel.
         """
