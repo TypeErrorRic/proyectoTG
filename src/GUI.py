@@ -356,20 +356,76 @@ class SegmentacionApp:
         mode_panel.pack(side="top", pady=8, padx=8)
         mode_panel.pack_propagate(False)
 
+        # Buttons stack on the right: two stacked and one spanning their combined height.
+        buttons_panel = tk.Frame(mode_panel, bg="#7f7f7f")
+        buttons_panel.pack(side="right", padx=(6, 8), pady=8, fill="y")
+        buttons_panel.grid_rowconfigure(0, weight=1)
+        buttons_panel.grid_rowconfigure(1, weight=1)
+        buttons_panel.grid_columnconfigure(0, weight=1)
+        buttons_panel.grid_columnconfigure(1, weight=1)
+
+        btn_right_top = tk.Button(
+            buttons_panel,
+            text="Iniciar Transmisión",
+            bg="#00b86b",
+            fg="white",
+            activebackground="#5c5c5c",
+            activeforeground="white",
+            bd=0,
+            padx=8,
+            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            command=self._start_stream,
+        )
+        btn_right_top.grid(row=0, column=0, sticky="nsew", padx=4, pady=(0, 4))
+
+        btn_right_bottom = tk.Button(
+            buttons_panel,
+            text="Detener Transmisión",
+            bg="#e53935",
+            fg="white",
+            activebackground="#5c5c5c",
+            activeforeground="white",
+            bd=0,
+            padx=8,
+            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            command=self._stop_stream,
+        )
+        btn_right_bottom.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 0))
+
+        btn_right_tall = tk.Button(
+            buttons_panel,
+            text="Capturar",
+            bg="#1b5e94",
+            fg="white",
+            activebackground="#21d087",
+            activeforeground="white",
+            bd=0,
+            padx=10,
+            pady=8,
+            font=("Segoe UI", 9, "bold"),
+        )
+        btn_right_tall.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=4, pady=0)
+
+        # Content to the left of the buttons.
+        mode_content = tk.Frame(mode_panel, bg="#7f7f7f")
+        mode_content.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=(4, 6))
+
         self.mode_label_text = tk.StringVar(
             value="Modo de ejecucion: Camara RGB-D" if self.mode == "camera" else "Modo de ejecucion: Dataset de pruebas"
         )
         mode_label = tk.Label(
-            mode_panel,
+            mode_content,
             textvariable=self.mode_label_text,
             bg="#7f7f7f",
             fg="white",
             font=("Segoe UI", 10, "bold"),
         )
-        mode_label.pack(side="top", pady=(4, 2))
+        mode_label.pack(side="top", pady=(0, 2), anchor="w")
 
-        indicators = tk.Frame(mode_panel, bg="#7f7f7f")
-        indicators.pack(side="top", pady=(0, 6))
+        indicators = tk.Frame(mode_content, bg="#7f7f7f")
+        indicators.pack(side="top", pady=(0, 6), anchor="w")
         for color, text in (("#00b86b", "Suelo"), ("#1e88e5", "Muro"), ("#e53935", "Puerta")):
             item = tk.Frame(indicators, bg="#7f7f7f")
             item.pack(side="left", padx=8)
@@ -686,7 +742,7 @@ class SegmentacionApp:
         btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
         btn_siguiente = tk.Button(
             nav_row,
-            text="Capturar",
+            text="Capturas",
             bg="#00b86b",
             activebackground="#21d087",
             fg="white",
@@ -1147,6 +1203,34 @@ class SegmentacionApp:
         self._stop_event.clear()
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
+
+    def _stop_worker(self) -> None:
+        """
+        Stop the capture worker and clear the latest frame.
+        """
+        self._stop_event.set()
+        if self._worker and self._worker.is_alive():
+            self._worker.join(timeout=1.0)
+        self._worker = None
+        with self._frame_lock:
+            self.last_frame = None
+            self._last_frame_ts = 0.0
+
+    def _start_stream(self) -> None:
+        """
+        Switch to camera mode and ensure the worker is running.
+        """
+        self._set_mode("camera", update_header=True)
+        self._start_worker()
+
+    def _stop_stream(self) -> None:
+        """
+        Stop streaming and clear the display.
+        """
+        self._stop_worker()
+        self.mode_label_text.set("Transmision detenida")
+        if hasattr(self, "display_area"):
+            self.display_area.configure(text="Transmision detenida", image="", bg="#7f7f7f")
 
     def _worker_loop(self) -> None:
         r"""
