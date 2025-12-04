@@ -22,7 +22,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar2 import AlgoritmosSegmentacion, liberar_recursos
+from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
@@ -65,6 +65,7 @@ class SegmentacionApp:
         self.sidebar_icons_raw = self._load_sidebar_icons()
         self._build_panels()
         self.root.after(30, self._update_sidebar_icons)
+        self.root.bind("<Configure>", self._on_resize)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._show_mode("exec")
@@ -145,7 +146,7 @@ class SegmentacionApp:
             if raw is None:
                 continue
             width, height = btn.winfo_width(), btn.winfo_height()
-            margin = 80
+            margin = 8
             target_w = max(width - margin, 1)
             target_h = max(height - margin, 1)
             scale = min(target_w / max(raw.width, 1), target_h / max(raw.height, 1))
@@ -158,14 +159,14 @@ class SegmentacionApp:
         r"""
         \brief Configures the window grid for layout.
         \details Columns: 40 | 640 | 250 | 240 -> 1170 (approx 1170 with
-        borders). Rows: 6 x 100 -> 600.
+        borders). Rows: 6 x 100 -> 600; weights keep proportions on resize.
         """
-        self.root.grid_columnconfigure(0, minsize=40)
-        self.root.grid_columnconfigure(1, minsize=670)
-        self.root.grid_columnconfigure(2, minsize=270)
-        self.root.grid_columnconfigure(3, minsize=270)
+        self.root.grid_columnconfigure(0, minsize=40, weight=0)
+        self.root.grid_columnconfigure(1, minsize=640, weight=3)
+        self.root.grid_columnconfigure(2, minsize=250, weight=1)
+        self.root.grid_columnconfigure(3, minsize=240, weight=1)
         for r in range(6):
-            self.root.grid_rowconfigure(r, minsize=100)
+            self.root.grid_rowconfigure(r, minsize=100, weight=1)
 
     def _build_panels(self) -> None:
         """
@@ -174,6 +175,7 @@ class SegmentacionApp:
         # @note Sidebar panel.
         frame_sidebar = tk.Frame(self.root, bg="#333333")
         frame_sidebar.grid(row=0, column=0, rowspan=6, sticky="nsew")
+        frame_sidebar.grid_propagate(False)
         self._build_sidebar(frame_sidebar)
 
         # @note Video panel.
@@ -188,12 +190,18 @@ class SegmentacionApp:
 
         # @note Database panel (rows 0-3) -> column 3.
         frame_db = tk.Frame(self.root, bg="#999999")
-        frame_db.grid(row=0, column=3, rowspan=1, sticky="nsew")
+        frame_db.grid(row=0, column=3, rowspan=2, sticky="nsew")
         self._build_db_panel(frame_db)
+
+        # @note Database panel (rows 0-3) -> column 3.
+        frame_db = tk.Frame(self.root, bg="#999999")
+        frame_db.grid(row=2, column=3, rowspan=2, sticky="nsew")
+        self._build_captura(frame_db)
+
 
         # @note Logo panel (rows 4-5, column 3).
         frame_logo = tk.Frame(self.root, bg="#999999")
-        frame_logo.grid(row=2, column=3, rowspan=2, sticky="nsew")
+        frame_logo.grid(row=4, column=3, rowspan=2, sticky="nsew")
         self._build_logo(frame_logo)
 
         # @note Full-screen configuration panel (except sidebar).
@@ -211,49 +219,75 @@ class SegmentacionApp:
             "logo": frame_logo,
             "config": frame_config,
         }
+        self._adjust_sidebar_rows()
 
     def _build_sidebar(self, container: tk.Frame) -> None:
         """
         \brief Builds the sidebar with configuration and execution buttons.
         """
-        container.rowconfigure(0, weight=1)
-        container.rowconfigure(1, weight=1)
+        container.grid_propagate(False)
+        for r in range(6):
+            container.rowconfigure(r, weight=1, uniform="sidebar_rows")
         container.columnconfigure(0, weight=1)
+
+        top_wrapper = tk.Frame(container, bg="#333333")
+        top_wrapper.grid(row=0, column=0, rowspan=3, sticky="nsew")
+        bottom_wrapper = tk.Frame(container, bg="#333333")
+        bottom_wrapper.grid(row=3, column=0, rowspan=3, sticky="nsew")
+
+        for wrapper in (top_wrapper, bottom_wrapper):
+            wrapper.grid_propagate(False)
+            wrapper.columnconfigure(0, weight=1)
+            wrapper.rowconfigure(0, weight=1)
+
         config_icon = self.sidebar_icons.get("config")
         self.btn_config = tk.Button(
-            container,
+            top_wrapper,
             image=config_icon,
             text="" if config_icon else "Config",
             bg="#4a4a4a",
             fg="white",
             bd=0,
-            width=10,
-            height=4,
+            width=1,
+            height=1,
             compound="center",
+            relief=tk.FLAT,
+            overrelief=tk.FLAT,
+            activebackground="#4a4a4a",
+            activeforeground="white",
+            highlightthickness=0,
+            takefocus=0,
             command=lambda: self._show_mode("config"),
         )
-        self.btn_config.grid(row=0, column=0, sticky="nsew")
+        self.btn_config.pack(fill="both", expand=True)
+
         exec_icon = self.sidebar_icons.get("exec")
         self.btn_exec = tk.Button(
-            container,
+            bottom_wrapper,
             image=exec_icon,
             text="" if exec_icon else "Ejecucion",
             bg="#5c5c5c",
             fg="white",
             bd=0,
-            width=10,
-            height=4,
+            width=1,
+            height=1,
             compound="center",
+            relief=tk.FLAT,
+            overrelief=tk.FLAT,
+            activebackground="#5c5c5c",
+            activeforeground="white",
+            highlightthickness=0,
+            takefocus=0,
             command=lambda: self._show_mode("exec"),
         )
-        self.btn_exec.grid(row=1, column=0, sticky="nsew")
+        self.btn_exec.pack(fill="both", expand=True)
 
     def _build_display_area(self, container: tk.Frame) -> None:
         """
         \brief Builds the video display area and legend.
         """
         frame_video_inner = tk.Frame(container, bg="#7f7f7f", width=DISPLAY_MAX_W, height=DISPLAY_MAX_H, bd=1, relief=tk.SOLID)
-        frame_video_inner.pack(side="top", pady=8)
+        frame_video_inner.pack(side="top", pady=8, padx=8)
         frame_video_inner.pack_propagate(False)
 
         self.display_area = tk.Label(
@@ -280,7 +314,7 @@ class SegmentacionApp:
             height=80,
             highlightthickness=0,
         )
-        mode_panel.pack(side="top", pady=0)
+        mode_panel.pack(side="top", pady=8, padx=8)
         mode_panel.pack_propagate(False)
 
         self.mode_label_text = tk.StringVar(
@@ -438,7 +472,7 @@ class SegmentacionApp:
         slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(8, 8))
 
         nav_row = tk.Frame(panel, bg=panel.cget("bg"))
-        nav_row.pack(side="bottom", fill="x", padx=4, pady=(2, 4))
+        nav_row.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
         btn_atras = tk.Button(
             nav_row,
             text="Atras",
@@ -450,7 +484,7 @@ class SegmentacionApp:
             pady=6,
             font=("Segoe UI", 9, "bold"),
         )
-        btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 6))
+        btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
         btn_siguiente = tk.Button(
             nav_row,
             text="Siguiente",
@@ -462,41 +496,147 @@ class SegmentacionApp:
             pady=6,
             font=("Segoe UI", 9, "bold"),
         )
-        btn_siguiente.pack(side="left", expand=True, fill="x", padx=(6, 0))
+        btn_siguiente.pack(side="left", expand=True, fill="x", padx=(10, 0))
+
+    def _build_captura(self, container: tk.Frame) -> None:
+        """
+        \brief Builds the header for the database panel.
+        """
+        container_bg = container.cget("bg")
+        panel = tk.Frame(container, bg="#b3b3b3", width=240, height=190, highlightthickness=0, bd=0)
+        panel.pack(anchor="n", padx=6, pady=6)
+        panel.pack_propagate(False)
+
+        header = tk.Label(
+            panel,
+            text="Panel de Captura",
+            bg="#b3b3b3",
+            fg="black",
+            font=("Segoe UI", 12, "bold"),
+            anchor="center",
+            pady=4,
+        )
+        header.pack(side="top", fill="x", padx=6, pady=(4, 2))
+
+        body = tk.Frame(panel, bg=container_bg)
+        body.pack(fill="both", expand=True, padx=10, pady=8)
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=0)
+        body.grid_rowconfigure(0, weight=0)
+        body.grid_rowconfigure(1, weight=0)
+
+        entry_numero = tk.Entry(body, width=12, font=("Segoe UI", 10))
+        entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
+        entry_numero.insert(0, "Numero")
+        btn_aplicar = tk.Button(
+            body,
+            text="Visualizar",
+            bg="#00b86b",
+            activebackground="#21d087",
+            fg="white",
+            bd=0,
+            width=12,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+        )
+        btn_aplicar.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=(6, 8))
+
+        slider = tk.Scale(
+            body,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            length=200,
+            showvalue=False,
+            bg=container_bg,
+            highlightthickness=0,
+            troughcolor="#d5d5d5",
+        )
+        slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(8, 8))
+
+        nav_row = tk.Frame(panel, bg=panel.cget("bg"))
+        nav_row.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
+        btn_atras = tk.Button(
+            nav_row,
+            text="Borrar",
+            bg="#e53935",
+            activebackground="#f1625f",
+            fg="white",
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+        )
+        btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
+        btn_siguiente = tk.Button(
+            nav_row,
+            text="Capturar",
+            bg="#00b86b",
+            activebackground="#21d087",
+            fg="white",
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+        )
+        btn_siguiente.pack(side="left", expand=True, fill="x", padx=(10, 0))
 
     def _build_logo(self, container: tk.Frame) -> None:
         """
-        \brief Loads and centers the logo in the panel without changing its size.
+        \brief Loads and shows the logos with Univalle + gato on top and PSI below.
         """
         container_bg = container.cget("bg")
-        max_w = max(container.winfo_reqwidth(), container.winfo_width(), 1)
-        max_h = max(container.winfo_reqheight(), container.winfo_height(), 1)
-        if max_w <= 1:
-            max_w = 200
-        if max_h <= 1:
-            max_h = 200
+        max_w = max(container.winfo_reqwidth(), container.winfo_width(), 200)
+        max_h = max(container.winfo_reqheight(), container.winfo_height(), 160)
+        top_w = max((max_w - 40) // 2, 110)  # slightly smaller top logos
+        row_h = max(max_h // 2, 90)
+        bottom_w = max(max_w - 40, 140)
 
-        img_path = os.path.join(os.path.dirname(__file__), "images", "univalle.png")
-        try:
-            img = Image.open(img_path).convert("RGBA")
-            ratio = min(max_w / max(img.width, 1), max_h / max(img.height, 1), 1.0)
-            if ratio < 1.0:
-                new_size = (int(img.width * ratio), int(img.height * ratio))
-                img = img.resize(new_size, Image.LANCZOS)
-            self.logo_image = ImageTk.PhotoImage(img)
-            logo_label = tk.Label(container, image=self.logo_image, bg=container_bg, bd=0)
-            logo_label.pack(expand=True)
-        except Exception as exc:
-            fallback = tk.Label(
-                container,
-                text="No se pudo cargar\n70_rojo.png",
-                bg=container_bg,
-                fg="white",
-                font=("Segoe UI", 10, "bold"),
-                justify="center",
-            )
-            fallback.pack(expand=True)
-            print(f"[GUI] error cargando logo: {exc}")
+        def _load_logo(filename: str, target_w: int, target_h: int) -> Optional[ImageTk.PhotoImage]:
+            img_path = os.path.join(os.path.dirname(__file__), "images", filename)
+            try:
+                img = Image.open(img_path).convert("RGBA")
+                ratio = min(target_w / max(img.width, 1), target_h / max(img.height, 1), 1.0)
+                if ratio < 1.0:
+                    new_size = (int(img.width * ratio), int(img.height * ratio))
+                    img = img.resize(new_size, Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+            except Exception as exc:
+                print(f"[GUI] error cargando logo {filename}: {exc}")
+                return None
+
+        logos_frame = tk.Frame(container, bg=container_bg)
+        logos_frame.pack(expand=True, pady=2)
+
+        self.logo_images = []
+        logos_frame.grid_columnconfigure(0, weight=1)
+        logos_frame.grid_columnconfigure(1, weight=1)
+
+        layout = [
+            ("univalle.png", 0, 0, top_w, row_h, 1),
+            ("gato.png", 0, 1, top_w, row_h, 1),
+            ("PSI_LOGO.png", 1, 0, bottom_w, row_h, 2),
+        ]
+
+        for fname, row, col, tgt_w, tgt_h, span in layout:
+            photo = _load_logo(fname, tgt_w, tgt_h)
+            if photo:
+                self.logo_images.append(photo)
+                lbl = tk.Label(logos_frame, image=photo, bg=container_bg, bd=0)
+                pady = (6, 6) if fname == "PSI_LOGO.png" else (8, 8)
+                lbl.grid(row=row, column=col, columnspan=span, padx=12, pady=pady, sticky="n")
+            else:
+                fallback = tk.Label(
+                    logos_frame,
+                    text=f"No se pudo cargar\n{fname}",
+                    bg=container_bg,
+                    fg="white",
+                    font=("Segoe UI", 9, "bold"),
+                    justify="center",
+                    width=14,
+                )
+                fallback.grid(row=row, column=col, columnspan=span, padx=12, pady=pady, sticky="n")
 
     def _build_config_placeholder(self, container: tk.Frame) -> None:
         """
@@ -518,11 +658,12 @@ class SegmentacionApp:
         \brief Updates sidebar button styles based on the active page.
         """
         if active == "config":
-            self.btn_config.configure(bg="#3b3b3b", relief=tk.SOLID)
-            self.btn_exec.configure(bg="#5c5c5c", relief=tk.RIDGE)
+            self.btn_config.configure(bg="#3b3b3b")
+            self.btn_exec.configure(bg="#5c5c5c")
         else:
-            self.btn_exec.configure(bg="#3b3b3b", relief=tk.SOLID)
-            self.btn_config.configure(bg="#4a4a4a", relief=tk.RIDGE)
+            self.btn_exec.configure(bg="#3b3b3b")
+            self.btn_config.configure(bg="#4a4a4a")
+        self._adjust_sidebar_rows()
 
     def _show_mode(self, mode: str) -> None:
         """
@@ -661,6 +802,24 @@ class SegmentacionApp:
             bg="#7f7f7f",
             compound=tk.BOTTOM,
         )
+
+    def _adjust_sidebar_rows(self) -> None:
+        """
+        \brief Ensures sidebar rows keep a fixed split (3 rows per button).
+        """
+        sidebar = getattr(self, "frames", {}).get("sidebar") if hasattr(self, "frames") else None
+        if sidebar is None:
+            return
+        sidebar_height = max(sidebar.winfo_height(), 1)
+        row_size = max(sidebar_height // 6, 1)
+        for r in range(6):
+            sidebar.rowconfigure(r, minsize=row_size, weight=1, uniform="sidebar_rows")
+
+    def _on_resize(self, _event=None) -> None:
+        """
+        \brief Keep sidebar buttons stable during window resizes.
+        """
+        self._adjust_sidebar_rows()
 
     def _on_close(self) -> None:
         """
