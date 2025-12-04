@@ -58,6 +58,7 @@ class SegmentacionApp:
         self._stop_event = threading.Event()
         self._frame_lock = threading.Lock()
         self._last_frame_ts = 0.0
+        self._stream_requested = False
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
         self.logo_image: Optional[ImageTk.PhotoImage] = None
@@ -1186,9 +1187,13 @@ class SegmentacionApp:
         if mode == "prueba":
             # Ejecuta una pasada de pruebas iniciando/reiniciando el hilo.
             self._restart_worker()
-        elif update_header and self._worker and self._worker.is_alive():
-            # @note Restart only si ya estaba corriendo (camara).
-            self._restart_worker()
+        elif mode == "camera":
+            if self._stream_requested:
+                # Mantener transmisión si el usuario ya la inició.
+                self._restart_worker()
+            else:
+                # Si no se ha iniciado transmisión, detiene el hilo.
+                self._stop_stream()
 
     def _update_stream_controls_state(self) -> None:
         """
@@ -1236,6 +1241,7 @@ class SegmentacionApp:
         """
         Switch to camera mode and ensure the worker is running.
         """
+        self._stream_requested = True
         self._show_mode("exec")
         self._set_mode("camera", update_header=False)
         self._restart_worker()
@@ -1244,6 +1250,7 @@ class SegmentacionApp:
         """
         Stop streaming and clear the display.
         """
+        self._stream_requested = False
         self._stop_worker()
         self.mode_label_text.set("Transmision detenida")
         if hasattr(self, "display_area"):
