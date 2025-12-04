@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import threading
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Callable
 
 import cv2
 import tkinter as tk
@@ -48,7 +48,7 @@ class SegmentacionApp:
         self.root = root
         # @note Mode can be "camera" or "prueba".
         self.mode = mode
-        self.active_page = "ejecucion"
+        self.active_page = "configuracion"
         self.running = True
 
         self.prev_time = time.perf_counter()
@@ -82,7 +82,7 @@ class SegmentacionApp:
         self.root.bind("<Configure>", self._on_resize)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._show_mode("exec")
+        self._show_mode("config")
         self._set_mode(self.mode, update_header=True)
         self._heartbeat()
 
@@ -937,9 +937,10 @@ class SegmentacionApp:
         duration_ms: int = 1200,
         bg: Optional[str] = None,
         active_bg: Optional[str] = None,
+        on_reset: Optional[Callable[[], None]] = None,
     ) -> None:
         """
-        Temporarily change the apply button label to reflect status.
+        Temporarily change the apply button label to reflect status and optionally run a callback when it resets.
         """
         btn = getattr(self, "_config_apply_btn", None)
         if btn is None:
@@ -966,6 +967,11 @@ class SegmentacionApp:
                 activebackground=self._apply_btn_default_activebg,
             )
             self._apply_status_after_id = None
+            if on_reset:
+                try:
+                    on_reset()
+                except Exception as exc:
+                    print(f"[GUI] error en callback de aplicar: {exc}")
 
         self._apply_status_after_id = self.root.after(duration_ms, _reset)
 
@@ -1055,7 +1061,12 @@ class SegmentacionApp:
         # Restart worker so the new parameters take effect immediately.
         self._restart_worker()
         print("[GUI] Parametros de segmentacion actualizados.")
-        self._set_apply_status("Aplicado", bg="#5ee68a", active_bg="#80f0a8")
+        self._set_apply_status(
+            "Aplicado",
+            bg="#5ee68a",
+            active_bg="#80f0a8",
+            on_reset=lambda: self._show_mode("exec"),
+        )
 
     def _on_config_cancel(self) -> None:
         """
