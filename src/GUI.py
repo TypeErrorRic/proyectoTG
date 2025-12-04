@@ -1,4 +1,4 @@
-"""
+r"""
 \brief Interface with a sidebar, video display, parameter controls, database
 header, and logo panel.
 \details Execution mode shows segmented frames with buttons to switch between
@@ -22,7 +22,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
+from src.utilities.segmentar2 import AlgoritmosSegmentacion, liberar_recursos
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
@@ -33,7 +33,7 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
 
 
 class SegmentacionApp:
-    """
+    r"""
     \brief Main window wiring panels with the capture/segmentation logic.
     \details Connects the sidebar, video view, parameter panel, database
     controls, and logo panel with the project's capture/segmentation logic.
@@ -72,11 +72,11 @@ class SegmentacionApp:
         self._heartbeat()
 
     def _configure_window(self) -> None:
-        """
+        r"""
         \brief Sets up the base window properties (title, size, and style flags).
         """
         self.root.title("Segmentacion")
-        self.root.geometry("1200x600")
+        self.root.geometry("1250x600")
         self.root.resizable(False, False)
         self.root.configure(bg="#2f2f2f")
         try:
@@ -155,15 +155,15 @@ class SegmentacionApp:
             btn.configure(image=photo, text="")
 
     def _build_grid(self) -> None:
-        """
+        r"""
         \brief Configures the window grid for layout.
-        \details Columns: 40 | 670 | 280 | 200 -> 1190 (approx 1200 with
+        \details Columns: 40 | 640 | 250 | 240 -> 1170 (approx 1170 with
         borders). Rows: 6 x 100 -> 600.
         """
         self.root.grid_columnconfigure(0, minsize=40)
         self.root.grid_columnconfigure(1, minsize=670)
-        self.root.grid_columnconfigure(2, minsize=280)
-        self.root.grid_columnconfigure(3, minsize=200)
+        self.root.grid_columnconfigure(2, minsize=270)
+        self.root.grid_columnconfigure(3, minsize=270)
         for r in range(6):
             self.root.grid_rowconfigure(r, minsize=100)
 
@@ -188,12 +188,12 @@ class SegmentacionApp:
 
         # @note Database panel (rows 0-3) -> column 3.
         frame_db = tk.Frame(self.root, bg="#999999")
-        frame_db.grid(row=0, column=3, rowspan=4, sticky="nsew")
+        frame_db.grid(row=0, column=3, rowspan=1, sticky="nsew")
         self._build_db_panel(frame_db)
 
         # @note Logo panel (rows 4-5, column 3).
         frame_logo = tk.Frame(self.root, bg="#999999")
-        frame_logo.grid(row=4, column=3, rowspan=2, sticky="nsew")
+        frame_logo.grid(row=2, column=3, rowspan=2, sticky="nsew")
         self._build_logo(frame_logo)
 
         # @note Full-screen configuration panel (except sidebar).
@@ -253,7 +253,7 @@ class SegmentacionApp:
         \brief Builds the video display area and legend.
         """
         frame_video_inner = tk.Frame(container, bg="#7f7f7f", width=DISPLAY_MAX_W, height=DISPLAY_MAX_H, bd=1, relief=tk.SOLID)
-        frame_video_inner.pack(side="top", pady=15)
+        frame_video_inner.pack(side="top", pady=8)
         frame_video_inner.pack_propagate(False)
 
         self.display_area = tk.Label(
@@ -293,18 +293,18 @@ class SegmentacionApp:
             fg="white",
             font=("Segoe UI", 10, "bold"),
         )
-        mode_label.pack(side="top", pady=(6, 2))
+        mode_label.pack(side="top", pady=(4, 2))
 
         indicators = tk.Frame(mode_panel, bg="#7f7f7f")
-        indicators.pack(side="top", pady=(0, 10))
+        indicators.pack(side="top", pady=(0, 6))
         for color, text in (("#00b86b", "Suelo"), ("#1e88e5", "Muro"), ("#e53935", "Puerta")):
             item = tk.Frame(indicators, bg="#7f7f7f")
-            item.pack(side="left", padx=12)
+            item.pack(side="left", padx=8)
             dot = tk.Canvas(item, width=32, height=32, highlightthickness=0, bg="#7f7f7f", bd=0)
             dot.create_oval(4, 4, 28, 28, fill=color, outline=color)
             dot.pack(side="left")
             lbl = tk.Label(item, text=text, bg="#7f7f7f", fg="white", font=("Segoe UI", 11, "bold"))
-            lbl.pack(side="left", padx=8)
+            lbl.pack(side="left", padx=6)
 
     def _build_exec_controls(self, container: tk.Frame) -> None:
         """
@@ -314,7 +314,7 @@ class SegmentacionApp:
         container.pack_propagate(False)
         container_bg = container.cget("bg")
         row_holder = tk.Frame(container, bg=container_bg)
-        row_holder.pack(fill="x", padx=8, pady=15)
+        row_holder.pack(fill="x", padx=4, pady=8)
 
         self.btn_mode_test = tk.Button(
             row_holder,
@@ -327,7 +327,7 @@ class SegmentacionApp:
             pady=10,
             command=lambda: self._set_mode("prueba"),
         )
-        self.btn_mode_test.pack(side="left", padx=6, expand=True, fill="x")
+        self.btn_mode_test.pack(side="left", padx=4, expand=True, fill="x")
 
         self.btn_mode_cam = tk.Button(
             row_holder,
@@ -340,7 +340,7 @@ class SegmentacionApp:
             pady=10,
             command=lambda: self._set_mode("camera"),
         )
-        self.btn_mode_cam.pack(side="left", padx=6, expand=True, fill="x")
+        self.btn_mode_cam.pack(side="left", padx=4, expand=True, fill="x")
 
         params_panel = tk.Frame(
             container,
@@ -350,6 +350,7 @@ class SegmentacionApp:
             highlightthickness=0,
         )
         params_panel.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        params_panel.pack(fill="both", expand=True, padx=6, pady=(0, 8))
         params_panel.columnconfigure(0, weight=1)
         params_panel.rowconfigure(1, weight=1)
 
@@ -362,7 +363,7 @@ class SegmentacionApp:
             anchor="center",
             padx=8,
         )
-        params_title.grid(row=0, column=0, sticky="ew", pady=(8, 4))
+        params_title.grid(row=0, column=0, sticky="ew", pady=(6, 3))
 
         params_body = tk.Label(
             params_panel,
@@ -374,73 +375,70 @@ class SegmentacionApp:
             relief=tk.FLAT,
             justify=tk.LEFT,
             anchor="nw",
-            padx=10,
-            pady=10,
+            padx=8,
+            pady=8,
         )
-        params_body.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        params_body.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
     def _build_db_panel(self, container: tk.Frame) -> None:
         """
         \brief Builds the header for the database panel.
         """
         container_bg = container.cget("bg")
-        panel = tk.Frame(container, bg="#b3b3b3", width=165, height=380, highlightthickness=0, bd=0)
-        panel.pack(anchor="center", padx=12, pady=8)
+        panel = tk.Frame(container, bg="#b3b3b3", width=240, height=190, highlightthickness=0, bd=0)
+        panel.pack(anchor="n", padx=6, pady=6)
         panel.pack_propagate(False)
 
         header = tk.Label(
             panel,
-            text="Control de\nBase de datos",
+            text="Panel de Muestras de Datos",
             bg="#b3b3b3",
             fg="black",
             font=("Segoe UI", 12, "bold"),
             anchor="center",
-            pady=8,
+            pady=4,
         )
-        header.pack(side="top", fill="x", padx=10, pady=(10, 6))
+        header.pack(side="top", fill="x", padx=6, pady=(4, 2))
 
         body = tk.Frame(panel, bg=container_bg)
-        body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        body.pack(fill="both", expand=True, padx=10, pady=8)
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=0)
+        body.grid_rowconfigure(0, weight=0)
+        body.grid_rowconfigure(1, weight=0)
 
-        content = tk.Frame(body, bg=container_bg)
-        content.pack(fill="both", expand=True)
-
-        slider = tk.Scale(
-            content,
-            from_=0,
-            to=100,
-            orient=tk.VERTICAL,
-            length=140,
-            showvalue=False,
-            bg=container_bg,
-            highlightthickness=0,
-            troughcolor="#d5d5d5",
-        )
-        slider.pack(side="left", fill="y", pady=6, padx=(10, 0))
-
-        controls = tk.Frame(content, bg=container_bg)
-        controls.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=6)
-
-        input_row = tk.Frame(controls, bg=container_bg)
-        input_row.pack(side="top", anchor="n", pady=(0, 10), fill="x")
-        entry_numero = tk.Entry(input_row, width=15, font=("Segoe UI", 10))
-        entry_numero.pack(side="left", padx=(0, 10), ipady=6)
+        entry_numero = tk.Entry(body, width=12, font=("Segoe UI", 10))
+        entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
         entry_numero.insert(0, "Numero")
         btn_aplicar = tk.Button(
-            controls,
+            body,
             text="Aplicar",
             bg="#00b86b",
             activebackground="#21d087",
             fg="white",
             bd=0,
-            padx=15,
-            pady=8,
+            width=12,
+            padx=12,
+            pady=6,
             font=("Segoe UI", 9, "bold"),
         )
-        btn_aplicar.pack(side="top", anchor="n", fill="x", padx=(0, 10))
+        btn_aplicar.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=(6, 8))
+
+        slider = tk.Scale(
+            body,
+            from_=0,
+            to=100,
+            orient=tk.HORIZONTAL,
+            length=200,
+            showvalue=False,
+            bg=container_bg,
+            highlightthickness=0,
+            troughcolor="#d5d5d5",
+        )
+        slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(8, 8))
 
         nav_row = tk.Frame(panel, bg=panel.cget("bg"))
-        nav_row.pack(side="bottom", fill="x", padx=5, pady=(0, 10))
+        nav_row.pack(side="bottom", fill="x", padx=4, pady=(2, 4))
         btn_atras = tk.Button(
             nav_row,
             text="Atras",
@@ -581,7 +579,7 @@ class SegmentacionApp:
         self._worker.start()
 
     def _worker_loop(self) -> None:
-        """
+        r"""
         \brief Capture thread that runs AlgoritmosSegmentacion.
         \details Stores the most recent frame and throttles to the target frame
         rate.
@@ -685,3 +683,9 @@ def run_app(mode: str = "prueba") -> None:
     root = tk.Tk()
     SegmentacionApp(root, mode=mode)
     root.mainloop()
+
+
+if __name__ == "__main__":
+    # Allow launching directly on any platform; default to dataset mode to avoid
+    # camera/GPU dependencies when they are not available.
+    run_app(mode="prueba")

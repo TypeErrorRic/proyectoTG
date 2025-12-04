@@ -212,6 +212,8 @@ def ransac_plane_gpu(points,
 # These are used to keep the last valid plane and threshold between frames
 last_n_cp = None  # Last normal vector of the detected ground plane (CuPy array)
 last_d_cp = None  # Last 'd' parameter of the detected ground plane (CuPy scalar)
+_debug_ransac_times = []  # Sliding window of recent RANSAC runtimes (ms)
+_debug_ransac_counter = 0  # Number of RANSAC executions (for debug logging)
 
 def get_ground(
         mapaProfundidad: np.ndarray, 
@@ -239,10 +241,12 @@ def get_ground(
             - max_angle_deg (float): Max angle for plane orientation (default: 45.0)
             - seed (int): Random seed (default: 42)
             - score_subset (int): Number of points for scoring models (default: 2048)
-            - orientation (str): Plane orientation ('ground', 'ceiling', 'any')
-            - time_budget_ms (float): Time budget per RANSAC run (default: 50)
-            - early_stop_ratio (float): Early stop ratio for RANSAC (default: 0.92)
-            - batch_size (int): Batch size for RANSAC models (default: 256)
+        - orientation (str): Plane orientation ('ground', 'ceiling', 'any')
+        - time_budget_ms (float): Time budget per RANSAC run (default: 50)
+        - early_stop_ratio (float): Early stop ratio for RANSAC (default: 0.92)
+        - batch_size (int): Batch size for RANSAC models (default: 256)
+        - debug_ransac (bool): If True, log timing information.
+        - debug_ransac_every (int): Log average timing every N runs (default: 20).
 
     Returns:
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
@@ -250,6 +254,7 @@ def get_ground(
     # Note: this function returns a binary mask (H x W) for floor pixels.
     # The RGB overlay is applied later in helpers.apply_mask_to_rgb.
     # RGB se aplica posteriormente en helpers.apply_mask_to_rgb.
+    groundParams = groundParams or {}
     # Extract parameters from groundParams dictionary
     subsample_stride = groundParams.get("subsample_stride")
     min_inliers = groundParams.get("min_inliers")
@@ -263,6 +268,9 @@ def get_ground(
     time_budget_ms = groundParams.get("time_budget_ms")
     early_stop_ratio = groundParams.get("early_stop_ratio")
     batch_size = groundParams.get("batch_size")
+    debug_ransac = bool(groundParams.get("debug_ransac", False))
+    dre = groundParams.get("debug_ransac_every", 20)
+    debug_ransac_every = max(1, int(20 if dre is None else dre))
 
     # Convert depth map to CuPy array for RANSAC
     depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
@@ -276,13 +284,14 @@ def get_ground(
         Dsub = Dsub[start:, :]
         Rsub = Rsub[start:, :]
     valid = Dsub > 0
-    global last_n_cp, last_d_cp
+    global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter
     if int(cp.sum(valid)) >= min_inliers:
         # Prepare 3D point cloud for RANSAC
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
         Psub = Psub[valid.reshape(-1)]
 
         # Run RANSAC plane fitting on the subsampled points
+        t0 = time.perf_counter()
         res = ransac_plane_gpu(
             Psub,
             dist_thresh=dist_thresh,
@@ -297,6 +306,16 @@ def get_ground(
             early_stop_ratio=early_stop_ratio,
             batch_size=batch_size,
         )
+        if debug_ransac:
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            _debug_ransac_counter += 1
+            _debug_ransac_times.append(elapsed_ms)
+            if len(_debug_ransac_times) > debug_ransac_every:
+                _debug_ransac_times.pop(0)
+            if _debug_ransac_counter % debug_ransac_every == 0:
+                window = _debug_ransac_times[-debug_ransac_every:]
+                avg_ms = sum(window) / len(window)
+                print(f"[ransac] Promedio últimas {debug_ransac_every} ejecuciones: {avg_ms:.2f} ms")
 
         if res is not None:
             # Store last valid plane parameters
