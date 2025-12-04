@@ -47,6 +47,9 @@ _runtime: Dict[str, Any] = {
     },
 }
 
+# Protect shared runtime parameters updated from the GUI while the worker runs.
+_runtime_lock = threading.Lock()
+
 # Event used to stop the worker thread cleanly
 _detener_evento = threading.Event()
 _hilo_trabajador: Optional[threading.Thread] = None
@@ -63,6 +66,34 @@ _tarea_args: Tuple[Any, ...] = ()
 _tarea_kwargs: Dict[str, Any] = {}
 
 
+def obtener_parametros_ground(copy: bool = True) -> Dict[str, Any]:
+    """
+    Snapshot of the current ground-segmentation parameters.
+    """
+    with _runtime_lock:
+        params = _runtime.get("groundParams", {}) or {}
+        return params.copy() if copy else params
+
+
+def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge new parameter values into the runtime dictionary.
+
+    Returns the updated parameter dict.
+    """
+    if not nuevos_params:
+        return obtener_parametros_ground()
+
+    with _runtime_lock:
+        merged = dict(_runtime.get("groundParams", {}))
+        for key, value in nuevos_params.items():
+            if value is None:
+                continue
+            merged[key] = value
+        _runtime["groundParams"] = merged
+        return merged.copy()
+
+
 def segmentar() -> Any:
     """
     Segmentation worker.
@@ -71,12 +102,13 @@ def segmentar() -> Any:
     the ground, wall and door plane and returns the RGB image with the ground mask
     overlaid.
     """
+    ground_params = obtener_parametros_ground()
     ground = get_ground(
         _runtime["mapaProfundidad"],
         _runtime["rays_cp"],
         _runtime["H"],
         _runtime["W"],
-        _runtime["groundParams"],
+        ground_params,
     )
     return apply_mask_to_rgb(_runtime["imagenRGB"], ground)
 
@@ -333,6 +365,7 @@ def AlgoritmosSegmentacion(
     fps: int = 30,
     stride: int = 2,
     mode: str = "camera",
+    ground_params: Optional[Dict[str, Any]] = None,
 ) -> Any:
     """
     Entry point used by the main loop.
@@ -343,7 +376,13 @@ def AlgoritmosSegmentacion(
     mode:
         - "camera" (default): use the RealSense camera.
         - "prueba": use RGB and depth frames from src/data.
+
+    ground_params:
+        Optional dictionary to override the current RANSAC/segmentation parameters.
     """
+
+    if ground_params:
+        actualizar_parametros_ground(ground_params)
 
     _lazy_init(color_width, color_height, depth_width, depth_height, fps, stride, mode=mode)
 

@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import threading
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 import cv2
 import tkinter as tk
@@ -22,7 +22,12 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import AlgoritmosSegmentacion, liberar_recursos
+from src.utilities.segmentar import (
+    AlgoritmosSegmentacion,
+    actualizar_parametros_ground,
+    liberar_recursos,
+    obtener_parametros_ground,
+)
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
@@ -58,7 +63,10 @@ class SegmentacionApp:
         self.logo_image: Optional[ImageTk.PhotoImage] = None
         self.sidebar_icons_raw: Dict[str, Image.Image] = {}
         self.sidebar_icons: Dict[str, ImageTk.PhotoImage] = {}
+        self.config_vars: Dict[str, tk.StringVar] = {}
+        self.config_defaults: Dict[str, str] = {}
 
+        self._init_config_defaults()
         self._ensure_upload_dir()
         self._configure_window()
         self._build_grid()
@@ -90,6 +98,31 @@ class SegmentacionApp:
         \brief Creates the uploads folder so users can drop images there.
         """
         os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+    def _init_config_defaults(self) -> None:
+        """
+        \brief Load default/last-used parameters from the segmentation module.
+        """
+        fallback = {
+            "subsample_stride": "2",
+            "dist_thresh": "0.03",
+            "max_iters": "500",
+            "min_inliers": "400",
+            "max_angle_deg": "60.0",
+            "score_subset": "2048",
+            "time_budget_ms": "100",
+            "early_stop_ratio": "0.92",
+            "batch_size": "256",
+        }
+        try:
+            runtime_params = obtener_parametros_ground()
+        except Exception as exc:
+            print(f"[GUI] no se pudieron leer los parametros actuales: {exc}")
+            runtime_params = {}
+
+        for key, default in fallback.items():
+            value = runtime_params.get(key, default)
+            self.config_defaults[key] = str(value)
 
     def _make_icon(self, kind: str) -> Image.Image:
         """
@@ -390,7 +423,7 @@ class SegmentacionApp:
 
         params_title = tk.Label(
             params_panel,
-            text="Panel de parametros",
+            text="Panel de Parámetros",
             bg="#b3b3b3",
             fg="#1f1f1f",
             font=("Segoe UI", 11, "bold"),
@@ -428,7 +461,7 @@ class SegmentacionApp:
             text="Panel de Muestras de Datos",
             bg="#b3b3b3",
             fg="black",
-            font=("Segoe UI", 12, "bold"),
+            font=("Segoe UI", 10, "bold"),
             anchor="center",
             wraplength=210,
             justify="center",
@@ -642,18 +675,239 @@ class SegmentacionApp:
 
     def _build_config_placeholder(self, container: tk.Frame) -> None:
         """
-        \brief Placeholder panel for configuration controls.
+        \brief Configuration panel for RANSAC parameters.
         """
         container.configure(bg="#d9d9d9")
-        lbl = tk.Label(
-            container,
-            text="Panel de configuracion",
+        wrapper = tk.Frame(container, bg="#d9d9d9")
+        wrapper.pack(expand=True, fill="both", padx=22, pady=22)
+
+        title = tk.Label(
+            wrapper,
+            text="Panel de Configuración",
             bg="#d9d9d9",
             fg="#1f1f1f",
             font=("Segoe UI", 16, "bold"),
-            pady=20,
+            anchor="w",
         )
-        lbl.pack(expand=True)
+        title.pack(fill="x", pady=(0, 4))
+
+        subtitle = tk.Label(
+            wrapper,
+            text="Ajusta los parámetros usados por el Aplicativo de Segmentación.",
+            bg="#d9d9d9",
+            fg="#333333",
+            font=("Segoe UI", 10),
+            anchor="w",
+            justify="left",
+        )
+        subtitle.pack(fill="x", pady=(0, 10))
+
+        body = tk.Frame(wrapper, bg="#d9d9d9")
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure(0, weight=3, uniform="cfg_cols")
+        body.grid_columnconfigure(1, weight=1, uniform="cfg_cols")
+        body.grid_rowconfigure(0, weight=1)
+
+        form = tk.Frame(body, bg="#f2f2f2", bd=1, relief=tk.SOLID, padx=10, pady=10)
+        form.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        form.grid_columnconfigure(1, weight=1)
+        form.grid_columnconfigure(3, weight=1)
+
+        fields = [
+            ("subsample_stride", "Submuestreo (subsample_stride)", "2"),
+            ("dist_thresh", "Umbral de distancia (m)", "0.03"),
+            ("max_iters", "Iteraciones máximas (max_iters)", "500"),
+            ("min_inliers", "Mínimo de inliers", "400"),
+            ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
+            ("score_subset", "Subconjunto para puntuar (score_subset)", "2048"),
+            ("time_budget_ms", "Presupuesto de tiempo (ms)", "100"),
+            ("early_stop_ratio", "Ratio de corte temprano", "0.92"),
+            ("batch_size", "Tamaño de lote (batch_size)", "256"),
+        ]
+
+        for idx, (key, label_text, default) in enumerate(fields):
+            row = idx // 2
+            col_offset = 2 * (idx % 2)
+            lbl = tk.Label(
+                form,
+                text=label_text,
+                bg=form.cget("bg"),
+                fg="#1f1f1f",
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+                pady=4,
+            )
+            lbl.grid(row=row, column=col_offset, sticky="w", padx=(2, 8))
+
+            var = tk.StringVar(value=default)
+            self.config_vars[key] = var
+            self.config_defaults.setdefault(key, default)
+            entry = tk.Entry(form, textvariable=var, font=("Segoe UI", 10))
+            entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
+
+        # Ensure the entries reflect the latest defaults pulled from the runtime.
+        for key, value in self.config_defaults.items():
+            if key in self.config_vars:
+                self.config_vars[key].set(str(value))
+
+        # Push buttons to the bottom of the form
+        spacer_row = (len(fields) + 1) // 2
+        form.grid_rowconfigure(spacer_row, weight=1)
+        actions_row = spacer_row + 1
+        actions = tk.Frame(form, bg=form.cget("bg"))
+        actions.grid(row=actions_row, column=0, columnspan=4, sticky="se", pady=(6, 0), padx=(0, 2))
+        btn_cancel = tk.Button(
+            actions,
+            text="Cancelar",
+            bg="#e53935",
+            fg="white",
+            activebackground="#f1625f",
+            activeforeground="white",
+            bd=0,
+            padx=12,
+            pady=8,
+            font=("Segoe UI", 10, "bold"),
+            command=self._on_config_cancel if hasattr(self, "_on_config_cancel") else None,
+        )
+        btn_cancel.pack(side="right", padx=(6, 0))
+        btn_apply = tk.Button(
+            actions,
+            text="Aplicar",
+            bg="#00b86b",
+            fg="white",
+            activebackground="#21d087",
+            activeforeground="white",
+            bd=0,
+            padx=14,
+            pady=8,
+            font=("Segoe UI", 10, "bold"),
+            command=self._on_config_apply if hasattr(self, "_on_config_apply") else None,
+        )
+        btn_apply.pack(side="right", padx=(6, 0))
+
+        logos_panel = tk.Frame(body, bg="#d9d9d9")
+        logos_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=(4, 0))
+        logos_panel.grid_columnconfigure(0, weight=1)
+        logos_panel.grid_rowconfigure(0, weight=1)
+
+        # Mini logos panel on the configuration section
+        def _load_logo(filename: str, target_w: int, target_h: int) -> Optional[ImageTk.PhotoImage]:
+            img_path = os.path.join(os.path.dirname(__file__), "images", filename)
+            try:
+                img = Image.open(img_path).convert("RGBA")
+                ratio = min(target_w / max(img.width, 1), target_h / max(img.height, 1), 1.0)
+                if ratio < 1.0:
+                    new_size = (int(img.width * ratio), int(img.height * ratio))
+                    img = img.resize(new_size, Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+            except Exception as exc:
+                print(f"[GUI] error cargando logo config {filename}: {exc}")
+                return None
+
+        self.config_logo_images: list = []
+        logo_layout = [
+            ("gato.png", 200, 130),
+            ("univalle.png", 200, 130),
+            ("PSI_LOGO.png", 180, 90),
+        ]
+        for r, (fname, tw, th) in enumerate(logo_layout):
+            photo = _load_logo(fname, tw, th)
+            if photo:
+                self.config_logo_images.append(photo)
+                lbl = tk.Label(logos_panel, image=photo, bg="#d9d9d9", bd=0)
+                lbl.grid(row=r, column=0, padx=6, pady=3, sticky="n")
+            else:
+                lbl = tk.Label(
+                    logos_panel,
+                    text=f"{fname}",
+                    bg="#d9d9d9",
+                    fg="#4a4a4a",
+                    font=("Segoe UI", 9, "bold"),
+                    justify="center",
+                )
+                lbl.grid(row=r, column=0, padx=6, pady=3, sticky="n")
+
+        hint = tk.Label(
+            wrapper,
+            text="Desarrollado por Ricardo Pabón Serna - PSI - Universidad del Valle",
+            bg="#d9d9d9",
+            fg="#4a4a4a",
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=640,
+        )
+        hint.pack(fill="x", pady=(10, 0))
+
+    def _parse_config_params(self, values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        \brief Convert UI strings into typed parameters; returns None on error.
+        """
+        specs = {
+            "subsample_stride": (int, 0.0),
+            "dist_thresh": (float, 0.0),
+            "max_iters": (int, 0.0),
+            "min_inliers": (int, 0.0),
+            "max_angle_deg": (float, 0.0),
+            "score_subset": (int, 0.0),
+            "time_budget_ms": (float, 0.0),
+            "early_stop_ratio": (float, 0.0),
+            "batch_size": (int, 0.0),
+        }
+        parsed: Dict[str, Any] = {}
+        errors = []
+        for key, (caster, min_value) in specs.items():
+            raw = values.get(key, "")
+            try:
+                val = caster(str(raw).strip())
+            except Exception:
+                errors.append(key)
+                continue
+
+            if key == "early_stop_ratio":
+                if not (0.0 < float(val) <= 1.0):
+                    errors.append(key)
+                    continue
+            elif float(val) <= min_value:
+                errors.append(key)
+                continue
+            parsed[key] = val
+
+        if errors:
+            print(f"[GUI] Parametros invalidos: {', '.join(errors)}")
+            return None
+        return parsed
+
+    def _on_config_apply(self) -> None:
+        """
+        \brief Apply configuration values to the segmentation thread.
+        """
+        raw_values = {key: var.get() for key, var in self.config_vars.items()}
+        parsed = self._parse_config_params(raw_values)
+        if parsed is None:
+            return
+
+        updated = actualizar_parametros_ground(parsed)
+        for key, val in updated.items():
+            if key in self.config_vars:
+                self.config_vars[key].set(str(val))
+                self.config_defaults[key] = str(val)
+        # Restart worker so the new parameters take effect immediately.
+        self._restart_worker()
+        print("[GUI] Parametros de segmentacion actualizados.")
+
+    def _on_config_cancel(self) -> None:
+        """
+        \brief Restore last applied/default values in the UI and runtime.
+        """
+        for key, value in self.config_defaults.items():
+            if key in self.config_vars:
+                self.config_vars[key].set(str(value))
+
+        parsed = self._parse_config_params(self.config_defaults)
+        if parsed:
+            actualizar_parametros_ground(parsed)
+            self._restart_worker()
 
     def _update_sidebar(self, active: str) -> None:
         """
@@ -764,7 +1018,7 @@ class SegmentacionApp:
 
         if frame is None:
             self.display_area.configure(
-                text="Sin datos de segmentacion.",
+                text="Sin datos de segmentación.",
                 image="",
                 bg="#7f7f7f",
             )
