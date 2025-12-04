@@ -1183,8 +1183,11 @@ class SegmentacionApp:
 
         self._update_stream_controls_state()
 
-        if update_header and self._worker and self._worker.is_alive():
-            # @note Restart only si ya estaba corriendo.
+        if mode == "prueba":
+            # Ejecuta una pasada de pruebas iniciando/reiniciando el hilo.
+            self._restart_worker()
+        elif update_header and self._worker and self._worker.is_alive():
+            # @note Restart only si ya estaba corriendo (camara).
             self._restart_worker()
 
     def _update_stream_controls_state(self) -> None:
