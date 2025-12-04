@@ -1189,8 +1189,9 @@ class SegmentacionApp:
             self._restart_worker()
         elif mode == "camera":
             if self._stream_requested:
-                # Mantener transmisión si el usuario ya la inició.
-                self._restart_worker()
+                # Mantener transmisión si el usuario ya la inició, sin reiniciar si ya corre.
+                if not (self._worker and self._worker.is_alive()):
+                    self._start_worker()
             else:
                 # Si no se ha iniciado transmisión, detiene el hilo.
                 self._stop_stream()
