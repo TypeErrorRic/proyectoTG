@@ -83,7 +83,8 @@ class SegmentacionApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._show_mode("config")
-        self._set_mode(self.mode, update_header=True)
+        # Do not auto-iniciar transmisión; arranca solo al presionar el botón.
+        self._set_mode(self.mode, update_header=False)
         self._heartbeat()
 
     def _configure_window(self) -> None:
@@ -364,7 +365,7 @@ class SegmentacionApp:
         buttons_panel.grid_columnconfigure(0, weight=1)
         buttons_panel.grid_columnconfigure(1, weight=1)
 
-        btn_right_top = tk.Button(
+        self.btn_start_stream = tk.Button(
             buttons_panel,
             text="Iniciar Transmisión",
             bg="#00b86b",
@@ -377,9 +378,9 @@ class SegmentacionApp:
             font=("Segoe UI", 9, "bold"),
             command=self._start_stream,
         )
-        btn_right_top.grid(row=0, column=0, sticky="nsew", padx=4, pady=(0, 4))
+        self.btn_start_stream.grid(row=0, column=0, sticky="nsew", padx=4, pady=(0, 4))
 
-        btn_right_bottom = tk.Button(
+        self.btn_stop_stream = tk.Button(
             buttons_panel,
             text="Detener Transmisión",
             bg="#e53935",
@@ -392,7 +393,7 @@ class SegmentacionApp:
             font=("Segoe UI", 9, "bold"),
             command=self._stop_stream,
         )
-        btn_right_bottom.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 0))
+        self.btn_stop_stream.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 0))
 
         btn_right_tall = tk.Button(
             buttons_panel,
@@ -1114,8 +1115,9 @@ class SegmentacionApp:
                 self.config_vars[key].set(str(val))
                 self.config_defaults[key] = str(val)
         self._refresh_params_summary()
-        # Restart worker so the new parameters take effect immediately.
-        self._restart_worker()
+        # Restart worker so the new parameters take effect immediately when running.
+        if self._worker and self._worker.is_alive():
+            self._restart_worker()
         print("[GUI] Parametros de segmentacion actualizados.")
         self._set_apply_status(
             "Aplicado",
@@ -1179,9 +1181,20 @@ class SegmentacionApp:
             self.btn_mode_cam.configure(relief=tk.RAISED, bg="#e53935", activebackground="#f1625f")
             self.mode_label_text.set("Modo de ejecucion: Dataset de pruebas")
 
-        if update_header:
-            # @note Restart the thread with the newly selected mode.
+        self._update_stream_controls_state()
+
+        if update_header and self._worker and self._worker.is_alive():
+            # @note Restart only si ya estaba corriendo.
             self._restart_worker()
+
+    def _update_stream_controls_state(self) -> None:
+        """
+        Enable stream buttons only in camera mode.
+        """
+        state = tk.NORMAL if self.mode == "camera" else tk.DISABLED
+        for btn in (getattr(self, "btn_start_stream", None), getattr(self, "btn_stop_stream", None)):
+            if btn:
+                btn.configure(state=state)
 
     def _start_worker(self) -> None:
         """
@@ -1220,8 +1233,9 @@ class SegmentacionApp:
         """
         Switch to camera mode and ensure the worker is running.
         """
-        self._set_mode("camera", update_header=True)
-        self._start_worker()
+        self._show_mode("exec")
+        self._set_mode("camera", update_header=False)
+        self._restart_worker()
 
     def _stop_stream(self) -> None:
         """
