@@ -65,6 +65,12 @@ class SegmentacionApp:
         self.sidebar_icons: Dict[str, ImageTk.PhotoImage] = {}
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
+        self._config_apply_btn: Optional[tk.Button] = None
+        self._apply_btn_default_text: str = "Aplicar"
+        self._apply_btn_default_bg: str = "#00b86b"
+        self._apply_btn_default_activebg: str = "#21d087"
+        self._apply_status_after_id: Optional[str] = None
+        self.params_summary_labels: Dict[str, tk.Label] = {}
 
         self._init_config_defaults()
         self._ensure_upload_dir()
@@ -432,20 +438,78 @@ class SegmentacionApp:
         )
         params_title.grid(row=0, column=0, sticky="ew", pady=(6, 3))
 
-        params_body = tk.Label(
+        params_body = tk.Frame(
             params_panel,
-            text="Espacio reservado para los\ncontroles de configuracion.",
             bg="#f2f2f2",
-            fg="#333333",
-            font=("Segoe UI", 10),
             bd=0,
             relief=tk.FLAT,
-            justify=tk.LEFT,
-            anchor="nw",
-            padx=8,
-            pady=8,
+            highlightthickness=0,
         )
         params_body.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        params_body.columnconfigure(0, weight=1)
+
+        title_lbl = tk.Label(
+            params_body,
+            text="Parametros actuales",
+            bg=params_body.cget("bg"),
+            fg="#1f1f1f",
+            font=("Segoe UI", 10, "bold italic"),
+            anchor="w",
+            justify=tk.LEFT,
+            padx=4,
+        )
+        title_lbl.grid(row=0, column=0, sticky="w", pady=(4, 2))
+
+        summary_frame = tk.Frame(params_body, bg=params_body.cget("bg"))
+        summary_frame.grid(row=1, column=0, sticky="nsew")
+        summary_frame.columnconfigure(1, weight=1)
+
+        self.params_summary_labels = {}
+        for idx, (key, label_text) in enumerate(self._param_summary_fields()):
+            name_lbl = tk.Label(
+                summary_frame,
+                text=f"{label_text}:",
+                bg=summary_frame.cget("bg"),
+                fg="#333333",
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+                padx=4,
+            )
+            name_lbl.grid(row=idx, column=0, sticky="w", pady=1)
+
+            val_lbl = tk.Label(
+                summary_frame,
+                text="",
+                bg=summary_frame.cget("bg"),
+                fg="#1f1f1f",
+                font=("Segoe UI", 10),
+                anchor="w",
+                padx=4,
+            )
+            val_lbl.grid(row=idx, column=1, sticky="w", pady=1)
+            self.params_summary_labels[key] = val_lbl
+
+        self._refresh_params_summary()
+
+    def _refresh_params_summary(self) -> None:
+        """
+        Update the params summary label with the latest defaults.
+        """
+        if not getattr(self, "params_summary_labels", None):
+            return
+        values = {
+            "subsample_stride": self.config_defaults.get("subsample_stride", "?"),
+            "dist_thresh": self.config_defaults.get("dist_thresh", "?"),
+            "max_iters": self.config_defaults.get("max_iters", "?"),
+            "min_inliers": self.config_defaults.get("min_inliers", "?"),
+            "max_angle_deg": self.config_defaults.get("max_angle_deg", "?"),
+            "score_subset": self.config_defaults.get("score_subset", "?"),
+            "time_budget_ms": self.config_defaults.get("time_budget_ms", "?"),
+            "early_stop_ratio": self.config_defaults.get("early_stop_ratio", "?"),
+            "batch_size": self.config_defaults.get("batch_size", "?"),
+        }
+        for key, lbl in self.params_summary_labels.items():
+            lbl.configure(text=str(values.get(key, "?")))
 
     def _build_db_panel(self, container: tk.Frame) -> None:
         """
@@ -476,9 +540,17 @@ class SegmentacionApp:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=0)
 
-        entry_numero = tk.Entry(body, width=12, font=("Segoe UI", 10))
+        numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
+
+        entry_numero = tk.Entry(
+            body,
+            width=12,
+            font=("Segoe UI", 10),
+            validate="key",
+            validatecommand=numeric_validator,
+        )
         entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
-        entry_numero.insert(0, "Numero")
+        entry_numero.insert(0, "1")
         btn_aplicar = tk.Button(
             body,
             text="Aplicar",
@@ -560,9 +632,17 @@ class SegmentacionApp:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=0)
 
-        entry_numero = tk.Entry(body, width=12, font=("Segoe UI", 10))
+        numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
+
+        entry_numero = tk.Entry(
+            body,
+            width=12,
+            font=("Segoe UI", 10),
+            validate="key",
+            validatecommand=numeric_validator,
+        )
         entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
-        entry_numero.insert(0, "Numero")
+        entry_numero.insert(0, "1")
         btn_aplicar = tk.Button(
             body,
             text="Visualizar",
@@ -725,6 +805,8 @@ class SegmentacionApp:
             ("batch_size", "Tamaño de lote (batch_size)", "256"),
         ]
 
+        numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
+
         for idx, (key, label_text, default) in enumerate(fields):
             row = idx // 2
             col_offset = 2 * (idx % 2)
@@ -742,7 +824,13 @@ class SegmentacionApp:
             var = tk.StringVar(value=default)
             self.config_vars[key] = var
             self.config_defaults.setdefault(key, default)
-            entry = tk.Entry(form, textvariable=var, font=("Segoe UI", 10))
+            entry = tk.Entry(
+                form,
+                textvariable=var,
+                font=("Segoe UI", 10),
+                validate="key",
+                validatecommand=numeric_validator,
+            )
             entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
 
         # Ensure the entries reflect the latest defaults pulled from the runtime.
@@ -784,6 +872,10 @@ class SegmentacionApp:
             command=self._on_config_apply if hasattr(self, "_on_config_apply") else None,
         )
         btn_apply.pack(side="right", padx=(6, 0))
+        self._config_apply_btn = btn_apply
+        self._apply_btn_default_text = btn_apply.cget("text")
+        self._apply_btn_default_bg = btn_apply.cget("bg")
+        self._apply_btn_default_activebg = btn_apply.cget("activebackground")
 
         logos_panel = tk.Frame(body, bg="#d9d9d9")
         logos_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=(4, 0))
@@ -839,6 +931,72 @@ class SegmentacionApp:
         )
         hint.pack(fill="x", pady=(10, 0))
 
+    def _set_apply_status(
+        self,
+        text: str,
+        duration_ms: int = 1200,
+        bg: Optional[str] = None,
+        active_bg: Optional[str] = None,
+    ) -> None:
+        """
+        Temporarily change the apply button label to reflect status.
+        """
+        btn = getattr(self, "_config_apply_btn", None)
+        if btn is None:
+            return
+
+        if self._apply_status_after_id is not None:
+            try:
+                self.root.after_cancel(self._apply_status_after_id)
+            except Exception:
+                pass
+            self._apply_status_after_id = None
+
+        kwargs = {"text": text}
+        if bg is not None:
+            kwargs["bg"] = bg
+        if active_bg is not None:
+            kwargs["activebackground"] = active_bg
+        btn.configure(**kwargs)
+
+        def _reset() -> None:
+            btn.configure(
+                text=self._apply_btn_default_text,
+                bg=self._apply_btn_default_bg,
+                activebackground=self._apply_btn_default_activebg,
+            )
+            self._apply_status_after_id = None
+
+        self._apply_status_after_id = self.root.after(duration_ms, _reset)
+
+    def _param_summary_fields(self) -> list[tuple[str, str]]:
+        """
+        Keys and labels to show in the execution summary panel.
+        """
+        return [
+            ("subsample_stride", "Submuestreo"),
+            ("dist_thresh", "Umbral distancia"),
+            ("max_iters", "Iteraciones max"),
+            ("min_inliers", "Min inliers"),
+            ("max_angle_deg", "Angulo max"),
+            ("score_subset", "Score subset"),
+            ("time_budget_ms", "Tiempo ms"),
+            ("early_stop_ratio", "Corte temprano"),
+            ("batch_size", "Batch size"),
+        ]
+
+    def _validate_numeric_entry(self, proposed: str) -> bool:
+        """
+        Allow empty string or values that parse as float.
+        """
+        if proposed == "":
+            return True
+        try:
+            float(proposed)
+            return True
+        except Exception:
+            return False
+
     def _parse_config_params(self, values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         \brief Convert UI strings into typed parameters; returns None on error.
@@ -885,6 +1043,7 @@ class SegmentacionApp:
         raw_values = {key: var.get() for key, var in self.config_vars.items()}
         parsed = self._parse_config_params(raw_values)
         if parsed is None:
+            self._set_apply_status("No aplicado", bg="#e53935", active_bg="#f1625f")
             return
 
         updated = actualizar_parametros_ground(parsed)
@@ -892,9 +1051,11 @@ class SegmentacionApp:
             if key in self.config_vars:
                 self.config_vars[key].set(str(val))
                 self.config_defaults[key] = str(val)
+        self._refresh_params_summary()
         # Restart worker so the new parameters take effect immediately.
         self._restart_worker()
         print("[GUI] Parametros de segmentacion actualizados.")
+        self._set_apply_status("Aplicado", bg="#5ee68a", active_bg="#80f0a8")
 
     def _on_config_cancel(self) -> None:
         """
@@ -908,6 +1069,7 @@ class SegmentacionApp:
         if parsed:
             actualizar_parametros_ground(parsed)
             self._restart_worker()
+        self._refresh_params_summary()
 
     def _update_sidebar(self, active: str) -> None:
         """
