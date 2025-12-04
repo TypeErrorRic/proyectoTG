@@ -430,6 +430,8 @@ class SegmentacionApp:
             fg="black",
             font=("Segoe UI", 12, "bold"),
             anchor="center",
+            wraplength=210,
+            justify="center",
             pady=4,
         )
         header.pack(side="top", fill="x", padx=6, pady=(4, 2))
