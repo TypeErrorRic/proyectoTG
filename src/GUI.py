@@ -121,13 +121,22 @@ class SegmentacionApp:
         fallback = {
             "subsample_stride": "2",
             "dist_thresh": "0.03",
-            "max_iters": "500",
+            "max_iters": "900",
             "min_inliers": "400",
             "max_angle_deg": "60.0",
-            "score_subset": "2048",
-            "time_budget_ms": "100",
+            "score_subset": "4096",
+            "time_budget_ms": "120",
             "early_stop_ratio": "0.92",
             "batch_size": "256",
+            "low_height_pct": "25.0",
+            "roi_bottom_fraction": "0.34",
+            "roi_expand_step": "0.2",
+            "aggregate_frames": "1",
+            "max_agg_points": "150000",
+            "refine_full_res": "1",
+            "refine_max_points": "200000",
+            "refine_dist_mult": "1.6",
+            "second_pass_mask": "1",
         }
         try:
             runtime_params = obtener_parametros_ground()
@@ -137,6 +146,8 @@ class SegmentacionApp:
 
         for key, default in fallback.items():
             value = runtime_params.get(key, default)
+            if isinstance(value, bool):
+                value = int(value)
             self.config_defaults[key] = str(value)
 
     def _make_icon(self, kind: str) -> Image.Image:
@@ -891,13 +902,18 @@ class SegmentacionApp:
         fields = [
             ("subsample_stride", "Submuestreo (subsample_stride)", "2"),
             ("dist_thresh", "Umbral de distancia (m)", "0.03"),
-            ("max_iters", "Iteraciones máximas (max_iters)", "500"),
+            ("max_iters", "Iteraciones máximas (max_iters)", "900"),
             ("min_inliers", "Mínimo de inliers", "400"),
             ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
-            ("score_subset", "Subconjunto para puntuar (score_subset)", "2048"),
-            ("time_budget_ms", "Presupuesto de tiempo (ms)", "100"),
+            ("score_subset", "Subconjunto para puntuar (score_subset)", "4096"),
+            ("time_budget_ms", "Presupuesto de tiempo (ms)", "120"),
             ("early_stop_ratio", "Ratio de corte temprano", "0.92"),
             ("batch_size", "Tamaño de lote (batch_size)", "256"),
+            ("low_height_pct", "Percentil bajo altura (low_height_pct)", "25.0"),
+            ("roi_bottom_fraction", "Fracción inferior ROI", "0.34"),
+            ("aggregate_frames", "Frames agregados", "1"),
+            ("refine_full_res", "Refinar full-res (0/1)", "1"),
+            ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
         ]
 
         numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
@@ -1084,6 +1100,10 @@ class SegmentacionApp:
             ("time_budget_ms", "Tiempo ms"),
             ("early_stop_ratio", "Corte temprano"),
             ("batch_size", "Batch size"),
+            ("low_height_pct", "Percentil bajo"),
+            ("roi_bottom_fraction", "ROI inferior"),
+            ("aggregate_frames", "Frames agregados"),
+            ("refine_full_res", "Refino full-res"),
         ]
 
     def _validate_numeric_entry(self, proposed: str) -> bool:
@@ -1112,10 +1132,21 @@ class SegmentacionApp:
             "time_budget_ms": (float, 0.0),
             "early_stop_ratio": (float, 0.0),
             "batch_size": (int, 0.0),
+            "low_height_pct": (float, -1.0),
+            "roi_bottom_fraction": (float, 0.0),
+            "roi_expand_step": (float, -0.01),
+            "aggregate_frames": (int, 0.0),
+            "max_agg_points": (int, -0.1),
+            "refine_full_res": (int, -1.0),
+            "refine_max_points": (int, -0.1),
+            "refine_dist_mult": (float, 0.99),
+            "second_pass_mask": (int, -1.0),
         }
         parsed: Dict[str, Any] = {}
         errors = []
         for key, (caster, min_value) in specs.items():
+            if key not in values:
+                continue
             raw = values.get(key, "")
             try:
                 val = caster(str(raw).strip())
@@ -1127,6 +1158,14 @@ class SegmentacionApp:
                 if not (0.0 < float(val) <= 1.0):
                     errors.append(key)
                     continue
+            elif key == "low_height_pct":
+                if not (0.0 <= float(val) <= 100.0):
+                    errors.append(key)
+                    continue
+            elif key == "roi_bottom_fraction":
+                if not (0.0 < float(val) <= 1.0):
+                    errors.append(key)
+                    continue
             elif float(val) <= min_value:
                 errors.append(key)
                 continue
@@ -1135,6 +1174,24 @@ class SegmentacionApp:
         if errors:
             print(f"[GUI] Parametros invalidos: {', '.join(errors)}")
             return None
+
+        # Normaliza campos booleanos y límites prácticos
+        for key in ("refine_full_res", "second_pass_mask"):
+            if key in parsed:
+                parsed[key] = bool(int(parsed[key]))
+        if "aggregate_frames" in parsed:
+            parsed["aggregate_frames"] = max(1, int(parsed["aggregate_frames"]))
+        if "roi_expand_step" in parsed:
+            parsed["roi_expand_step"] = max(0.0, float(parsed["roi_expand_step"]))
+        if "roi_bottom_fraction" in parsed:
+            parsed["roi_bottom_fraction"] = max(0.01, min(1.0, float(parsed["roi_bottom_fraction"])))
+        if "low_height_pct" in parsed:
+            parsed["low_height_pct"] = max(0.0, min(100.0, float(parsed["low_height_pct"])))
+        if "refine_dist_mult" in parsed:
+            parsed["refine_dist_mult"] = max(1.0, float(parsed["refine_dist_mult"]))
+        for key in ("max_agg_points", "refine_max_points"):
+            if key in parsed:
+                parsed[key] = max(0, int(parsed[key]))
         return parsed
 
     def _on_config_apply(self) -> None:

@@ -214,6 +214,72 @@ last_n_cp = None  # Last normal vector of the detected ground plane (CuPy array)
 last_d_cp = None  # Last 'd' parameter of the detected ground plane (CuPy scalar)
 _debug_ransac_times = []  # Sliding window of recent RANSAC runtimes (ms)
 _debug_ransac_counter = 0  # Number of RANSAC executions (for debug logging)
+_recent_pointclouds = []  # Sliding window of subsampled clouds to aggregate frames
+
+
+def _refine_plane(points_cp, up_vec, orientation: str):
+    """
+    Fit a plane (least-squares) to points_cp on GPU.
+
+    Returns (n, d) or None if it fails.
+    """
+    if points_cp is None:
+        return None
+    n_pts = int(points_cp.shape[0])
+    if n_pts < 3:
+        return None
+    try:
+        center = cp.mean(points_cp, axis=0)
+        X = points_cp - center
+        denom = max(n_pts - 1, 1)
+        cov = (X.T @ X) / denom
+        vals, vecs = cp.linalg.eigh(cov)
+        min_idx = int(cp.argmin(vals))
+        n_vec = vecs[:, min_idx]
+        # Orient the normal consistently with the requested orientation
+        dot_up = float(cp.dot(n_vec, up_vec).get())
+        if orientation == "ground" and dot_up > 0:
+            n_vec = -n_vec
+        elif orientation == "ceiling" and dot_up < 0:
+            n_vec = -n_vec
+        d_val = -cp.dot(n_vec, center)
+        return n_vec, d_val
+    except Exception:
+        return None
+
+
+def _refine_with_full_res(
+    depth_cp,
+    rays_cp,
+    n_cp,
+    d_cp,
+    dist_thresh,
+    dist_mult,
+    max_points,
+    orientation,
+    up_axis,
+):
+    """
+    Refit the plane using all full-resolution inliers (optionally subsampled).
+    """
+    try:
+        depth_flat = depth_cp.reshape(-1)
+        rays_flat = rays_cp.reshape(-1, 3)
+        # Signed distances to current plane
+        signed = depth_flat * (rays_flat @ n_cp) + d_cp
+        inliers = (cp.abs(signed) <= dist_thresh * dist_mult) & (depth_flat > 0)
+        total = int(inliers.sum().get())
+        if total < 3:
+            return None
+        idx = cp.flatnonzero(inliers)
+        if max_points and total > max_points:
+            idx = cp.random.choice(idx, size=max_points, replace=False)
+        pts = rays_flat[idx] * depth_flat[idx, None]
+        up_vec = cp.asarray(up_axis, dtype=cp.float32)
+        up_vec = up_vec / (cp.linalg.norm(up_vec) + 1e-9)
+        return _refine_plane(pts, up_vec, orientation)
+    except Exception:
+        return None
 
 def get_ground(
         mapaProfundidad: np.ndarray, 
@@ -260,6 +326,7 @@ def get_ground(
     min_inliers = groundParams.get("min_inliers")
     dist_thresh = groundParams.get("dist_thresh")
     max_iters = groundParams.get("max_iters")
+    max_iters = 500 if max_iters is None else max_iters
     up_axis = groundParams.get("up_axis")
     max_angle_deg = groundParams.get("max_angle_deg")
     seed = groundParams.get("seed")
@@ -271,59 +338,126 @@ def get_ground(
     debug_ransac = bool(groundParams.get("debug_ransac", False))
     dre = groundParams.get("debug_ransac_every", 20)
     debug_ransac_every = max(1, int(20 if dre is None else dre))
+    # Nuevos controles
+    low_height_pct = float(groundParams.get("low_height_pct", 0.0) or 0.0)
+    roi_bottom_fraction = float(groundParams.get("roi_bottom_fraction", 1.0) or 1.0)
+    roi_expand_step = float(groundParams.get("roi_expand_step", 0.0) or 0.0)
+    aggregate_frames = int(groundParams.get("aggregate_frames", 1) or 1)
+    max_agg_points = int(groundParams.get("max_agg_points", 0) or 0)
+    refine_full_res = bool(groundParams.get("refine_full_res", False))
+    refine_max_points = int(groundParams.get("refine_max_points", 0) or 0)
+    refine_dist_mult = float(groundParams.get("refine_dist_mult", 1.0) or 1.0)
+    second_pass_mask = bool(groundParams.get("second_pass_mask", False))
 
     # Convert depth map to CuPy array for RANSAC
     depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
     # Subsample depth and rays for RANSAC efficiency
     Dsub = depth_cp[::subsample_stride, ::subsample_stride]
     Rsub = rays_cp[::subsample_stride, ::subsample_stride]
-    # Use only the bottom third of the image to look for floor
+    # ROI adaptable: arranca en fraccion inferior, expande si faltan puntos
     sub_h = Dsub.shape[0]
-    if sub_h >= 3:
-        start = (2 * sub_h) // 3  # last third
-        Dsub = Dsub[start:, :]
-        Rsub = Rsub[start:, :]
+    roi_bottom_fraction = min(max(roi_bottom_fraction, 0.05), 1.0)
+    roi_expand_step = max(roi_expand_step, 0.0)
+    Droi, Rroi = Dsub, Rsub
+    roi_used = roi_bottom_fraction
+    for _ in range(4):
+        start = int(sub_h * max(0.0, 1.0 - roi_used))
+        Dtmp = Dsub[start:, :]
+        Rtmp = Rsub[start:, :]
+        valid_tmp = Dtmp > 0
+        if int(cp.sum(valid_tmp)) >= int(min_inliers):
+            Droi, Rroi = Dtmp, Rtmp
+            break
+        roi_used = min(1.0, roi_used + roi_expand_step)
+    Dsub, Rsub = Droi, Rroi
     valid = Dsub > 0
     global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter
-    if int(cp.sum(valid)) >= min_inliers:
+    if int(cp.sum(valid)) >= 3:
         # Prepare 3D point cloud for RANSAC
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
         Psub = Psub[valid.reshape(-1)]
 
-        # Run RANSAC plane fitting on the subsampled points
-        t0 = time.perf_counter()
-        res = ransac_plane_gpu(
-            Psub,
-            dist_thresh=dist_thresh,
-            max_iters=max_iters,
-            min_inliers=min_inliers,
-            up_axis=up_axis,
-            max_angle_deg=max_angle_deg,
-            seed=seed,
-            score_subset=score_subset,
-            orientation=orientation,
-            time_budget_ms=time_budget_ms,
-            early_stop_ratio=early_stop_ratio,
-            batch_size=batch_size,
-        )
-        if debug_ransac:
-            elapsed_ms = (time.perf_counter() - t0) * 1000.0
-            _debug_ransac_counter += 1
-            _debug_ransac_times.append(elapsed_ms)
-            if len(_debug_ransac_times) > debug_ransac_every:
-                _debug_ransac_times.pop(0)
-            if _debug_ransac_counter % debug_ransac_every == 0:
-                window = _debug_ransac_times[-debug_ransac_every:]
-                avg_ms = sum(window) / len(window)
-                print(f"[ransac] Promedio últimas {debug_ransac_every} ejecuciones: {avg_ms:.2f} ms")
+        # Sesgar hacia los puntos más bajos (altura)
+        if low_height_pct > 0.0 and Psub.size:
+            up_vec = cp.asarray(up_axis, dtype=cp.float32)
+            up_vec = up_vec / (cp.linalg.norm(up_vec) + 1e-9)
+            try:
+                heights = Psub @ up_vec
+                cutoff = cp.percentile(heights, low_height_pct)
+                keep_low = heights <= cutoff
+                if int(keep_low.sum().get()) >= 3:
+                    Psub = Psub[keep_low]
+            except Exception:
+                pass
 
-        if res is not None:
-            # Store last valid plane parameters
-            last_n_cp = res['n']
-            last_d_cp = res['d']
+        # Acumular n frames (sin pose) con límite de puntos
+        global _recent_pointclouds
+        _recent_pointclouds.append(Psub)
+        if aggregate_frames <= 1:
+            _recent_pointclouds = _recent_pointclouds[-1:]
         else:
-            last_n_cp = None
-            last_d_cp = None
+            _recent_pointclouds = _recent_pointclouds[-max(1, aggregate_frames):]
+        if len(_recent_pointclouds) > 1:
+            try:
+                Psub = cp.concatenate(_recent_pointclouds, axis=0)
+            except Exception:
+                Psub = _recent_pointclouds[-1]
+        if max_agg_points > 0 and int(Psub.shape[0]) > max_agg_points:
+            try:
+                idx = cp.random.choice(int(Psub.shape[0]), size=max_agg_points, replace=False)
+                Psub = Psub[idx]
+            except Exception:
+                pass
+
+        if int(Psub.shape[0]) >= int(min_inliers):
+            # Run RANSAC plane fitting on the subsampled points
+            t0 = time.perf_counter()
+            res = ransac_plane_gpu(
+                Psub,
+                dist_thresh=dist_thresh,
+                max_iters=max_iters,
+                min_inliers=min_inliers,
+                up_axis=up_axis,
+                max_angle_deg=max_angle_deg,
+                seed=seed,
+                score_subset=score_subset,
+                orientation=orientation,
+                time_budget_ms=time_budget_ms,
+                early_stop_ratio=early_stop_ratio,
+                batch_size=batch_size,
+            )
+            if debug_ransac:
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                _debug_ransac_counter += 1
+                _debug_ransac_times.append(elapsed_ms)
+                if len(_debug_ransac_times) > debug_ransac_every:
+                    _debug_ransac_times.pop(0)
+                if _debug_ransac_counter % debug_ransac_every == 0:
+                    window = _debug_ransac_times[-debug_ransac_every:]
+                    avg_ms = sum(window) / len(window)
+                    print(f"[ransac] Promedio últimas {debug_ransac_every} ejecuciones: {avg_ms:.2f} ms")
+
+            if res is not None:
+                # Store last valid plane parameters
+                last_n_cp = res['n']
+                last_d_cp = res['d']
+                if refine_full_res:
+                    refined = _refine_with_full_res(
+                        depth_cp,
+                        rays_cp,
+                        last_n_cp,
+                        last_d_cp,
+                        dist_thresh,
+                        refine_dist_mult,
+                        refine_max_points,
+                        orientation,
+                        up_axis,
+                    )
+                    if refined is not None:
+                        last_n_cp, last_d_cp = refined
+            else:
+                last_n_cp = None
+                last_d_cp = None
     else:
         # Not enough valid data, skip RANSAC for this frame
         pass
@@ -340,6 +474,13 @@ def get_ground(
     # Solidify the mask fully on GPU (close + fill holes) to avoid CPU hops
     mask_cp = mask_cp.astype(cp.bool_)
     structure = cp.ones((5, 5), dtype=cp.bool_)
+    if second_pass_mask and last_n_cp is not None and refine_dist_mult > 1.0:
+        try:
+            relaxed = (dists <= (dist_thresh * refine_dist_mult)) & valid_depth
+            band = cnd.binary_dilation(mask_cp, structure=structure, iterations=1, brute_force=True)
+            mask_cp = cp.logical_or(mask_cp, cp.logical_and(relaxed, band))
+        except Exception:
+            pass
     dilated = cnd.binary_dilation(mask_cp, structure=structure, iterations=2, brute_force=True)
     closed = cnd.binary_erosion(dilated, structure=structure, iterations=2, brute_force=True)
 
