@@ -281,7 +281,9 @@ def _resize_gpu(img, size, interpolation=cv2.INTER_NEAREST):
     return cv2.cuda.resize(gpu, size, interpolation=interpolation).download()
 
 
-def preprocesar(pipeline=None, mode: str = "camera") -> bool:
+def preprocesar(
+    pipeline=None, mode: str = "camera", dataset_index: Optional[int] = None
+) -> bool:
     """
     Extract and store in _runtime the data needed for RANSAC.
 
@@ -292,7 +294,7 @@ def preprocesar(pipeline=None, mode: str = "camera") -> bool:
     """
     if mode == "prueba":
         # Offline mode: load RGB and depth from disk.
-        imagenRGB, mapaProfundidad = load_dataset_frame()
+        imagenRGB, mapaProfundidad = load_dataset_frame(index=dataset_index)
         if imagenRGB is None or mapaProfundidad is None:
             _runtime["imagenRGB"] = None
             _runtime["mapaProfundidad"] = None
@@ -366,6 +368,7 @@ def AlgoritmosSegmentacion(
     stride: int = 2,
     mode: str = "camera",
     ground_params: Optional[Dict[str, Any]] = None,
+    dataset_index: Optional[int] = None,
 ) -> Any:
     """
     Entry point used by the main loop.
@@ -379,6 +382,9 @@ def AlgoritmosSegmentacion(
 
     ground_params:
         Optional dictionary to override the current RANSAC/segmentation parameters.
+    dataset_index:
+        Optional index (0-based) of the dataset frame to load when mode == "prueba".
+        If None, frames cycle sequentially as before.
     """
 
     if ground_params:
@@ -399,7 +405,7 @@ def AlgoritmosSegmentacion(
         for _ in range(60):  # ~0.6 s budget (sleep 0.01 each)
             try:
                 # Get new data for the next task and store it in _runtime
-                ok = preprocesar(_runtime["pipeline"], mode=mode)
+                ok = preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
                 imagenRGB = _runtime.get("imagenRGB")
                 mapaProfundidad = _runtime.get("mapaProfundidad")
                 rays_cp = _runtime.get("rays_cp")
@@ -435,7 +441,7 @@ def AlgoritmosSegmentacion(
 
     if mode == "prueba":
         # In dataset mode, just return the latest RGB frame from disk
-        ok = preprocesar(_runtime["pipeline"], mode=mode)
+        ok = preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
         if ok and _runtime.get("imagenRGB") is not None:
             return _runtime["imagenRGB"]
     else:

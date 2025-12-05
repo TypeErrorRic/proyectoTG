@@ -22,7 +22,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import (
+from src.utilities.segmentar2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -72,6 +72,13 @@ class SegmentacionApp:
         self._apply_btn_default_activebg: str = "#21d087"
         self._apply_status_after_id: Optional[str] = None
         self.params_summary_labels: Dict[str, tk.Label] = {}
+        self.sample_controls: Dict[str, Any] = {}
+        self.dataset_index: int = 0
+        self.dataset_index_var: Optional[tk.IntVar] = None
+        self._updating_dataset_controls: bool = False
+        self.capture_controls: Dict[str, Any] = {}
+        self._capturas_default_bg: Optional[str] = None
+        self._capturas_default_activebg: Optional[str] = None
 
         self._init_config_defaults()
         self._ensure_upload_dir()
@@ -399,10 +406,10 @@ class SegmentacionApp:
         btn_right_tall = tk.Button(
             buttons_panel,
             text="Capturar",
-            bg="#1b5e94",
-            fg="white",
-            activebackground="#21d087",
-            activeforeground="white",
+            bg="#f2c200",
+            fg="#1f1f1f",
+            activebackground="#ffd54f",
+            activeforeground="#1f1f1f",
             bd=0,
             padx=10,
             pady=8,
@@ -456,7 +463,7 @@ class SegmentacionApp:
             font=("Segoe UI", 10, "bold"),
             padx=12,
             pady=10,
-            command=lambda: self._set_mode("prueba"),
+            command=self._on_mode_prueba_pressed,
         )
         self.btn_mode_test.pack(side="left", padx=4, expand=True, fill="x")
 
@@ -469,7 +476,7 @@ class SegmentacionApp:
             font=("Segoe UI", 10, "bold"),
             padx=12,
             pady=10,
-            command=lambda: self._set_mode("camera"),
+            command=self._on_mode_transmision_pressed,
         )
         self.btn_mode_cam.pack(side="left", padx=4, expand=True, fill="x")
 
@@ -600,32 +607,35 @@ class SegmentacionApp:
 
         numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
 
+        self.dataset_index_var = tk.IntVar(value=self.dataset_index + 1)
         entry_numero = tk.Entry(
             body,
             width=12,
             font=("Segoe UI", 10),
             validate="key",
             validatecommand=numeric_validator,
+            textvariable=self.dataset_index_var,
         )
         entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
-        entry_numero.insert(0, "1")
+        entry_numero.bind("<Return>", lambda _event: self._on_dataset_apply())
         btn_aplicar = tk.Button(
             body,
             text="Aplicar",
-            bg="#00b86b",
-            activebackground="#21d087",
-            fg="white",
+            bg="#f2c200",
+            activebackground="#ffd54f",
+            fg="#1f1f1f",
             bd=0,
             width=12,
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=self._on_dataset_apply,
         )
         btn_aplicar.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=(6, 8))
 
         slider = tk.Scale(
             body,
-            from_=0,
+            from_=1,
             to=100,
             orient=tk.HORIZONTAL,
             length=200,
@@ -633,6 +643,8 @@ class SegmentacionApp:
             bg=container_bg,
             highlightthickness=0,
             troughcolor="#d5d5d5",
+            variable=self.dataset_index_var,
+            command=self._on_dataset_slider,
         )
         slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(8, 8))
 
@@ -648,6 +660,7 @@ class SegmentacionApp:
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=lambda: self._change_dataset_index(-1),
         )
         btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
         btn_siguiente = tk.Button(
@@ -660,8 +673,17 @@ class SegmentacionApp:
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=lambda: self._change_dataset_index(1),
         )
         btn_siguiente.pack(side="left", expand=True, fill="x", padx=(10, 0))
+        self.sample_controls = {
+            "entry": entry_numero,
+            "apply": btn_aplicar,
+            "slider": slider,
+            "back": btn_atras,
+            "next": btn_siguiente,
+        }
+        self._update_sample_panel_state()
 
     def _build_captura(self, container: tk.Frame) -> None:
         """
@@ -704,9 +726,9 @@ class SegmentacionApp:
         btn_aplicar = tk.Button(
             body,
             text="Visualizar",
-            bg="#00b86b",
-            activebackground="#21d087",
-            fg="white",
+            bg="#f2c200",
+            activebackground="#ffd54f",
+            fg="#1f1f1f",
             bd=0,
             width=12,
             padx=12,
@@ -752,8 +774,23 @@ class SegmentacionApp:
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=self._on_capturas_pressed,
         )
         btn_siguiente.pack(side="left", expand=True, fill="x", padx=(10, 0))
+        entry_numero.configure(state=tk.DISABLED)
+        btn_aplicar.configure(state=tk.DISABLED)
+        slider.configure(state=tk.DISABLED)
+        btn_atras.configure(state=tk.DISABLED)
+        self.btn_capturas = btn_siguiente
+        if self._capturas_default_bg is None:
+            self._capturas_default_bg = btn_siguiente.cget("bg")
+            self._capturas_default_activebg = btn_siguiente.cget("activebackground")
+        self.capture_controls = {
+            "entry": entry_numero,
+            "visualizar": btn_aplicar,
+            "slider": slider,
+            "borrar": btn_atras,
+        }
 
     def _build_logo(self, container: tk.Frame) -> None:
         """
@@ -920,9 +957,9 @@ class SegmentacionApp:
             actions,
             text="Aplicar",
             bg="#00b86b",
-            fg="white",
+            fg="#d9d9d9",
             activebackground="#21d087",
-            activeforeground="white",
+            activeforeground="#d9d9d9",
             bd=0,
             padx=14,
             pady=8,
@@ -1168,6 +1205,20 @@ class SegmentacionApp:
                 self.frames[key].grid()
         self._update_sidebar(mode)
 
+    def _on_mode_prueba_pressed(self) -> None:
+        """
+        Handle user tap on the Prueba mode button.
+        """
+        self._disable_capturas_button()
+        self._set_mode("prueba")
+
+    def _on_mode_transmision_pressed(self) -> None:
+        """
+        Handle user tap on the Transmision mode button.
+        """
+        self._disable_capturas_button()
+        self._set_mode("camera")
+
     def _set_mode(self, mode: str, update_header: bool = True) -> None:
         """
         \brief Switches the mode and updates button styles.
@@ -1183,6 +1234,7 @@ class SegmentacionApp:
             self.mode_label_text.set("Modo de ejecucion: Dataset de pruebas")
 
         self._update_stream_controls_state()
+        self._update_sample_panel_state()
 
         if mode == "prueba":
             # Ejecuta una pasada de pruebas iniciando/reiniciando el hilo.
@@ -1204,6 +1256,128 @@ class SegmentacionApp:
         for btn in (getattr(self, "btn_start_stream", None), getattr(self, "btn_stop_stream", None)):
             if btn:
                 btn.configure(state=state)
+
+    def _update_sample_panel_state(self) -> None:
+        """
+        Enable/disable sample data panel controls depending on mode.
+        """
+        controls = getattr(self, "sample_controls", None)
+        if not controls:
+            return
+        state = tk.NORMAL
+        for widget in controls.values():
+            try:
+                widget.configure(state=state)
+            except Exception:
+                pass
+
+    def _set_dataset_index(self, index: int, update_controls: bool = True) -> None:
+        """
+        Store the dataset index (0-based) and keep entry/slider in sync.
+        """
+        try:
+            idx = int(index)
+        except Exception:
+            return
+        if idx < 0:
+            idx = 0
+        self.dataset_index = idx
+        if not update_controls:
+            return
+        self._updating_dataset_controls = True
+        try:
+            if self.dataset_index_var is not None:
+                self.dataset_index_var.set(idx + 1)
+            slider = self.sample_controls.get("slider") if hasattr(self, "sample_controls") else None
+            if slider:
+                try:
+                    slider.configure(to=max(int(slider.cget("to")), idx + 1))
+                    slider.set(idx + 1)
+                except Exception:
+                    pass
+        finally:
+            self._updating_dataset_controls = False
+
+    def _change_dataset_index(self, delta: int) -> None:
+        """
+        Increment/decrement dataset index and refresh UI.
+        """
+        self._set_dataset_index(self.dataset_index + delta)
+
+    def _on_dataset_apply(self) -> None:
+        """
+        Apply the index from the entry to select a dataset frame.
+        """
+        if self.dataset_index_var is None:
+            return
+        try:
+            requested = int(self.dataset_index_var.get()) - 1
+        except Exception:
+            return
+        self._set_dataset_index(requested)
+
+    def _on_dataset_slider(self, value: str) -> None:
+        """
+        Sync slider movement with dataset index (value comes as string).
+        """
+        if self._updating_dataset_controls:
+            return
+        try:
+            slider_val = int(float(value))
+        except Exception:
+            return
+        self._set_dataset_index(slider_val - 1, update_controls=False)
+
+    def _on_capturas_pressed(self) -> None:
+        """
+        Enable capture panel controls and highlight the Capturas action.
+        """
+        if self._capturas_default_bg is None and hasattr(self, "btn_capturas"):
+            self._capturas_default_bg = self.btn_capturas.cget("bg")
+            self._capturas_default_activebg = self.btn_capturas.cget("activebackground")
+
+        for widget in self.capture_controls.values():
+            try:
+                widget.configure(state=tk.NORMAL)
+            except Exception:
+                pass
+        for btn in (getattr(self, "btn_start_stream", None), getattr(self, "btn_stop_stream", None)):
+            if btn:
+                try:
+                    btn.configure(state=tk.DISABLED)
+                except Exception:
+                    pass
+        for widget in self.sample_controls.values():
+            try:
+                widget.configure(state=tk.DISABLED)
+            except Exception:
+                pass
+
+        if hasattr(self, "btn_capturas") and self.btn_capturas:
+            default_bg = self._capturas_default_bg or self.btn_capturas.cget("bg")
+            default_active = self._capturas_default_activebg or self.btn_capturas.cget("activebackground")
+            self.btn_capturas.configure(state=tk.NORMAL, bg=default_bg, activebackground=default_active)
+
+    def _disable_capturas_button(self) -> None:
+        """
+        Reset the Capturas button styling and disable only its panel controls.
+        """
+        btn = getattr(self, "btn_capturas", None)
+        if btn:
+            if self._capturas_default_bg is None:
+                self._capturas_default_bg = btn.cget("bg")
+                self._capturas_default_activebg = btn.cget("activebackground")
+            btn.configure(
+                state=tk.NORMAL,
+                bg=self._capturas_default_bg,
+                activebackground=self._capturas_default_activebg,
+            )
+
+        for widget in self.capture_controls.values():
+            try:
+                widget.configure(state=tk.DISABLED)
+            except Exception:
+                pass
 
     def _start_worker(self) -> None:
         """
@@ -1266,7 +1440,7 @@ class SegmentacionApp:
         while not self._stop_event.is_set():
             loop_start = time.perf_counter()
             try:
-                frame = AlgoritmosSegmentacion(mode=self.mode)
+                frame = AlgoritmosSegmentacion(mode=self.mode, dataset_index=self.dataset_index)
                 if frame is not None:
                     with self._frame_lock:
                         self.last_frame = frame

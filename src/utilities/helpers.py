@@ -190,11 +190,12 @@ _DATASET_IMAGE_FILES = None
 _DATASET_INDEX = 0
 
 
-def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """
     Load an RGB + depth pair from src/data/{images,depths}.
 
     Assumes depth in PNG uint16 (mm) and converts to meters (float32).
+    If 'index' is provided, loads that specific item (0-based, wraps modulo dataset size).
     """
     global _DATASET_IMAGE_FILES, _DATASET_INDEX
     try:
@@ -220,10 +221,18 @@ def load_dataset_frame() -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
             print(f"[helpers] No images found in {images_dir}")
             return None, None
 
-        if _DATASET_INDEX >= len(_DATASET_IMAGE_FILES):
+        if index is not None:
+            try:
+                idx = int(index)
+            except Exception:
+                print(f"[helpers] Invalid dataset index: {index}")
+                return None, None
+            _DATASET_INDEX = idx % len(_DATASET_IMAGE_FILES)
+        elif _DATASET_INDEX >= len(_DATASET_IMAGE_FILES):
             _DATASET_INDEX = 0
+
         filename = _DATASET_IMAGE_FILES[_DATASET_INDEX]
-        _DATASET_INDEX += 1
+        _DATASET_INDEX = (_DATASET_INDEX + 1) % len(_DATASET_IMAGE_FILES)
 
         image_path = os.path.join(images_dir, filename)
         depth_path = os.path.join(depths_dir, filename)
