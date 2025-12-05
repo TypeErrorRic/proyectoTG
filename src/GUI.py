@@ -131,7 +131,6 @@ class SegmentacionApp:
             "low_height_pct": "25.0",
             "roi_bottom_fraction": "0.34",
             "roi_expand_step": "0.2",
-            "aggregate_frames": "1",
             "max_agg_points": "150000",
             "refine_full_res": "1",
             "refine_max_points": "200000",
@@ -907,7 +906,6 @@ class SegmentacionApp:
             ("batch_size", "Tamaño de lote (batch_size)", "256"),
             ("low_height_pct", "Percentil bajo altura (low_height_pct)", "25.0"),
             ("roi_bottom_fraction", "Fracción inferior ROI", "0.34"),
-            ("aggregate_frames", "Frames agregados", "1"),
             ("refine_full_res", "Refinar full-res (0/1)", "1"),
             ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
         ]
@@ -1106,7 +1104,6 @@ class SegmentacionApp:
             ("batch_size", "Batch size"),
             ("low_height_pct", "Percentil bajo"),
             ("roi_bottom_fraction", "ROI inferior"),
-            ("aggregate_frames", "Frames agregados"),
             ("refine_full_res", "Refino full-res"),
             ("refine_dist_mult", "Tol. refino"),
         ]
@@ -1140,7 +1137,6 @@ class SegmentacionApp:
             "low_height_pct": (float, -1.0),
             "roi_bottom_fraction": (float, 0.0),
             "roi_expand_step": (float, -0.01),
-            "aggregate_frames": (int, 0.0),
             "max_agg_points": (int, -0.1),
             "refine_max_points": (int, -0.1),
             "refine_dist_mult": (float, 0.99),
@@ -1194,8 +1190,6 @@ class SegmentacionApp:
         for key in ("refine_full_res", "second_pass_mask"):
             if key in parsed:
                 parsed[key] = bool(int(parsed[key]))
-        if "aggregate_frames" in parsed:
-            parsed["aggregate_frames"] = max(1, int(parsed["aggregate_frames"]))
         if "roi_expand_step" in parsed:
             parsed["roi_expand_step"] = max(0.0, float(parsed["roi_expand_step"]))
         if "roi_bottom_fraction" in parsed:

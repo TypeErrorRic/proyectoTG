@@ -48,8 +48,7 @@ _runtime: Dict[str, Any] = {
         "low_height_pct": 25.0,          # usar percentil inferior en altura
         "roi_bottom_fraction": 0.34,     # arranca con este porcentaje inferior
         "roi_expand_step": 0.2,          # expande ROI hacia arriba si faltan puntos
-        "aggregate_frames": 1,           # 1 = sin acumulacion
-        "max_agg_points": 150000,        # límite de puntos acumulados
+        "max_agg_points": 150000,        # límite de puntos usados en RANSAC
         "refine_full_res": True,         # refinar plano con inliers full-res
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar

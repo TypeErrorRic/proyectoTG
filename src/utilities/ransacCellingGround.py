@@ -202,7 +202,6 @@ last_n_cp = None  # Last normal vector of the detected ground plane (CuPy array)
 last_d_cp = None  # Last 'd' parameter of the detected ground plane (CuPy scalar)
 _debug_ransac_times = []  # Sliding window of recent RANSAC runtimes (ms)
 _debug_ransac_counter = 0  # Number of RANSAC executions (for debug logging)
-_recent_pointclouds = []  # Sliding window of subsampled clouds to aggregate frames
 
 
 def _refine_plane(points_cp, up_vec, orientation: str):
@@ -330,7 +329,6 @@ def get_ground(
     low_height_pct = float(groundParams.get("low_height_pct", 0.0) or 0.0)
     roi_bottom_fraction = float(groundParams.get("roi_bottom_fraction", 1.0) or 1.0)
     roi_expand_step = float(groundParams.get("roi_expand_step", 0.0) or 0.0)
-    aggregate_frames = int(groundParams.get("aggregate_frames", 1) or 1)
     max_agg_points = int(groundParams.get("max_agg_points", 0) or 0)
     refine_full_res = bool(groundParams.get("refine_full_res", False))
     refine_max_points = int(groundParams.get("refine_max_points", 0) or 0)
@@ -378,18 +376,7 @@ def get_ground(
             except Exception:
                 pass
 
-        # Acumular n frames (sin pose) con límite de puntos
-        global _recent_pointclouds
-        _recent_pointclouds.append(Psub)
-        if aggregate_frames <= 1:
-            _recent_pointclouds = _recent_pointclouds[-1:]
-        else:
-            _recent_pointclouds = _recent_pointclouds[-max(1, aggregate_frames):]
-        if len(_recent_pointclouds) > 1:
-            try:
-                Psub = cp.concatenate(_recent_pointclouds, axis=0)
-            except Exception:
-                Psub = _recent_pointclouds[-1]
+        # Opcional: limitar el número de puntos usados por RANSAC
         if max_agg_points > 0 and int(Psub.shape[0]) > max_agg_points:
             try:
                 idx = cp.random.choice(int(Psub.shape[0]), size=max_agg_points, replace=False)
