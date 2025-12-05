@@ -119,15 +119,15 @@ class SegmentacionApp:
         \brief Load default/last-used parameters from the segmentation module.
         """
         fallback = {
-            "subsample_stride": "2",
+            "subsample_stride": "1",
             "dist_thresh": "0.03",
-            "max_iters": "900",
+            "max_iters": "400",
             "min_inliers": "400",
             "max_angle_deg": "60.0",
             "score_subset": "4096",
             "time_budget_ms": "120",
             "early_stop_ratio": "0.92",
-            "batch_size": "256",
+            "batch_size": "128",
             "low_height_pct": "25.0",
             "roi_bottom_fraction": "0.34",
             "roi_expand_step": "0.2",

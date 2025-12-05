@@ -15,18 +15,6 @@ def _to_xp(a):
     """Ensure array lives on GPU (CuPy)."""
     return cp.asarray(a)
 
-def _to_numpy(a):
-    """Convierte un arreglo (posiblemente CuPy) a NumPy, evitando copias innecesarias."""
-    if a is None or isinstance(a, np.ndarray):
-        return a
-    try:
-        # Arreglo CuPy -> NumPy
-        if 'cupy' in str(type(a)):
-            return a.get()
-    except Exception:
-        pass
-    return np.asarray(a)
-
 def ransac_plane_gpu(points,
                      dist_thresh=0.02,
                      max_iters=2000,

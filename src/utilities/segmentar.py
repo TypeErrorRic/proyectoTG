@@ -33,9 +33,9 @@ _runtime: Dict[str, Any] = {
     "mapaProfundidad": None,
     "groundParams": {
         "dist_thresh": 0.03,
-        "max_iters": 900,
+        "max_iters": 400,
         "min_inliers": 400,
-        "subsample_stride": 2,
+        "subsample_stride": 1,
         "time_budget_ms": 120,
         "up_axis": (0.0, -1.0, 0.0),
         "max_angle_deg": 60.0,
@@ -43,7 +43,7 @@ _runtime: Dict[str, Any] = {
         "score_subset": 4096,
         "orientation": "ground",
         "early_stop_ratio": 0.92,
-        "batch_size": 256,
+        "batch_size": 128,
         # Extra controls for quality vs velocidad
         "low_height_pct": 25.0,          # usar percentil inferior en altura
         "roi_bottom_fraction": 0.34,     # arranca con este porcentaje inferior
