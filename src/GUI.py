@@ -573,19 +573,15 @@ class SegmentacionApp:
         """
         if not getattr(self, "params_summary_labels", None):
             return
-        values = {
-            "subsample_stride": self.config_defaults.get("subsample_stride", "?"),
-            "dist_thresh": self.config_defaults.get("dist_thresh", "?"),
-            "max_iters": self.config_defaults.get("max_iters", "?"),
-            "min_inliers": self.config_defaults.get("min_inliers", "?"),
-            "max_angle_deg": self.config_defaults.get("max_angle_deg", "?"),
-            "score_subset": self.config_defaults.get("score_subset", "?"),
-            "time_budget_ms": self.config_defaults.get("time_budget_ms", "?"),
-            "early_stop_ratio": self.config_defaults.get("early_stop_ratio", "?"),
-            "batch_size": self.config_defaults.get("batch_size", "?"),
-        }
+        try:
+            runtime_params = obtener_parametros_ground()
+        except Exception:
+            runtime_params = {}
         for key, lbl in self.params_summary_labels.items():
-            lbl.configure(text=str(values.get(key, "?")))
+            val = runtime_params.get(key, self.config_defaults.get(key, "?"))
+            if isinstance(val, bool):
+                val = int(val)
+            lbl.configure(text=str(val))
 
     def _build_db_panel(self, container: tk.Frame) -> None:
         """
@@ -935,13 +931,21 @@ class SegmentacionApp:
             var = tk.StringVar(value=default)
             self.config_vars[key] = var
             self.config_defaults.setdefault(key, default)
-            entry = tk.Entry(
-                form,
-                textvariable=var,
-                font=("Segoe UI", 10),
-                validate="key",
-                validatecommand=numeric_validator,
-            )
+            if key == "refine_full_res":
+                # Permitir letras/booleanos en este campo
+                entry = tk.Entry(
+                    form,
+                    textvariable=var,
+                    font=("Segoe UI", 10),
+                )
+            else:
+                entry = tk.Entry(
+                    form,
+                    textvariable=var,
+                    font=("Segoe UI", 10),
+                    validate="key",
+                    validatecommand=numeric_validator,
+                )
             entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
 
         # Ensure the entries reflect the latest defaults pulled from the runtime.
@@ -1104,6 +1108,7 @@ class SegmentacionApp:
             ("roi_bottom_fraction", "ROI inferior"),
             ("aggregate_frames", "Frames agregados"),
             ("refine_full_res", "Refino full-res"),
+            ("refine_dist_mult", "Tol. refino"),
         ]
 
     def _validate_numeric_entry(self, proposed: str) -> bool:
@@ -1137,13 +1142,23 @@ class SegmentacionApp:
             "roi_expand_step": (float, -0.01),
             "aggregate_frames": (int, 0.0),
             "max_agg_points": (int, -0.1),
-            "refine_full_res": (int, -1.0),
             "refine_max_points": (int, -0.1),
             "refine_dist_mult": (float, 0.99),
             "second_pass_mask": (int, -1.0),
         }
         parsed: Dict[str, Any] = {}
         errors = []
+
+        # Campo especial: permitir texto en refine_full_res
+        if "refine_full_res" in values:
+            raw_refine = str(values.get("refine_full_res", "")).strip().lower()
+            if raw_refine in ("true", "t", "si", "sí", "yes", "on", "1"):
+                parsed["refine_full_res"] = True
+            elif raw_refine in ("false", "f", "no", "off", "0"):
+                parsed["refine_full_res"] = False
+            else:
+                errors.append("refine_full_res")
+
         for key, (caster, min_value) in specs.items():
             if key not in values:
                 continue
