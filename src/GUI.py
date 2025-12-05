@@ -22,7 +22,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar2 import (
+from src.utilities.segmentar import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -1264,7 +1264,7 @@ class SegmentacionApp:
         controls = getattr(self, "sample_controls", None)
         if not controls:
             return
-        state = tk.NORMAL
+        state = tk.NORMAL if self.mode == "prueba" else tk.DISABLED
         for widget in controls.values():
             try:
                 widget.configure(state=state)
