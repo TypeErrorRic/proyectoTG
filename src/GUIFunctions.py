@@ -55,6 +55,25 @@ def load_upload_images(upload_dir: str, extensions: Tuple[str, ...] = (".png", "
     return [path for _mtime, path in collected]
 
 
+def visualize_capture(app: Any) -> None:
+    """
+    Bridge to show the requested capture using the gallery helpers on the app.
+    """
+    if app is None:
+        return
+    try:
+        requested_idx = app._get_requested_capture_index()
+    except Exception as exc:
+        print(f"[GUI] no se pudo leer indice de captura: {exc}")
+        return
+    try:
+        app._show_gallery_panel()
+        app._refresh_gallery_images()
+        app._show_gallery_image(requested_idx)
+    except Exception as exc:
+        print(f"[GUI] no se pudo visualizar captura: {exc}")
+
+
 def make_icon(kind: str) -> Image.Image:
     """
     Generate a placeholder icon when the expected asset is missing.

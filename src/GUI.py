@@ -26,6 +26,7 @@ try:
         param_summary_fields,
         parse_config_params,
         validate_numeric_entry,
+        visualize_capture,
     )
 except ModuleNotFoundError:
     # Fallback for direct script execution from the src directory.
@@ -38,6 +39,7 @@ except ModuleNotFoundError:
         param_summary_fields,
         parse_config_params,
         validate_numeric_entry,
+        visualize_capture,
     )
 
 # @note Adjust sys.path when executed as a script.
@@ -102,6 +104,7 @@ class SegmentacionApp:
         self.dataset_index: int = 0
         self.dataset_index_var: Optional[tk.IntVar] = None
         self._updating_dataset_controls: bool = False
+        self._updating_capture_controls: bool = False
         self.capture_controls: Dict[str, Any] = {}
         self._capturas_default_bg: Optional[str] = None
         self._capturas_default_activebg: Optional[str] = None
@@ -536,6 +539,7 @@ class SegmentacionApp:
             self.gallery_next_btn.configure(state=next_state)
         if self.gallery_counter:
             self.gallery_counter.configure(text=f"{total and (self.gallery_index + 1) or 0}/{total}")
+        self._set_capture_index_var(self.gallery_index + 1)
 
     def _refresh_gallery_images(self) -> None:
         """
@@ -547,6 +551,7 @@ class SegmentacionApp:
             print(f"[GUI] no se pudieron listar capturas: {exc}")
             self.gallery_paths = []
         self.gallery_index = 0
+        self._sync_capture_slider_limits()
         self._show_gallery_image(self.gallery_index)
 
     def _show_gallery_image(self, index: int) -> None:
@@ -592,6 +597,66 @@ class SegmentacionApp:
                 compound=tk.TOP,
             )
         self._update_gallery_nav_state()
+        self._set_capture_index_var(self.gallery_index + 1)
+
+    def _set_capture_index_var(self, value: int) -> None:
+        """
+        Update capture index entry/slider without triggering callbacks.
+        """
+        if not hasattr(self, "capture_index_var") or self.capture_index_var is None:
+            return
+        self._updating_capture_controls = True
+        try:
+            self.capture_index_var.set(max(1, int(value)))
+        finally:
+            self._updating_capture_controls = False
+
+    def _sync_capture_slider_limits(self) -> None:
+        """
+        Adjust capture slider limits according to available images.
+        """
+        slider = self.capture_controls.get("slider") if hasattr(self, "capture_controls") else None
+        total = max(len(self.gallery_paths), 1)
+        if not slider or not hasattr(slider, "configure"):
+            return
+        try:
+            slider.configure(to=total, from_=1)
+        except Exception:
+            pass
+
+    def _get_requested_capture_index(self) -> int:
+        """
+        Read the desired capture index (1-based) from the control.
+        """
+        try:
+            val = int(self.capture_index_var.get()) if hasattr(self, "capture_index_var") else 1
+        except Exception:
+            val = 1
+        return max(0, val - 1)
+
+    def _on_capture_entry_apply(self) -> None:
+        """
+        Handle Enter key on the capture entry.
+        """
+        self._on_visualizar_capture()
+
+    def _on_capture_slider(self, value: str) -> None:
+        """
+        Sync slider movement with gallery display.
+        """
+        if self._updating_capture_controls:
+            return
+        try:
+            idx = int(float(value)) - 1
+        except Exception:
+            return
+        self._show_gallery_image(idx)
+
+    def _on_visualizar_capture(self) -> None:
+        """
+        Visualize the capture corresponding to the entered index.
+        """
+        visualize_capture(self)
     def _build_exec_controls(self, container: tk.Frame) -> None:
         """
         \brief Builds execution-mode controls and parameter placeholder panel.
@@ -858,15 +923,18 @@ class SegmentacionApp:
 
         numeric_validator = (self.root.register(validate_numeric_entry), "%P")
 
+        self.capture_index_var = tk.IntVar(value=1)
         entry_numero = tk.Entry(
             body,
             width=12,
             font=("Segoe UI", 10),
             validate="key",
             validatecommand=numeric_validator,
+            textvariable=self.capture_index_var,
         )
         entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
         entry_numero.insert(0, "1")
+        entry_numero.bind("<Return>", lambda _event: self._on_capture_entry_apply())
         btn_aplicar = tk.Button(
             body,
             text="Visualizar",
@@ -878,12 +946,13 @@ class SegmentacionApp:
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=self._on_visualizar_capture,
         )
         btn_aplicar.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=(6, 8))
 
         slider = tk.Scale(
             body,
-            from_=0,
+            from_=1,
             to=100,
             orient=tk.HORIZONTAL,
             length=200,
@@ -891,6 +960,8 @@ class SegmentacionApp:
             bg=container_bg,
             highlightthickness=0,
             troughcolor="#d5d5d5",
+            variable=self.capture_index_var,
+            command=self._on_capture_slider,
         )
         slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(8, 8))
 
