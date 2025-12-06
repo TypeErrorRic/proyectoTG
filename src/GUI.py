@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import threading
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 
 import cv2
 import tkinter as tk
@@ -22,6 +22,7 @@ try:
         ensure_upload_dir,
         init_config_defaults,
         load_sidebar_icons,
+        load_upload_images,
         param_summary_fields,
         parse_config_params,
         validate_numeric_entry,
@@ -33,6 +34,7 @@ except ModuleNotFoundError:
         ensure_upload_dir,
         init_config_defaults,
         load_sidebar_icons,
+        load_upload_images,
         param_summary_fields,
         parse_config_params,
         validate_numeric_entry,
@@ -45,7 +47,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import (
+from src.utilities.segmentar2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -103,6 +105,16 @@ class SegmentacionApp:
         self.capture_controls: Dict[str, Any] = {}
         self._capturas_default_bg: Optional[str] = None
         self._capturas_default_activebg: Optional[str] = None
+        self.btn_capturar: Optional[tk.Button] = None
+        self.gallery_paths: List[str] = []
+        self.gallery_index: int = 0
+        self.gallery_photo_ref: Optional[ImageTk.PhotoImage] = None
+        self.gallery_frame: Optional[tk.Frame] = None
+        self.gallery_display: Optional[tk.Label] = None
+        self.gallery_counter: Optional[tk.Label] = None
+        self.gallery_prev_btn: Optional[tk.Button] = None
+        self.gallery_next_btn: Optional[tk.Button] = None
+        self._gallery_active: bool = False
 
         self.config_defaults = init_config_defaults(runtime_params_loader=obtener_parametros_ground)
         ensure_upload_dir(UPLOAD_DIR)
@@ -307,6 +319,74 @@ class SegmentacionApp:
         )
         self.display_area.pack(fill="both", expand=True)
 
+        # Gallery frame (hidden initially) used to browse saved captures.
+        self.gallery_frame = tk.Frame(
+            container,
+            bg="#7f7f7f",
+            width=DISPLAY_MAX_W,
+            height=DISPLAY_MAX_H,
+            bd=1,
+            relief=tk.SOLID,
+        )
+        self.gallery_frame.pack_propagate(False)
+        self.gallery_display = tk.Label(
+            self.gallery_frame,
+            text="Sin capturas para mostrar.",
+            bg="#7f7f7f",
+            fg="white",
+            font=("Segoe UI", 11, "bold"),
+            bd=0,
+            relief=tk.FLAT,
+            anchor="center",
+            compound="top",
+            padx=10,
+            pady=10,
+        )
+        self.gallery_display.pack(fill="both", expand=True)
+
+        gallery_nav = tk.Frame(self.gallery_frame, bg="#7f7f7f")
+        gallery_nav.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+        self.gallery_prev_btn = tk.Button(
+            gallery_nav,
+            text="Anterior",
+            bg="#5c5c5c",
+            fg="white",
+            activebackground="#4a4a4a",
+            activeforeground="white",
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: self._show_gallery_image(self.gallery_index - 1),
+        )
+        self.gallery_prev_btn.pack(side="left", expand=True, fill="x", padx=(0, 8))
+
+        self.gallery_counter = tk.Label(
+            gallery_nav,
+            text="0/0",
+            bg="#7f7f7f",
+            fg="white",
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.gallery_counter.pack(side="left", padx=4)
+
+        self.gallery_next_btn = tk.Button(
+            gallery_nav,
+            text="Siguiente",
+            bg="#5c5c5c",
+            fg="white",
+            activebackground="#4a4a4a",
+            activeforeground="white",
+            bd=0,
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+            command=lambda: self._show_gallery_image(self.gallery_index + 1),
+        )
+        self.gallery_next_btn.pack(side="left", expand=True, fill="x", padx=(8, 0))
+        for btn in (self.gallery_prev_btn, self.gallery_next_btn):
+            btn.configure(state=tk.DISABLED)
+
         mode_panel = tk.Frame(
             container,
             bg="#7f7f7f",
@@ -318,6 +398,7 @@ class SegmentacionApp:
         )
         mode_panel.pack(side="top", pady=8, padx=8)
         mode_panel.pack_propagate(False)
+        self.mode_panel = mode_panel
 
         # Buttons stack on the right: two stacked and one spanning their combined height.
         buttons_panel = tk.Frame(mode_panel, bg="#7f7f7f")
@@ -357,7 +438,7 @@ class SegmentacionApp:
         )
         self.btn_stop_stream.grid(row=1, column=0, sticky="nsew", padx=4, pady=(4, 0))
 
-        btn_right_tall = tk.Button(
+        self.btn_capturar = tk.Button(
             buttons_panel,
             text="Capturar",
             bg="#f2c200",
@@ -370,7 +451,7 @@ class SegmentacionApp:
             font=("Segoe UI", 9, "bold"),
             command=self._capture_screenshot,
         )
-        btn_right_tall.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=4, pady=0)
+        self.btn_capturar.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=4, pady=0)
         self.frame_video_inner = frame_video_inner
 
         # Content to the left of the buttons.
@@ -400,6 +481,117 @@ class SegmentacionApp:
             lbl = tk.Label(item, text=text, bg="#7f7f7f", fg="white", font=("Segoe UI", 11, "bold"))
             lbl.pack(side="left", padx=6)
 
+    def _show_gallery_panel(self) -> None:
+        """
+        Replace the live video panel with the saved captures viewer.
+        """
+        self._gallery_active = True
+        if self.frame_video_inner:
+            try:
+                self.frame_video_inner.pack_forget()
+            except Exception:
+                pass
+        if self.gallery_frame:
+            kwargs = {"side": "top", "pady": 8, "padx": 8}
+            if getattr(self, "mode_panel", None) is not None:
+                kwargs["before"] = self.mode_panel
+            try:
+                self.gallery_frame.pack(**kwargs)
+            except Exception:
+                self.gallery_frame.pack(side="top", pady=8, padx=8)
+        self._refresh_gallery_images()
+
+    def _show_video_panel(self) -> None:
+        """
+        Restore the live video panel and hide the captures viewer.
+        """
+        self._gallery_active = False
+        if self.gallery_frame:
+            try:
+                self.gallery_frame.pack_forget()
+            except Exception:
+                pass
+        if self.frame_video_inner:
+            try:
+                self.frame_video_inner.pack_forget()
+                kwargs = {"side": "top", "pady": 8, "padx": 8}
+                if getattr(self, "mode_panel", None) is not None:
+                    kwargs["before"] = self.mode_panel
+                self.frame_video_inner.pack(**kwargs)
+            except Exception:
+                self.frame_video_inner.pack(side="top", pady=8, padx=8)
+
+    def _update_gallery_nav_state(self) -> None:
+        """
+        Keep navigation buttons in sync with gallery bounds.
+        """
+        total = len(self.gallery_paths)
+        at_start = self.gallery_index <= 0
+        at_end = self.gallery_index >= max(total - 1, 0)
+        prev_state = tk.NORMAL if total > 1 and not at_start else tk.DISABLED
+        next_state = tk.NORMAL if total > 1 and not at_end else tk.DISABLED
+        if self.gallery_prev_btn:
+            self.gallery_prev_btn.configure(state=prev_state)
+        if self.gallery_next_btn:
+            self.gallery_next_btn.configure(state=next_state)
+        if self.gallery_counter:
+            self.gallery_counter.configure(text=f"{total and (self.gallery_index + 1) or 0}/{total}")
+
+    def _refresh_gallery_images(self) -> None:
+        """
+        Load the list of captures from the uploads folder.
+        """
+        try:
+            self.gallery_paths = load_upload_images(UPLOAD_DIR)
+        except Exception as exc:
+            print(f"[GUI] no se pudieron listar capturas: {exc}")
+            self.gallery_paths = []
+        self.gallery_index = 0
+        self._show_gallery_image(self.gallery_index)
+
+    def _show_gallery_image(self, index: int) -> None:
+        """
+        Display the requested capture image in the gallery frame.
+        """
+        if not self.gallery_display:
+            return
+        if not self.gallery_paths:
+            self.gallery_photo_ref = None
+            self.gallery_display.configure(
+                text="No hay capturas en uploads.",
+                image="",
+                bg="#7f7f7f",
+            )
+            self._update_gallery_nav_state()
+            return
+
+        clamped = max(0, min(index, len(self.gallery_paths) - 1))
+        self.gallery_index = clamped
+        path = self.gallery_paths[clamped]
+        try:
+            img = Image.open(path)
+            w, h = img.size
+            scale = min(DISPLAY_MAX_W / max(w, 1), DISPLAY_MAX_H / max(h, 1), 1.0)
+            if scale < 1.0:
+                img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            self.gallery_photo_ref = ImageTk.PhotoImage(img)
+            self.gallery_display.configure(
+                image=self.gallery_photo_ref,
+                text=os.path.basename(path),
+                bg="#7f7f7f",
+                fg="white",
+                compound=tk.BOTTOM,
+            )
+        except Exception as exc:
+            self.gallery_photo_ref = None
+            self.gallery_display.configure(
+                image="",
+                text=f"No se pudo cargar:\n{os.path.basename(path)}\n{exc}",
+                bg="#7f7f7f",
+                fg="white",
+                compound=tk.TOP,
+            )
+        self._update_gallery_nav_state()
     def _build_exec_controls(self, container: tk.Frame) -> None:
         """
         \brief Builds execution-mode controls and parameter placeholder panel.
@@ -1254,6 +1446,12 @@ class SegmentacionApp:
             default_bg = self._capturas_default_bg or self.btn_capturas.cget("bg")
             default_active = self._capturas_default_activebg or self.btn_capturas.cget("activebackground")
             self.btn_capturas.configure(state=tk.NORMAL, bg=default_bg, activebackground=default_active)
+        if getattr(self, "btn_capturar", None):
+            try:
+                self.btn_capturar.configure(state=tk.DISABLED)
+            except Exception:
+                pass
+        self._show_gallery_panel()
 
     def _disable_capturas_button(self) -> None:
         """
@@ -1275,6 +1473,12 @@ class SegmentacionApp:
                 widget.configure(state=tk.DISABLED)
             except Exception:
                 pass
+        if getattr(self, "btn_capturar", None):
+            try:
+                self.btn_capturar.configure(state=tk.NORMAL)
+            except Exception:
+                pass
+        self._show_video_panel()
 
     def _start_worker(self) -> None:
         """
@@ -1345,6 +1549,8 @@ class SegmentacionApp:
                 filepath = os.path.join(UPLOAD_DIR, f"captura_{timestamp}.png")
                 image.save(filepath)
                 print(f"[GUI] captura guardada en {filepath}")
+                if self._gallery_active:
+                    self._refresh_gallery_images()
                 return
             except Exception as exc:
                 print(f"[GUI] no se pudo guardar captura desde frame: {exc}")
@@ -1389,6 +1595,8 @@ class SegmentacionApp:
         """
         \brief Retrieves the segmented image and draws it on the label.
         """
+        if self._gallery_active:
+            return
         with self._frame_lock:
             frame = None if self.last_frame is None else self.last_frame.copy()
             frame_ts = self._last_frame_ts

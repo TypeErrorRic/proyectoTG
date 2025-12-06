@@ -34,6 +34,27 @@ def ensure_upload_dir(upload_dir: str) -> None:
     os.makedirs(upload_dir, exist_ok=True)
 
 
+def load_upload_images(upload_dir: str, extensions: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp")) -> List[str]:
+    """
+    Return the list of capture file paths inside the uploads folder, newest first.
+    """
+    ensure_upload_dir(upload_dir)
+    collected: List[Tuple[float, str]] = []
+    for name in os.listdir(upload_dir):
+        if not name.lower().endswith(extensions):
+            continue
+        path = os.path.join(upload_dir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except Exception:
+            mtime = 0.0
+        collected.append((mtime, path))
+    collected.sort(key=lambda item: item[0], reverse=True)
+    return [path for _mtime, path in collected]
+
+
 def make_icon(kind: str) -> Image.Image:
     """
     Generate a placeholder icon when the expected asset is missing.
