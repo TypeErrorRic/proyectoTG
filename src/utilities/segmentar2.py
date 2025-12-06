@@ -5,7 +5,7 @@ These functions mirror the signatures the GUI expects but return placeholder
 values so the interface can run without the real segmentation stack.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import time
 
 import cv2
@@ -24,6 +24,8 @@ _ground_params: Dict[str, Any] = {
     "batch_size": 256,
 }
 
+_metrics: Dict[str, Any] = {"last_ransac_ms": None}
+
 
 def _make_placeholder_frame(width: int, height: int, mode: str) -> np.ndarray:
     return None
@@ -37,12 +39,30 @@ def AlgoritmosSegmentacion(
     fps: int = 30,
     stride: int = 2,
     mode: str = "camera",
+    ground_params: Optional[Dict[str, Any]] = None,
+    dataset_index: Optional[int] = None,
+    **_: Any,
 ) -> Any:
     """
-    Return a placeholder BGR frame; ignores all parameters.
+    Return a fixed placeholder value; ignores all parameters.
+
+    Additional parameters (ground_params, dataset_index, **kwargs) are accepted
+    for API parity with the real segmentation module.
     """
-    _ = depth_width, depth_height, fps, stride  # unused, kept for parity
-    return _make_placeholder_frame(color_width, color_height, mode)
+    # Accept parameters to keep GUI compatibility, but avoid any processing.
+    _ = (
+        color_width,
+        color_height,
+        depth_width,
+        depth_height,
+        fps,
+        stride,
+        mode,
+        ground_params,
+        dataset_index,
+    )
+    _metrics["last_ransac_ms"] = None
+    return None
 
 
 def liberar_recursos() -> None:
@@ -69,3 +89,10 @@ def obtener_parametros_ground() -> Dict[str, Any]:
     Return a copy of the current dummy ground parameters.
     """
     return dict(_ground_params)
+
+
+def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
+    """
+    Dummy metrics accessor to match the real segmentation API.
+    """
+    return dict(_metrics) if copy else _metrics

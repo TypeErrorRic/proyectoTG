@@ -30,6 +30,7 @@ _runtime: Dict[str, Any] = {
     "align_depth_fn": None,
     "imagenRGB": None,
     "mapaProfundidad": None,
+    "last_ransac_ms": None,
     "groundParams": {
         "dist_thresh": 0.03,
         "max_iters": 400,
@@ -102,6 +103,16 @@ def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any
         return merged.copy()
 
 
+def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
+    """
+    Snapshot of runtime metrics (currently RANSAC duration in ms).
+    """
+    with _runtime_lock:
+        last_ms = _runtime.get("last_ransac_ms")
+        metrics = {"last_ransac_ms": last_ms}
+    return metrics.copy() if copy else metrics
+
+
 def segmentar() -> Any:
     """
     Segmentation worker.
@@ -118,9 +129,12 @@ def segmentar() -> Any:
 
     # Bail out gracefully if data is missing (e.g., right after mode switch)
     if imagenRGB is None or mapaProfundidad is None or rays_cp is None or H is None or W is None:
+        with _runtime_lock:
+            _runtime["last_ransac_ms"] = None
         return imagenRGB
 
     ground_params = obtener_parametros_ground()
+    start = time.perf_counter()
     ground = get_ground(
         mapaProfundidad,
         rays_cp,
@@ -128,6 +142,9 @@ def segmentar() -> Any:
         W,
         ground_params,
     )
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    with _runtime_lock:
+        _runtime["last_ransac_ms"] = elapsed_ms
     return apply_mask_to_rgb(imagenRGB, ground)
 
 
@@ -249,6 +266,7 @@ def _lazy_init(
         except queue.Empty:
             pass
         _runtime["initialized"] = False
+        _runtime["last_ransac_ms"] = None
     _runtime["mode"] = mode
 
     if mode == "prueba":
@@ -488,6 +506,7 @@ def liberar_recursos() -> None:
     _runtime["initialized"] = False
     _runtime["align_depth_fn"] = None
     _runtime["rays_cp"] = None
+    _runtime["last_ransac_ms"] = None
 
     try:
         while not _resultados.empty():

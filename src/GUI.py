@@ -50,6 +50,7 @@ from src.utilities.segmentar import (
     actualizar_parametros_ground,
     liberar_recursos,
     obtener_parametros_ground,
+    obtener_metricas,
 )
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
@@ -1402,13 +1403,22 @@ class SegmentacionApp:
 
         now = time.perf_counter()
         delta = now - frame_ts if frame_ts else 0.0
-        if delta > 0:
-            self.fps = 1.0 / max(delta, 1e-3)
-        self.prev_time = now
+        overlay_text = ""
+        if self.mode == "prueba":
+            metrics = obtener_metricas()
+            ransac_ms = None if not metrics else metrics.get("last_ransac_ms")
+            overlay_text = (
+                f"RANSAC: {ransac_ms:.1f} ms" if ransac_ms is not None else "RANSAC: -- ms"
+            )
+        else:
+            if delta > 0:
+                self.fps = 1.0 / max(delta, 1e-3)
+            self.prev_time = now
+            overlay_text = f"FPS: {self.fps:.2f}"
 
         cv2.putText(
             frame,
-            f"FPS: {self.fps:.2f}",
+            overlay_text,
             (12, 28),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
@@ -1430,7 +1440,7 @@ class SegmentacionApp:
 
         self.display_area.configure(
             image=self.photo_ref,
-            text=f"FPS: {self.fps:.2f}",
+            text=overlay_text,
             bg="#7f7f7f",
             compound=tk.BOTTOM,
         )
