@@ -9,11 +9,36 @@ import os
 import sys
 import time
 import threading
-from typing import Optional, Dict, Any, List, Tuple, Callable
+from typing import Optional, Dict, Any, Callable
 
 import cv2
 import tkinter as tk
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk
+
+try:
+    # Preferred import when running as a package/module.
+    from src.GUIFunctions import (
+        capture_panel_screenshot,
+        ensure_upload_dir,
+        init_config_defaults,
+        load_sidebar_icons,
+        param_summary_fields,
+        parse_config_params,
+        cleanup_upload_dir,
+        validate_numeric_entry,
+    )
+except ModuleNotFoundError:
+    # Fallback for direct script execution from the src directory.
+    from GUIFunctions import (
+        capture_panel_screenshot,
+        ensure_upload_dir,
+        init_config_defaults,
+        load_sidebar_icons,
+        param_summary_fields,
+        parse_config_params,
+        cleanup_upload_dir,
+        validate_numeric_entry,
+    )
 
 # @note Adjust sys.path when executed as a script.
 if __package__ is None or __package__ == "":
@@ -80,11 +105,13 @@ class SegmentacionApp:
         self._capturas_default_bg: Optional[str] = None
         self._capturas_default_activebg: Optional[str] = None
 
-        self._init_config_defaults()
-        self._ensure_upload_dir()
+        self.config_defaults = init_config_defaults(runtime_params_loader=obtener_parametros_ground)
+        ensure_upload_dir(UPLOAD_DIR)
         self._configure_window()
         self._build_grid()
-        self.sidebar_icons_raw = self._load_sidebar_icons()
+        assets = {"config": "analitica.png", "exec": "camara.png"}
+        base_path = os.path.join(os.path.dirname(__file__), "images")
+        self.sidebar_icons_raw = load_sidebar_icons(base_path, assets)
         self._build_panels()
         self.root.after(30, self._update_sidebar_icons)
         self.root.bind("<Configure>", self._on_resize)
@@ -107,88 +134,6 @@ class SegmentacionApp:
             self.root.attributes("-fullscreen", False)
         except Exception:
             pass
-
-    def _ensure_upload_dir(self) -> None:
-        """
-        \brief Creates the uploads folder so users can drop images there.
-        """
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-    def _init_config_defaults(self) -> None:
-        """
-        \brief Load default/last-used parameters from the segmentation module.
-        """
-        fallback = {
-            "subsample_stride": "1",
-            "dist_thresh": "0.03",
-            "max_iters": "400",
-            "min_inliers": "400",
-            "max_angle_deg": "60.0",
-            "score_subset": "4096",
-            "time_budget_ms": "120",
-            "early_stop_ratio": "0.92",
-            "batch_size": "128",
-            "low_height_pct": "25.0",
-            "roi_bottom_fraction": "0.34",
-            "roi_expand_step": "0.2",
-            "max_agg_points": "150000",
-            "refine_full_res": "1",
-            "refine_max_points": "200000",
-            "refine_dist_mult": "1.6",
-            "second_pass_mask": "1",
-        }
-        try:
-            runtime_params = obtener_parametros_ground()
-        except Exception as exc:
-            print(f"[GUI] no se pudieron leer los parametros actuales: {exc}")
-            runtime_params = {}
-
-        for key, default in fallback.items():
-            value = runtime_params.get(key, default)
-            if isinstance(value, bool):
-                value = int(value)
-            self.config_defaults[key] = str(value)
-
-    def _make_icon(self, kind: str) -> Image.Image:
-        """
-        \brief Fallback icon generator when image assets are missing.
-        \return PIL image used as a placeholder icon.
-        """
-        size = 64
-        accent = "#f2f2f2"
-        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        if kind == "gear":
-            draw.ellipse((12, 12, 52, 52), outline=accent, width=4)
-            draw.rectangle((30, 6, 34, 58), fill=accent)
-            draw.rectangle((6, 30, 58, 34), fill=accent)
-            draw.ellipse((22, 22, 42, 42), fill="#5a5a5a", outline=accent, width=3)
-        else:
-            draw.rounded_rectangle((10, 18, 54, 46), radius=8, outline=accent, width=4)
-            draw.rectangle((38, 10, 52, 20), fill=accent)
-            draw.ellipse((26, 22, 40, 36), outline=accent, width=3)
-        return img
-
-    def _load_sidebar_icons(self) -> Dict[str, Image.Image]:
-        """
-        \brief Loads the raw icons for the sidebar buttons.
-        \return Mapping from icon key to loaded PIL image.
-        """
-        icons: Dict[str, Image.Image] = {}
-        assets = {"config": "analitica.png", "exec": "camara.png"}
-        base_path = os.path.join(os.path.dirname(__file__), "images")
-
-        for key, filename in assets.items():
-            path = os.path.join(base_path, filename)
-            try:
-                img = Image.open(path).convert("RGBA")
-                icons[key] = img
-            except Exception as exc:
-                print(f"[GUI] no se pudo cargar icono {filename}: {exc}")
-                fallback_kind = "gear" if key == "config" else "camera"
-                icons[key] = self._make_icon(fallback_kind)
-
-        return icons
 
     def _update_sidebar_icons(self) -> None:
         """
@@ -424,8 +369,10 @@ class SegmentacionApp:
             padx=10,
             pady=8,
             font=("Segoe UI", 9, "bold"),
+            command=self._capture_screenshot,
         )
         btn_right_tall.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=4, pady=0)
+        self.frame_video_inner = frame_video_inner
 
         # Content to the left of the buttons.
         mode_content = tk.Frame(mode_panel, bg="#7f7f7f")
@@ -540,7 +487,7 @@ class SegmentacionApp:
         summary_frame.columnconfigure(1, weight=1)
 
         self.params_summary_labels = {}
-        for idx, (key, label_text) in enumerate(self._param_summary_fields()):
+        for idx, (key, label_text) in enumerate(param_summary_fields()):
             name_lbl = tk.Label(
                 summary_frame,
                 text=f"{label_text}:",
@@ -611,7 +558,7 @@ class SegmentacionApp:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=0)
 
-        numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
+        numeric_validator = (self.root.register(validate_numeric_entry), "%P")
 
         self.dataset_index_var = tk.IntVar(value=self.dataset_index + 1)
         entry_numero = tk.Entry(
@@ -718,7 +665,7 @@ class SegmentacionApp:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=0)
 
-        numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
+        numeric_validator = (self.root.register(validate_numeric_entry), "%P")
 
         entry_numero = tk.Entry(
             body,
@@ -910,7 +857,7 @@ class SegmentacionApp:
             ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
         ]
 
-        numeric_validator = (self.root.register(self._validate_numeric_entry), "%P")
+        numeric_validator = (self.root.register(validate_numeric_entry), "%P")
 
         for idx, (key, label_text, default) in enumerate(fields):
             row = idx // 2
@@ -1088,127 +1035,12 @@ class SegmentacionApp:
 
         self._apply_status_after_id = self.root.after(duration_ms, _reset)
 
-    def _param_summary_fields(self) -> List[Tuple[str, str]]:
-        """
-        Keys and labels to show in the execution summary panel.
-        """
-        return [
-            ("subsample_stride", "Submuestreo"),
-            ("dist_thresh", "Umbral distancia"),
-            ("max_iters", "Iteraciones max"),
-            ("min_inliers", "Min inliers"),
-            ("max_angle_deg", "Angulo max"),
-            ("score_subset", "Score subset"),
-            ("time_budget_ms", "Tiempo ms"),
-            ("early_stop_ratio", "Corte temprano"),
-            ("batch_size", "Batch size"),
-            ("low_height_pct", "Percentil bajo"),
-            ("roi_bottom_fraction", "ROI inferior"),
-            ("refine_full_res", "Refino full-res"),
-            ("refine_dist_mult", "Tol. refino"),
-        ]
-
-    def _validate_numeric_entry(self, proposed: str) -> bool:
-        """
-        Allow empty string or values that parse as float.
-        """
-        if proposed == "":
-            return True
-        try:
-            float(proposed)
-            return True
-        except Exception:
-            return False
-
-    def _parse_config_params(self, values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        \brief Convert UI strings into typed parameters; returns None on error.
-        """
-        specs = {
-            "subsample_stride": (int, 0.0),
-            "dist_thresh": (float, 0.0),
-            "max_iters": (int, 0.0),
-            "min_inliers": (int, 0.0),
-            "max_angle_deg": (float, 0.0),
-            "score_subset": (int, 0.0),
-            "time_budget_ms": (float, 0.0),
-            "early_stop_ratio": (float, 0.0),
-            "batch_size": (int, 0.0),
-            "low_height_pct": (float, -1.0),
-            "roi_bottom_fraction": (float, 0.0),
-            "roi_expand_step": (float, -0.01),
-            "max_agg_points": (int, -0.1),
-            "refine_max_points": (int, -0.1),
-            "refine_dist_mult": (float, 0.99),
-            "second_pass_mask": (int, -1.0),
-        }
-        parsed: Dict[str, Any] = {}
-        errors = []
-
-        # Campo especial: permitir texto en refine_full_res
-        if "refine_full_res" in values:
-            raw_refine = str(values.get("refine_full_res", "")).strip().lower()
-            if raw_refine in ("true", "t", "si", "sí", "yes", "on", "1"):
-                parsed["refine_full_res"] = True
-            elif raw_refine in ("false", "f", "no", "off", "0"):
-                parsed["refine_full_res"] = False
-            else:
-                errors.append("refine_full_res")
-
-        for key, (caster, min_value) in specs.items():
-            if key not in values:
-                continue
-            raw = values.get(key, "")
-            try:
-                val = caster(str(raw).strip())
-            except Exception:
-                errors.append(key)
-                continue
-
-            if key == "early_stop_ratio":
-                if not (0.0 < float(val) <= 1.0):
-                    errors.append(key)
-                    continue
-            elif key == "low_height_pct":
-                if not (0.0 <= float(val) <= 100.0):
-                    errors.append(key)
-                    continue
-            elif key == "roi_bottom_fraction":
-                if not (0.0 < float(val) <= 1.0):
-                    errors.append(key)
-                    continue
-            elif float(val) <= min_value:
-                errors.append(key)
-                continue
-            parsed[key] = val
-
-        if errors:
-            print(f"[GUI] Parametros invalidos: {', '.join(errors)}")
-            return None
-
-        # Normaliza campos booleanos y límites prácticos
-        for key in ("refine_full_res", "second_pass_mask"):
-            if key in parsed:
-                parsed[key] = bool(int(parsed[key]))
-        if "roi_expand_step" in parsed:
-            parsed["roi_expand_step"] = max(0.0, float(parsed["roi_expand_step"]))
-        if "roi_bottom_fraction" in parsed:
-            parsed["roi_bottom_fraction"] = max(0.01, min(1.0, float(parsed["roi_bottom_fraction"])))
-        if "low_height_pct" in parsed:
-            parsed["low_height_pct"] = max(0.0, min(100.0, float(parsed["low_height_pct"])))
-        if "refine_dist_mult" in parsed:
-            parsed["refine_dist_mult"] = max(1.0, float(parsed["refine_dist_mult"]))
-        for key in ("max_agg_points", "refine_max_points"):
-            if key in parsed:
-                parsed[key] = max(0, int(parsed[key]))
-        return parsed
-
     def _on_config_apply(self) -> None:
         """
         \brief Apply configuration values to the segmentation thread.
         """
         raw_values = {key: var.get() for key, var in self.config_vars.items()}
-        parsed = self._parse_config_params(raw_values)
+        parsed = parse_config_params(raw_values)
         if parsed is None:
             self._set_apply_status("No aplicado", bg="#e53935", active_bg="#f1625f")
             return
@@ -1238,7 +1070,7 @@ class SegmentacionApp:
             if key in self.config_vars:
                 self.config_vars[key].set(str(value))
 
-        parsed = self._parse_config_params(self.config_defaults)
+        parsed = parse_config_params(self.config_defaults)
         if parsed:
             actualizar_parametros_ground(parsed)
             self._restart_worker()
@@ -1497,6 +1329,12 @@ class SegmentacionApp:
         if hasattr(self, "display_area"):
             self.display_area.configure(text="Transmision detenida", image="", bg="#7f7f7f")
 
+    def _capture_screenshot(self) -> None:
+        """
+        Take a screenshot of the video panel and store it in the uploads folder.
+        """
+        capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
+
     def _worker_loop(self) -> None:
         r"""
         \brief Capture thread that runs AlgoritmosSegmentacion.
@@ -1610,6 +1448,7 @@ class SegmentacionApp:
             self._stop_event.set()
             if self._worker and self._worker.is_alive():
                 self._worker.join(timeout=1.0)
+            cleanup_upload_dir(UPLOAD_DIR)
             self.root.destroy()
 
 

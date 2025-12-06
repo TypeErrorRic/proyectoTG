@@ -12,7 +12,6 @@ from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
 
 # Runtime libraries
 import cupy as cp
-import numpy as np
 import cv2
 import threading
 import time
