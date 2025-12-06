@@ -311,7 +311,7 @@ def get_ground(
     Returns:
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
-    global _last_ransac_ms
+    global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter, _last_ransac_ms
     # Guard against missing inputs (e.g., first frames or sensor not ready)
     if mapaProfundidad is None or rays_cp is None or H is None or W is None:
         _last_ransac_ms = None
@@ -389,7 +389,6 @@ def get_ground(
         roi_used = min(1.0, roi_used + roi_expand_step)
     Dsub, Rsub = Droi, Rroi
     valid = Dsub > 0
-    global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter, _last_ransac_ms
     if int(cp.sum(valid)) >= 3:
         # Prepare 3D point cloud for RANSAC
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
