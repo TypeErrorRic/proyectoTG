@@ -99,10 +99,12 @@ def ransac_plane_gpu(points,
         tmp = rng_state.randint(0, N, size=score_subset * 2, dtype=cp.int32)
         samp_idx = cp.unique(tmp)[:score_subset]
         if samp_idx.size < score_subset:
-            # rellena si faltan
+            # Fill remaining slots if unique count is short
             pad = score_subset - int(samp_idx.size)
             samp_idx = cp.concatenate([samp_idx, tmp[:pad]])
     P_samp = P[samp_idx]
+    # Chunk inlier counting to avoid materializing full KxS on small GPUs
+    score_chunk = min(int(P_samp.shape[0]), 4096 if small_gpu else 8192)
 
     remaining = int(max_iters)
     start_time = time.perf_counter()
@@ -140,10 +142,13 @@ def ransac_plane_gpu(points,
         valid = cp.logical_and(valid, cond)
 
         # 4) Conteo de inliers sobre SUBMUESTRA para elegir mejor modelo del lote
-        #    Much more efficient on Jetson than direct KxN
+        #    Troceado para reducir memoria en GPU pequeñas
         counts = cp.zeros((K,), dtype=cp.int32)
-        dists_s = cp.abs(n_unit @ P_samp.T + d[:, None])  # (K,S)
-        counts = cp.sum(dists_s <= dist_thresh, axis=1)
+        for start_s in range(0, int(P_samp.shape[0]), score_chunk):
+            end_s = min(int(P_samp.shape[0]), start_s + score_chunk)
+            Ps_block = P_samp[start_s:end_s]
+            dists_s = cp.abs(n_unit @ Ps_block.T + d[:, None])  # (K,chunk)
+            counts += cp.sum(dists_s <= dist_thresh, axis=1, dtype=cp.int32)
 
         # Invalidate non-valid models
         counts = cp.where(valid, counts, -cp.ones_like(counts))
@@ -459,14 +464,18 @@ def get_ground(
     dilated = cnd.binary_dilation(mask_cp, structure=structure, iterations=2, brute_force=True)
     closed = cnd.binary_erosion(dilated, structure=structure, iterations=2, brute_force=True)
 
-    inv = cp.logical_not(closed)
-    labels, _ = cnd.label(inv)
-    border_labels = cp.concatenate(
-        [labels[0], labels[-1], labels[:, 0], labels[:, -1]], axis=None
-    )
-    keep_labels = cp.unique(border_labels)
-    holes_mask = cp.logical_not(cp.isin(labels, keep_labels))
-    filled = cp.logical_or(closed, holes_mask)
+    # Hole filling on GPU; fallback to label/unique if not available
+    try:
+        filled = cnd.binary_fill_holes(closed)
+    except Exception:
+        inv = cp.logical_not(closed)
+        labels, _ = cnd.label(inv)
+        border_labels = cp.concatenate(
+            [labels[0], labels[-1], labels[:, 0], labels[:, -1]], axis=None
+        )
+        keep_labels = cp.unique(border_labels)
+        holes_mask = cp.logical_not(cp.isin(labels, keep_labels))
+        filled = cp.logical_or(closed, holes_mask)
     ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
 
     return ground_mask_cp.get()
