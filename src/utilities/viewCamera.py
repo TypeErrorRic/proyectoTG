@@ -125,7 +125,7 @@ def compute_normalized_rays(H: int, W: int) -> np.ndarray:
 # Parámetros de rendimiento básicos:
 # - ALIGN_DOWNSAMPLE: submuestreo previo del depth (1=sin DS).
 # - ALIGN_MAX_DEPTH_M: recorte por distancia (<=0 desactiva).
-ALIGN_DOWNSAMPLE: int = 2
+ALIGN_DOWNSAMPLE: int = 1
 ALIGN_MAX_DEPTH_M: Optional[float] = 6
 
 # Kernel CUDA para alineación (z-buffer por mínimo Z en cámara color)
