@@ -309,24 +309,33 @@ def get_ground(
     Returns:
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
+    # Guard against missing inputs (e.g., first frames or sensor not ready)
+    if mapaProfundidad is None or rays_cp is None or H is None or W is None:
+        return None
+
     # Note: this function returns a binary mask (H x W) for floor pixels.
     # The RGB overlay is applied later in helpers.apply_mask_to_rgb.
     # RGB se aplica posteriormente en helpers.apply_mask_to_rgb.
     groundParams = groundParams or {}
     # Extract parameters from groundParams dictionary
-    subsample_stride = groundParams.get("subsample_stride")
-    min_inliers = groundParams.get("min_inliers")
-    dist_thresh = groundParams.get("dist_thresh")
-    max_iters = groundParams.get("max_iters")
-    max_iters = 500 if max_iters is None else max_iters
-    up_axis = groundParams.get("up_axis")
-    max_angle_deg = groundParams.get("max_angle_deg")
-    seed = groundParams.get("seed")
-    score_subset = groundParams.get("score_subset")
-    orientation = groundParams.get("orientation")
-    time_budget_ms = groundParams.get("time_budget_ms")
-    early_stop_ratio = groundParams.get("early_stop_ratio")
-    batch_size = groundParams.get("batch_size")
+    try:
+        subsample_stride = max(1, int(groundParams.get("subsample_stride") or 1))
+    except Exception:
+        subsample_stride = 1
+    min_inliers = int(groundParams.get("min_inliers", 400) or 400)
+    dist_thresh = float(groundParams.get("dist_thresh", 0.03) or 0.03)
+    max_iters = int(groundParams.get("max_iters", 500) or 500)
+    up_axis = groundParams.get("up_axis", (0.0, -1.0, 0.0))
+    max_angle_deg = float(groundParams.get("max_angle_deg", 60.0) or 60.0)
+    seed = int(groundParams.get("seed", 42) or 42)
+    score_subset = groundParams.get("score_subset", 4096)
+    score_subset = int(score_subset) if score_subset is not None else 4096
+    orientation = groundParams.get("orientation", "ground") or "ground"
+    time_budget_ms = groundParams.get("time_budget_ms", 120)
+    time_budget_ms = float(time_budget_ms) if time_budget_ms is not None else None
+    early_stop_ratio = float(groundParams.get("early_stop_ratio", 0.92) or 0.92)
+    batch_size = groundParams.get("batch_size", 128)
+    batch_size = int(batch_size) if batch_size is not None else None
     debug_ransac = bool(groundParams.get("debug_ransac", False))
     dre = groundParams.get("debug_ransac_every", 20)
     debug_ransac_every = max(1, int(20 if dre is None else dre))
@@ -341,10 +350,24 @@ def get_ground(
     second_pass_mask = bool(groundParams.get("second_pass_mask", False))
 
     # Convert depth map to CuPy array for RANSAC
-    depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
+    try:
+        depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
+    except Exception:
+        return None
+    try:
+        rays_cp = cp.asarray(rays_cp, dtype=cp.float32)
+    except Exception:
+        return None
+    if rays_cp is None or depth_cp is None:
+        return None
+    if rays_cp.shape[:2] != depth_cp.shape[:2]:
+        return None
     # Subsample depth and rays for RANSAC efficiency
-    Dsub = depth_cp[::subsample_stride, ::subsample_stride]
-    Rsub = rays_cp[::subsample_stride, ::subsample_stride]
+    try:
+        Dsub = depth_cp[::subsample_stride, ::subsample_stride]
+        Rsub = rays_cp[::subsample_stride, ::subsample_stride]
+    except Exception:
+        return None
     # ROI adaptable: arranca en fraccion inferior, expande si faltan puntos
     sub_h = Dsub.shape[0]
     roi_bottom_fraction = min(max(roi_bottom_fraction, 0.05), 1.0)

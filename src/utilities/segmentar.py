@@ -110,15 +110,25 @@ def segmentar() -> Any:
     the ground, wall and door plane and returns the RGB image with the ground mask
     overlaid.
     """
+    imagenRGB = _runtime.get("imagenRGB")
+    mapaProfundidad = _runtime.get("mapaProfundidad")
+    rays_cp = _runtime.get("rays_cp")
+    H = _runtime.get("H")
+    W = _runtime.get("W")
+
+    # Bail out gracefully if data is missing (e.g., right after mode switch)
+    if imagenRGB is None or mapaProfundidad is None or rays_cp is None or H is None or W is None:
+        return imagenRGB
+
     ground_params = obtener_parametros_ground()
     ground = get_ground(
-        _runtime["mapaProfundidad"],
-        _runtime["rays_cp"],
-        _runtime["H"],
-        _runtime["W"],
+        mapaProfundidad,
+        rays_cp,
+        H,
+        W,
         ground_params,
     )
-    return apply_mask_to_rgb(_runtime["imagenRGB"], ground)
+    return apply_mask_to_rgb(imagenRGB, ground)
 
 
 def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:

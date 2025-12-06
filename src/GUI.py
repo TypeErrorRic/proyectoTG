@@ -1333,6 +1333,24 @@ class SegmentacionApp:
         """
         Take a screenshot of the video panel and store it in the uploads folder.
         """
+        # Prefer saving the latest processed frame to avoid OS-level screen grab issues (Wayland/Jetson).
+        with self._frame_lock:
+            frame = None if self.last_frame is None else self.last_frame.copy()
+
+        if frame is not None:
+            try:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(frame_rgb)
+                ensure_upload_dir(UPLOAD_DIR)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filepath = os.path.join(UPLOAD_DIR, f"captura_{timestamp}.png")
+                image.save(filepath)
+                print(f"[GUI] captura guardada en {filepath}")
+                return
+            except Exception as exc:
+                print(f"[GUI] no se pudo guardar captura desde frame: {exc}")
+
+        # Fallback: widget screenshot if no frame is available.
         capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
 
     def _worker_loop(self) -> None:
