@@ -11,6 +11,8 @@ import cupy as cp
 import cupyx.scipy.ndimage as cnd
 from typing import Optional, Dict, Any
 
+_last_ransac_ms: Optional[float] = None
+
 def _to_xp(a):
     """Ensure array lives on GPU (CuPy)."""
     return cp.asarray(a)
@@ -309,8 +311,10 @@ def get_ground(
     Returns:
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
+    global _last_ransac_ms
     # Guard against missing inputs (e.g., first frames or sensor not ready)
     if mapaProfundidad is None or rays_cp is None or H is None or W is None:
+        _last_ransac_ms = None
         return None
 
     # Note: this function returns a binary mask (H x W) for floor pixels.
@@ -385,7 +389,7 @@ def get_ground(
         roi_used = min(1.0, roi_used + roi_expand_step)
     Dsub, Rsub = Droi, Rroi
     valid = Dsub > 0
-    global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter
+    global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter, _last_ransac_ms
     if int(cp.sum(valid)) >= 3:
         # Prepare 3D point cloud for RANSAC
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
@@ -429,8 +433,9 @@ def get_ground(
                 early_stop_ratio=early_stop_ratio,
                 batch_size=batch_size,
             )
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            _last_ransac_ms = elapsed_ms
             if debug_ransac:
-                elapsed_ms = (time.perf_counter() - t0) * 1000.0
                 _debug_ransac_counter += 1
                 _debug_ransac_times.append(elapsed_ms)
                 if len(_debug_ransac_times) > debug_ransac_every:
@@ -461,8 +466,11 @@ def get_ground(
             else:
                 last_n_cp = None
                 last_d_cp = None
+        else:
+            _last_ransac_ms = None
     else:
         # Not enough valid data, skip RANSAC for this frame
+        _last_ransac_ms = None
         pass
 
     # Build mask for the best current plane (if available)
@@ -502,3 +510,12 @@ def get_ground(
     ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
 
     return ground_mask_cp.get()
+
+
+def get_last_ransac_ms(copy: bool = True) -> Optional[float]:
+    """
+    Return the duration (ms) of the last RANSAC plane fit, or None if unavailable.
+    """
+    if _last_ransac_ms is None:
+        return None
+    return float(_last_ransac_ms)

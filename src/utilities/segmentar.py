@@ -7,7 +7,7 @@ and shares its result with the main thread through a small queue.
 
 # Project libraries
 import src.utilities.viewCamera as viewCamera
-from src.utilities.ransacCellingGround import get_ground
+from src.utilities.ransacCellingGround import get_ground, get_last_ransac_ms
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
 
 # Runtime libraries
@@ -134,7 +134,6 @@ def segmentar() -> Any:
         return imagenRGB
 
     ground_params = obtener_parametros_ground()
-    start = time.perf_counter()
     ground = get_ground(
         mapaProfundidad,
         rays_cp,
@@ -142,9 +141,8 @@ def segmentar() -> Any:
         W,
         ground_params,
     )
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
     with _runtime_lock:
-        _runtime["last_ransac_ms"] = elapsed_ms
+        _runtime["last_ransac_ms"] = get_last_ransac_ms()
     return apply_mask_to_rgb(imagenRGB, ground)
 
 
