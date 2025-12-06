@@ -239,19 +239,3 @@ def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Opt
     except Exception as exc:
         print(f"[GUI] no se pudo guardar captura: {exc}")
         return None
-
-
-def cleanup_upload_dir(upload_dir: str) -> None:
-    """
-    Delete image files within the uploads directory.
-    """
-    if not os.path.isdir(upload_dir):
-        return
-    valid_exts = {".png", ".jpg", ".jpeg", ".bmp"}
-    for name in os.listdir(upload_dir):
-        path = os.path.join(upload_dir, name)
-        try:
-            if os.path.isfile(path) and os.path.splitext(name)[1].lower() in valid_exts:
-                os.remove(path)
-        except Exception as exc:
-            print(f"[GUI] no se pudo eliminar {name}: {exc}")

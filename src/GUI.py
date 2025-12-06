@@ -24,7 +24,6 @@ try:
         load_sidebar_icons,
         param_summary_fields,
         parse_config_params,
-        cleanup_upload_dir,
         validate_numeric_entry,
     )
 except ModuleNotFoundError:
@@ -36,7 +35,6 @@ except ModuleNotFoundError:
         load_sidebar_icons,
         param_summary_fields,
         parse_config_params,
-        cleanup_upload_dir,
         validate_numeric_entry,
     )
 
@@ -1466,7 +1464,6 @@ class SegmentacionApp:
             self._stop_event.set()
             if self._worker and self._worker.is_alive():
                 self._worker.join(timeout=1.0)
-            cleanup_upload_dir(UPLOAD_DIR)
             self.root.destroy()
 
 
