@@ -5,11 +5,26 @@ Provides CUDA-friendly plane fitting, ground mask creation, and postprocessing
 to keep the segmentation pipeline on GPU.
 """
 import math
-import numpy as np
+import os
+import pathlib
+import sys
 import time
+from typing import Optional, Dict, Any
+
 import cupy as cp
 import cupyx.scipy.ndimage as cnd
-from typing import Optional, Dict, Any
+import cv2
+import numpy as np
+
+try:
+    from . import helpers, viewCamera  # type: ignore
+except ImportError:
+    # When executed as a script, ensure src/ is on sys.path
+    _ROOT = pathlib.Path(__file__).resolve().parents[1]
+    if str(_ROOT) not in sys.path:
+        sys.path.append(str(_ROOT))
+    import utilities.helpers as helpers  # type: ignore
+    import utilities.viewCamera as viewCamera  # type: ignore
 
 _last_ransac_ms: Optional[float] = None
 
@@ -518,3 +533,45 @@ def get_last_ransac_ms(copy: bool = True) -> Optional[float]:
     if _last_ransac_ms is None:
         return None
     return float(_last_ransac_ms)
+
+
+def _demo_run(frame_idx: int = 0, ground_params=None) -> None:
+    """
+    Quick demo: load a dataset frame, run get_ground, overlay the mask, print timing.
+    """
+    rgb, depth = helpers.load_dataset_frame(frame_idx)
+    if rgb is None or depth is None:
+        print("[demo] No se pudo cargar una imagen del dataset.")
+        return
+
+    H, W = depth.shape[:2]
+    rays_np = viewCamera.compute_normalized_rays(H, W)
+    rays_cp = cp.asarray(rays_np, dtype=cp.float32)
+
+    t0 = time.perf_counter()
+    mask = get_ground(depth, rays_cp, H, W, ground_params or {})
+    total_ms = (time.perf_counter() - t0) * 1000.0
+    ransac_ms = get_last_ransac_ms()
+
+    if mask is None:
+        print(f"[demo] get_ground devolvio None. total_ms={total_ms:.2f} ms")
+        return
+
+    overlay = helpers.apply_mask_to_rgb(rgb, mask)
+    out_dir = pathlib.Path("experiments")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "ceiling_ground_overlay.png"
+    if overlay is not None:
+        cv2.imwrite(str(out_path), overlay)
+        print(f"[demo] Overlay guardado en {out_path}")
+    else:
+        print("[demo] apply_mask_to_rgb devolvio None, no se pudo guardar overlay")
+
+    if ransac_ms is None:
+        print(f"[demo] Tiempo total pipeline: {total_ms:.2f} ms (RANSAC no reporto)")
+    else:
+        print(f"[demo] Tiempo total pipeline: {total_ms:.2f} ms   RANSAC: {ransac_ms:.2f} ms")
+
+
+if __name__ == "__main__":
+    _demo_run(0, {})
