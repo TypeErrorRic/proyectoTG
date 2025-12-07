@@ -537,41 +537,47 @@ def get_last_ransac_ms(copy: bool = True) -> Optional[float]:
 
 def _demo_run(frame_idx: int = 0, ground_params=None) -> None:
     """
-    Quick demo: load a dataset frame, run get_ground, overlay the mask, print timing.
+    Demo interactivo: recorre el dataset, aplica get_ground, muestra overlay, tecla ESC/q para salir.
     """
-    rgb, depth = helpers.load_dataset_frame(frame_idx)
-    if rgb is None or depth is None:
-        print("[demo] No se pudo cargar una imagen del dataset.")
-        return
+    idx = int(frame_idx)
+    ground_params = ground_params or {}
+    while True:
+        rgb, depth = helpers.load_dataset_frame(idx)
+        if rgb is None or depth is None:
+            print("[demo] No se pudo cargar una imagen del dataset.")
+            break
 
-    H, W = depth.shape[:2]
-    rays_np = viewCamera.compute_normalized_rays(H, W)
-    rays_cp = cp.asarray(rays_np, dtype=cp.float32)
+        H, W = depth.shape[:2]
+        rays_np = viewCamera.compute_normalized_rays(H, W)
+        rays_cp = cp.asarray(rays_np, dtype=cp.float32)
 
-    t0 = time.perf_counter()
-    mask = get_ground(depth, rays_cp, H, W, ground_params or {})
-    total_ms = (time.perf_counter() - t0) * 1000.0
-    ransac_ms = get_last_ransac_ms()
+        t0 = time.perf_counter()
+        mask = get_ground(depth, rays_cp, H, W, ground_params)
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        ransac_ms = get_last_ransac_ms()
 
-    if mask is None:
-        print(f"[demo] get_ground devolvio None. total_ms={total_ms:.2f} ms")
-        return
+        if mask is None:
+            print(f"[demo] get_ground devolvio None. total_ms={total_ms:.2f} ms")
+            break
 
-    overlay = helpers.apply_mask_to_rgb(rgb, mask)
-    out_dir = pathlib.Path("experiments")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "ceiling_ground_overlay.png"
-    if overlay is not None:
-        cv2.imwrite(str(out_path), overlay)
-        print(f"[demo] Overlay guardado en {out_path}")
-    else:
-        print("[demo] apply_mask_to_rgb devolvio None, no se pudo guardar overlay")
+        overlay = helpers.apply_mask_to_rgb(rgb, mask)
+        if overlay is not None:
+            cv2.imshow("Ground (ransacCellingGround)", overlay)
+        else:
+            cv2.imshow("Ground (ransacCellingGround)", rgb)
 
-    if ransac_ms is None:
-        print(f"[demo] Tiempo total pipeline: {total_ms:.2f} ms (RANSAC no reporto)")
-    else:
-        print(f"[demo] Tiempo total pipeline: {total_ms:.2f} ms   RANSAC: {ransac_ms:.2f} ms")
+        if ransac_ms is None:
+            print(f"[demo] idx={idx}  total={total_ms:.2f} ms (RANSAC no reporto)")
+        else:
+            print(f"[demo] idx={idx}  total={total_ms:.2f} ms   RANSAC={ransac_ms:.2f} ms")
+
+        key = cv2.waitKey(1) & 0xFF
+        if key in (27, ord("q")):
+            break
+        idx += 1
+
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    _demo_run(0, {})
+    _demo_run(1, {})

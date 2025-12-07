@@ -187,13 +187,17 @@ def ransac_plane_gpu(points,
                      max_iters: int = 2000,
                      min_inliers: int = 500,
                      seed: int = 42,
-                     batch_size: int = 128):
+                     batch_size: int = 128,
+                     up_axis=(0.0, -1.0, 0.0),
+                     up_angle_deg: float = 60.0,
+                     orientation: str = "ground"):
     """
     GPU implementation of Algorithm 2 (RANSAC with normals).
 
     Inlier if:
       distance_error < dist_thresh
       normal_error   < normal_angle_deg (degrees)
+      up/orientation respected within up_angle_deg
 
     points: (N,3) NumPy or CuPy.
     point_normals: (N,3) NumPy or CuPy (precomputed local normals).
@@ -209,7 +213,10 @@ def ransac_plane_gpu(points,
         raise ValueError("point_normals debe tener la misma longitud que points")
 
     cos_norm_thresh = math.cos(math.radians(float(normal_angle_deg)))
+    cos_up_thresh = math.cos(math.radians(float(up_angle_deg)))
     rad_to_deg = 180.0 / math.pi
+    up = cp.asarray(up_axis, dtype=cp.float32)
+    up = up / (cp.linalg.norm(up) + 1e-9)
 
     rng = cp.random.RandomState(seed)
 
@@ -240,6 +247,16 @@ def ransac_plane_gpu(points,
         valid = norm > 1e-8
         n_unit = cp.where(valid[:, None], n / (norm[:, None] + 1e-12), 0.0)
         d = -cp.sum(n_unit * a, axis=1)   # (K,)
+
+        # OrientaciÃ³n respecto a up_axis
+        dot_up = n_unit @ up  # (K,)
+        if orientation == "ground":
+            valid = cp.logical_and(valid, dot_up <= -cos_up_thresh)
+        elif orientation == "ceiling":
+            valid = cp.logical_and(valid, dot_up >= cos_up_thresh)
+        else:  # any
+            valid = cp.logical_and(valid, cp.abs(dot_up) >= cos_up_thresh)
+
         valid_idx = cp.nonzero(valid)[0]
         if valid_idx.size == 0:
             continue  # muestras degeneradas (colineales o duplicadas)
@@ -350,11 +367,15 @@ def get_ground(
     min_inliers = int(groundParams.get("min_inliers", 500) or 500)
     seed = int(groundParams.get("seed", 42) or 42)
     batch_size = int(groundParams.get("batch_size", 64) or 64)
+    up_axis = groundParams.get("up_axis", (0.0, -1.0, 0.0))
+    up_angle_deg = float(groundParams.get("up_angle_deg", 60.0) or 60.0)
+    orientation = groundParams.get("orientation", "ground") or "ground"
 
     max_depth_m = float(groundParams.get("max_depth_m", 3.0) or 3.0)             # passthrough
     voxel_size = float(groundParams.get("voxel_size", 0.03) or 0.03)             # tamaño de voxel
     normal_radius_m = float(groundParams.get("normal_radius_m", 0.04) or 0.04)   # r = 4 cm
 
+    t0 = time.perf_counter()
     # Conversión a CuPy
     try:
         depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
@@ -383,15 +404,18 @@ def get_ground(
         return None
 
     P_raw = points_full.reshape(-1, 3)[valid_flat]  # (N_raw,3)
+    t1 = time.perf_counter()  # fin paso 1: Depth->3D + passthrough
 
     # 2) Voxelization (preprocessing)
     P_vox = _voxel_downsample_points(P_raw, voxel_size)
     if int(P_vox.shape[0]) < 3:
         _last_ransac_ms = None
         return None
+    t2 = time.perf_counter()  # fin paso 2: voxelización
 
     # 3) Estimación de normales (radius search r = 4 cm)
     N_vox = _estimate_normals_radius(P_vox, normal_radius_m)
+    t3 = time.perf_counter()  # fin paso 3: normales
 
     # 4) RANSAC mejorado con normales (Algorithm 2)
     t0 = time.perf_counter()
@@ -404,8 +428,12 @@ def get_ground(
         min_inliers=min_inliers,
         seed=seed,
         batch_size=batch_size,
+        up_axis=up_axis,
+        up_angle_deg=up_angle_deg,
+        orientation=orientation,
     )
     _last_ransac_ms = (time.perf_counter() - t0) * 1000.0
+    t4 = time.perf_counter()  # fin paso 4: RANSAC
 
     if res is None:
         return None
@@ -421,6 +449,21 @@ def get_ground(
 
     # Convertir a uint8 (0/255) en CPU
     ground_mask = cp.where(mask_cp, cp.uint8(255), cp.uint8(0))
+    t5 = time.perf_counter()  # fin paso 5: máscara
+
+    # Tiempos por paso (ms)
+    print(
+        "[timing] step1 depth->3D+passthrough: "
+        f"{(t1 - t0)*1000:.2f} ms  "
+        "step2 voxel: "
+        f"{(t2 - t1)*1000:.2f} ms  "
+        "step3 normals: "
+        f"{(t3 - t2)*1000:.2f} ms  "
+        "step4 ransac: "
+        f"{(t4 - t3)*1000:.2f} ms  "
+        "step5 mask: "
+        f"{(t5 - t4)*1000:.2f} ms"
+    )
     return ground_mask.get()
 
 
@@ -435,40 +478,50 @@ def get_last_ransac_ms(copy: bool = True) -> Optional[float]:
 
 
 def _demo_run(frame_idx: int = 0, ground_params=None) -> None:
-    """Quick demo: load dataset frame, run get_ground, overlay mask, print timing."""
-    rgb, depth = helpers.load_dataset_frame(frame_idx)
-    if rgb is None or depth is None:
-        print('[demo] No se pudo cargar una imagen del dataset.')
-        return
+    """
+    Demo interactivo: recorre el dataset, aplica get_ground y muestra overlay.
+    Presiona ESC o q para salir.
+    """
+    idx = int(frame_idx)
+    ground_params = ground_params or {}
+    while True:
+        rgb, depth = helpers.load_dataset_frame(idx)
+        if rgb is None or depth is None:
+            print("[demo] No se pudo cargar una imagen del dataset.")
+            break
 
-    H, W = depth.shape[:2]
-    rays_np = viewCamera.compute_normalized_rays(H, W)
-    rays_cp = cp.asarray(rays_np, dtype=cp.float32)
+        H, W = depth.shape[:2]
+        rays_np = viewCamera.compute_normalized_rays(H, W)
+        rays_cp = cp.asarray(rays_np, dtype=cp.float32)
 
-    t0 = time.perf_counter()
-    mask = get_ground(depth, rays_cp, H, W, ground_params or {})
-    total_ms = (time.perf_counter() - t0) * 1000.0
-    ransac_ms = get_last_ransac_ms()
+        t0 = time.perf_counter()
+        mask = get_ground(depth, rays_cp, H, W, ground_params)
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        ransac_ms = get_last_ransac_ms()
 
-    if mask is None:
-        print(f'[demo] get_ground devolvio None. total_ms={total_ms:.2f} ms')
-        return
+        if mask is None:
+            print(f"[demo] get_ground devolvio None. total_ms={total_ms:.2f} ms")
+            break
 
-    overlay = helpers.apply_mask_to_rgb(rgb, mask)
-    out_dir = pathlib.Path('experiments')
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / 'ground_overlay.png'
-    if overlay is not None:
-        cv2.imwrite(str(out_path), overlay)
-        print(f'[demo] Overlay guardado en {out_path}')
-    else:
-        print('[demo] apply_mask_to_rgb devolvio None, no se pudo guardar overlay')
+        overlay = helpers.apply_mask_to_rgb(rgb, mask)
+        if overlay is not None:
+            cv2.imshow("Ground (RANSACenhanced)", overlay)
+        else:
+            cv2.imshow("Ground (RANSACenhanced)", rgb)
 
-    if ransac_ms is None:
-        print(f'[demo] Tiempo total pipeline: {total_ms:.2f} ms (RANSAC no reporto)')
-    else:
-        print(f'[demo] Tiempo total pipeline: {total_ms:.2f} ms   RANSAC: {ransac_ms:.2f} ms')
+        if ransac_ms is None:
+            print(f"[demo] idx={idx}  total={total_ms:.2f} ms (RANSAC no reporto)")
+        else:
+            print(f"[demo] idx={idx}  total={total_ms:.2f} ms   RANSAC={ransac_ms:.2f} ms")
+
+        key = cv2.waitKey(1) & 0xFF
+        if key in (27, ord("q")):
+            break
+
+        idx += 1
+
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    _demo_run(0, {})
+    _demo_run(1, {})
