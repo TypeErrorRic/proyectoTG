@@ -390,7 +390,7 @@ PY
     require_jetson
     ensure_python
     setup_cupy_env
-    echo "Iniciando prueba de camara (test-2)..."
+    echo "Iniciando prueba de algoritmo v1..."
     if [[ -f "src/utilities/RANSACenhanced.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
       "$PYTHON_BIN" src/utilities/RANSACenhanced.py
@@ -403,7 +403,7 @@ PY
     require_jetson
     ensure_python
     setup_cupy_env
-    echo "Iniciando prueba de camara (test-2)..."
+    echo "Iniciando prueba de algoritmo v2..."
     if [[ -f "src/utilities/ransacCellingGround.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
       "$PYTHON_BIN" src/utilities/ransacCellingGround.py

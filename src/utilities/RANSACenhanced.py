@@ -361,19 +361,19 @@ def get_ground(
     groundParams = groundParams or {}
 
     # Parámetros (todos directos del algoritmo del paper)
-    dist_thresh = float(groundParams.get("dist_thresh", 0.02) or 0.02)           # d = 2 cm
-    normal_angle_deg = float(groundParams.get("normal_angle_deg", 20.0) or 20.0) # m (ángulo máximo)
-    max_iters = int(groundParams.get("max_iters", 2000) or 2000)
-    min_inliers = int(groundParams.get("min_inliers", 500) or 500)
+    dist_thresh = float(groundParams.get("dist_thresh", 0.03) or 0.03)           # d = 3 cm
+    normal_angle_deg = float(groundParams.get("normal_angle_deg", 25.0) or 25.0) # ángulo máx entre normales
+    max_iters = int(groundParams.get("max_iters", 600) or 600)
+    min_inliers = int(groundParams.get("min_inliers", 200) or 200)
     seed = int(groundParams.get("seed", 42) or 42)
-    batch_size = int(groundParams.get("batch_size", 64) or 64)
+    batch_size = int(groundParams.get("batch_size", 256) or 256)
     up_axis = groundParams.get("up_axis", (0.0, -1.0, 0.0))
-    up_angle_deg = float(groundParams.get("up_angle_deg", 60.0) or 60.0)
+    up_angle_deg = float(groundParams.get("up_angle_deg", 35.0) or 35.0)
     orientation = groundParams.get("orientation", "ground") or "ground"
 
     max_depth_m = float(groundParams.get("max_depth_m", 3.0) or 3.0)             # passthrough
-    voxel_size = float(groundParams.get("voxel_size", 0.03) or 0.03)             # tamaño de voxel
-    normal_radius_m = float(groundParams.get("normal_radius_m", 0.04) or 0.04)   # r = 4 cm
+    voxel_size = float(groundParams.get("voxel_size", 0.06) or 0.06)             # voxel más grande para acelerar
+    normal_radius_m = float(groundParams.get("normal_radius_m", 0.05) or 0.05)   # radio para normales
 
     t0 = time.perf_counter()
     # Conversión a CuPy
@@ -483,7 +483,20 @@ def _demo_run(frame_idx: int = 0, ground_params=None) -> None:
     Presiona ESC o q para salir.
     """
     idx = int(frame_idx)
-    ground_params = ground_params or {}
+    if ground_params is None:
+        ground_params = {
+            "voxel_size": 0.06,
+            "normal_radius_m": 0.05,
+            "dist_thresh": 0.03,
+            "normal_angle_deg": 25.0,
+            "max_iters": 600,
+            "min_inliers": 200,
+            "batch_size": 256,
+            "up_axis": (0.0, -1.0, 0.0),
+            "up_angle_deg": 35.0,
+            "orientation": "ground",
+            "max_depth_m": 3.0,
+        }
     while True:
         rgb, depth = helpers.load_dataset_frame(idx)
         if rgb is None or depth is None:
