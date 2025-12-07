@@ -71,6 +71,39 @@ PY
   fi
 }
 
+compile_align_ptx_if_missing() {
+  # Genera align_depth_to_color.ptx si no existe (para acelerar el arranque de CuPy RawModule).
+  local cu="src/utilities/kernels/align_depth_to_color.cu"
+  local ptx="src/utilities/kernels/align_depth_to_color.ptx"
+  [[ -f "$ptx" ]] && return 0
+  if ! is_cmd nvcc; then
+    echo "Aviso: nvcc no encontrado, se omitira la compilacion del PTX ($ptx)."
+    return 0
+  fi
+
+  local arch="${ALIGN_PTX_ARCH:-auto}"
+  if [[ "$arch" == "auto" ]]; then
+    arch="$("$PYTHON_BIN" - <<'PY' || true
+try:
+    import cupy
+    p = cupy.cuda.runtime.getDeviceProperties(0)
+    print(f"sm_{p['major']}{p['minor']}")
+except Exception:
+    pass
+PY
+)"
+  fi
+  if [[ -z "${arch:-}" ]]; then
+    arch="sm_72"
+    echo "Aviso: no se pudo detectar compute capability. Usando valor por defecto ${arch} (ajusta ALIGN_PTX_ARCH si es necesario)."
+  fi
+
+  echo "Compilando PTX ${ptx} con arch=${arch}..."
+  if ! nvcc -ptx -arch="${arch}" "${cu}" -o "${ptx}"; then
+    echo "ADVERTENCIA: fallo compilando PTX (${ptx}). Continua con compilacion JIT en runtime."
+  fi
+}
+
 # ================== Pausa ===================
 pause_if_needed() {
   local want_pause=0
@@ -351,6 +384,7 @@ PY
     require_jetson
     ensure_python
     setup_cupy_env
+    compile_align_ptx_if_missing
     echo "Iniciando prueba de camara con pyrealsense2..."
     if [[ -f "src/utilities/viewCamera.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
@@ -364,6 +398,7 @@ PY
     require_jetson
     ensure_python
     setup_cupy_env
+    compile_align_ptx_if_missing
     echo "Iniciando main..."
     if [[ -f "src/main.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
@@ -377,6 +412,7 @@ PY
     require_jetson
     ensure_python
     setup_cupy_env
+    compile_align_ptx_if_missing
     echo "Iniciando prueba de camara (test-2)..."
     if [[ -f "src/utilities/viewCamera.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
