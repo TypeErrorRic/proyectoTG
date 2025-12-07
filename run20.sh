@@ -386,6 +386,32 @@ PY
       exit 1
     fi
     ;;
+    test-v1)
+    require_jetson
+    ensure_python
+    setup_cupy_env
+    echo "Iniciando prueba de camara (test-2)..."
+    if [[ -f "src/utilities/RANSACenhanced.py" ]]; then
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" src/utilities/RANSACenhanced.py
+    else
+      echo "ERROR: No se encontro src/utilities/RANSACenhanced.py"
+      exit 1
+    fi
+    ;;
+    test-v2)
+    require_jetson
+    ensure_python
+    setup_cupy_env
+    echo "Iniciando prueba de camara (test-2)..."
+    if [[ -f "src/utilities/ransacCellingGround.py" ]]; then
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" src/utilities/ransacCellingGround.py
+    else
+      echo "ERROR: No se encontro src/utilities/ransacCellingGround.py"
+      exit 1
+    fi
+    ;;
   *)
     echo "Uso: $0 {env|deps|check|realsense-test|test|test-2}"
     ;;
