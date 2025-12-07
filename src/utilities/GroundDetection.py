@@ -5,26 +5,12 @@ Provides CUDA-friendly plane fitting, ground mask creation, and postprocessing
 to keep the segmentation pipeline on GPU.
 """
 import math
-import os
-import pathlib
-import sys
 import time
 from typing import Optional, Dict, Any
 
 import cupy as cp
 import cupyx.scipy.ndimage as cnd
-import cv2
 import numpy as np
-
-try:
-    from . import helpers, viewCamera  # type: ignore
-except ImportError:
-    # When executed as a script, ensure src/ is on sys.path
-    _ROOT = pathlib.Path(__file__).resolve().parents[1]
-    if str(_ROOT) not in sys.path:
-        sys.path.append(str(_ROOT))
-    import utilities.helpers as helpers  # type: ignore
-    import utilities.viewCamera as viewCamera  # type: ignore
 
 _last_ransac_ms: Optional[float] = None
 
@@ -533,51 +519,3 @@ def get_last_ransac_ms(copy: bool = True) -> Optional[float]:
     if _last_ransac_ms is None:
         return None
     return float(_last_ransac_ms)
-
-
-def _demo_run(frame_idx: int = 0, ground_params=None) -> None:
-    """
-    Demo interactivo: recorre el dataset, aplica get_ground, muestra overlay, tecla ESC/q para salir.
-    """
-    idx = int(frame_idx)
-    ground_params = ground_params or {}
-    while True:
-        rgb, depth = helpers.load_dataset_frame(idx)
-        if rgb is None or depth is None:
-            print("[demo] No se pudo cargar una imagen del dataset.")
-            break
-
-        H, W = depth.shape[:2]
-        rays_np = viewCamera.compute_normalized_rays(H, W)
-        rays_cp = cp.asarray(rays_np, dtype=cp.float32)
-
-        t0 = time.perf_counter()
-        mask = get_ground(depth, rays_cp, H, W, ground_params)
-        total_ms = (time.perf_counter() - t0) * 1000.0
-        ransac_ms = get_last_ransac_ms()
-
-        if mask is None:
-            print(f"[demo] get_ground devolvio None. total_ms={total_ms:.2f} ms")
-            break
-
-        overlay = helpers.apply_mask_to_rgb(rgb, mask)
-        if overlay is not None:
-            cv2.imshow("Ground (ransacCellingGround)", overlay)
-        else:
-            cv2.imshow("Ground (ransacCellingGround)", rgb)
-
-        if ransac_ms is None:
-            print(f"[demo] idx={idx}  total={total_ms:.2f} ms (RANSAC no reporto)")
-        else:
-            print(f"[demo] idx={idx}  total={total_ms:.2f} ms   RANSAC={ransac_ms:.2f} ms")
-
-        key = cv2.waitKey(1) & 0xFF
-        if key in (27, ord("q")):
-            break
-        idx += 1
-
-    cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    _demo_run(1, {})

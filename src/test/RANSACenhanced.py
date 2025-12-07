@@ -25,7 +25,7 @@ import cupy as cp
 import cv2
 
 try:
-    from . import helpers, viewCamera  # type: ignore
+    from ..utilities import helpers, viewCamera  # type: ignore
 except ImportError:
     # Fallback when executed as a script: add project src/ to sys.path
     _ROOT = pathlib.Path(__file__).resolve().parents[1]

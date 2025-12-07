@@ -7,7 +7,7 @@ and shares its result with the main thread through a small queue.
 
 # Project libraries
 import src.utilities.viewCamera as viewCamera
-from src.utilities.ransacCellingGround import get_ground, get_last_ransac_ms
+from utilities.GroundDetection import get_ground, get_last_ransac_ms
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
 
 # Runtime libraries

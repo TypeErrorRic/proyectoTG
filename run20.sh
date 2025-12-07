@@ -391,11 +391,11 @@ PY
     ensure_python
     setup_cupy_env
     echo "Iniciando prueba de algoritmo v1..."
-    if [[ -f "src/utilities/RANSACenhanced.py" ]]; then
+    if [[ -f "src/test/RANSACenhanced.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/utilities/RANSACenhanced.py
+      "$PYTHON_BIN" src/test/RANSACenhanced.py
     else
-      echo "ERROR: No se encontro src/utilities/RANSACenhanced.py"
+      echo "ERROR: No se encontro src/test/RANSACenhanced.py"
       exit 1
     fi
     ;;
@@ -404,11 +404,11 @@ PY
     ensure_python
     setup_cupy_env
     echo "Iniciando prueba de algoritmo v2..."
-    if [[ -f "src/utilities/ransacCellingGround.py" ]]; then
+    if [[ -f "src/test/ransacCellingGround.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/utilities/ransacCellingGround.py
+      "$PYTHON_BIN" src/test/ransacCellingGround.py
     else
-      echo "ERROR: No se encontro src/utilities/ransacCellingGround.py"
+      echo "ERROR: No se encontro src/test/ransacCellingGround.py"
       exit 1
     fi
     ;;
