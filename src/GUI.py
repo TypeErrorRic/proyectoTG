@@ -9,15 +9,18 @@ import os
 import sys
 import time
 import threading
+import io
 from typing import Optional, Dict, Any, Callable, List
 
 import cv2
 import tkinter as tk
+from tkinter import ttk, simpledialog, messagebox
 from PIL import Image, ImageTk
 
 try:
     # Preferred import when running as a package/module.
     from src.GUIFunctions import (
+        blob_to_image,
         capture_panel_screenshot,
         ensure_upload_dir,
         init_config_defaults,
@@ -31,6 +34,7 @@ try:
 except ModuleNotFoundError:
     # Fallback for direct script execution from the src directory.
     from GUIFunctions import (
+        blob_to_image,
         capture_panel_screenshot,
         ensure_upload_dir,
         init_config_defaults,
@@ -49,7 +53,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import (
+from src.utilities.segmentar2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -74,6 +78,14 @@ class SegmentacionApp:
 
     def __init__(self, root: tk.Tk, mode: str = "prueba") -> None:
         self.root = root
+        self.current_user: Optional[Dict[str, Any]] = None  # Usuario autenticado
+        
+        # Mostrar login antes de inicializar la interfaz
+        if not self._show_login():
+            # Si el login falla o se cancela, cerrar aplicación
+            self.root.destroy()
+            return
+        
         # @note Mode can be "camera" or "prueba".
         self.mode = mode
         self.active_page = "configuracion"
@@ -95,6 +107,9 @@ class SegmentacionApp:
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
         self._config_apply_btn: Optional[tk.Button] = None
+        self.config_combo: Optional[ttk.Combobox] = None
+        self.saved_configs: List[Dict[str, Any]] = []
+        self.active_configuration_id: Optional[int] = None  # ID de config aplicada/seleccionada
         self._apply_btn_default_text: str = "Aplicar"
         self._apply_btn_default_bg: str = "#00b86b"
         self._apply_btn_default_activebg: str = "#21d087"
@@ -109,7 +124,7 @@ class SegmentacionApp:
         self._capturas_default_bg: Optional[str] = None
         self._capturas_default_activebg: Optional[str] = None
         self.btn_capturar: Optional[tk.Button] = None
-        self.gallery_paths: List[str] = []
+        self.gallery_captures: List[Dict[str, Any]] = []  # Lista de capturas desde BD
         self.gallery_index: int = 0
         self.gallery_photo_ref: Optional[ImageTk.PhotoImage] = None
         self.gallery_frame: Optional[tk.Frame] = None
@@ -134,8 +149,29 @@ class SegmentacionApp:
         self._show_mode("config")
         # Do not auto-iniciar transmisión; arranca solo al presionar el botón.
         self._set_mode(self.mode, update_header=False)
+        
+        # Cargar configuración guardada del usuario (si existe)
+        self._load_config_from_db()
+        
         self._heartbeat()
 
+    def _show_login(self) -> bool:
+        """
+        Mostrar diálogo de login y validar usuario.
+        
+        Returns:
+            True si login exitoso, False si cancelado.
+        """
+        login_dialog = LoginDialog(self.root)
+        user = login_dialog.get_user()
+        
+        if user is None:
+            return False
+        
+        self.current_user = user
+        print(f"[GUI] Usuario autenticado: {user.get('username')} ({user.get('role')})")
+        return True
+    
     def _configure_window(self) -> None:
         r"""
         \brief Sets up the base window properties (title, size, and style flags).
@@ -528,7 +564,7 @@ class SegmentacionApp:
         """
         Keep navigation buttons in sync with gallery bounds.
         """
-        total = len(self.gallery_paths)
+        total = len(self.gallery_captures)
         at_start = self.gallery_index <= 0
         at_end = self.gallery_index >= max(total - 1, 0)
         prev_state = tk.NORMAL if total > 1 and not at_start else tk.DISABLED
@@ -543,55 +579,83 @@ class SegmentacionApp:
 
     def _refresh_gallery_images(self) -> None:
         """
-        Load the list of captures from the uploads folder.
+        Load the list of captures from the database.
         """
+        if not self.current_user:
+            self.gallery_captures = []
+            self.gallery_index = 0
+            self._sync_capture_slider_limits()
+            self._show_gallery_image(self.gallery_index)
+            return
+        
         try:
-            self.gallery_paths = load_upload_images(UPLOAD_DIR)
+            try:
+                from src.api.dbConection import get_user_captures
+            except ModuleNotFoundError:
+                from api.dbConection import get_user_captures
+            
+            user_id = self.current_user.get("id")
+            self.gallery_captures = get_user_captures(user_id, limit=100)
+            print(f"[GUI] {len(self.gallery_captures)} capturas cargadas desde BD")
         except Exception as exc:
-            print(f"[GUI] no se pudieron listar capturas: {exc}")
-            self.gallery_paths = []
+            print(f"[GUI] Error cargando capturas desde BD: {exc}")
+            self.gallery_captures = []
+        
         self.gallery_index = 0
         self._sync_capture_slider_limits()
         self._show_gallery_image(self.gallery_index)
 
     def _show_gallery_image(self, index: int) -> None:
         """
-        Display the requested capture image in the gallery frame.
+        Display the requested capture image from database in the gallery frame.
         """
         if not self.gallery_display:
             return
-        if not self.gallery_paths:
+        if not self.gallery_captures:
             self.gallery_photo_ref = None
             self.gallery_display.configure(
-                text="No hay capturas en uploads.",
+                text="No hay capturas guardadas.",
                 image="",
                 bg="#7f7f7f",
             )
             self._update_gallery_nav_state()
             return
 
-        clamped = max(0, min(index, len(self.gallery_paths) - 1))
+        clamped = max(0, min(index, len(self.gallery_captures) - 1))
         self.gallery_index = clamped
-        path = self.gallery_paths[clamped]
+        capture = self.gallery_captures[clamped]
+        
         try:
-            img = Image.open(path)
+            # Convertir BLOB a imagen PIL
+            img = blob_to_image(capture.get("image_data"))
+            if img is None:
+                raise ValueError("No se pudo convertir image_data a imagen")
+            
             w, h = img.size
             scale = min(DISPLAY_MAX_W / max(w, 1), DISPLAY_MAX_H / max(h, 1), 1.0)
             if scale < 1.0:
                 img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            
             self.gallery_photo_ref = ImageTk.PhotoImage(img)
+            
+            # Mostrar nombre y fecha de captura
+            filename = capture.get("filename", "captura")
+            captured_at = capture.get("captured_at", "")
+            label_text = f"{filename}\n{captured_at}"
+            
             self.gallery_display.configure(
                 image=self.gallery_photo_ref,
-                text=os.path.basename(path),
+                text=label_text,
                 bg="#7f7f7f",
                 fg="white",
                 compound=tk.BOTTOM,
             )
         except Exception as exc:
             self.gallery_photo_ref = None
+            filename = capture.get("filename", "captura")
             self.gallery_display.configure(
                 image="",
-                text=f"No se pudo cargar:\n{os.path.basename(path)}\n{exc}",
+                text=f"No se pudo cargar:\n{filename}\n{exc}",
                 bg="#7f7f7f",
                 fg="white",
                 compound=tk.TOP,
@@ -616,7 +680,7 @@ class SegmentacionApp:
         Adjust capture slider limits according to available images.
         """
         slider = self.capture_controls.get("slider") if hasattr(self, "capture_controls") else None
-        total = max(len(self.gallery_paths), 1)
+        total = max(len(self.gallery_captures), 1)
         if not slider or not hasattr(slider, "configure"):
             return
         try:
@@ -977,6 +1041,7 @@ class SegmentacionApp:
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=self._on_delete_capture,
         )
         btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
         btn_siguiente = tk.Button(
@@ -1091,6 +1156,56 @@ class SegmentacionApp:
             justify="left",
         )
         subtitle.pack(fill="x", pady=(0, 10))
+
+        # Selector de configuraciones guardadas
+        config_selector_frame = tk.Frame(wrapper, bg="#d9d9d9")
+        config_selector_frame.pack(fill="x", pady=(0, 12))
+        
+        config_selector_label = tk.Label(
+            config_selector_frame,
+            text="Configuraciones Guardadas:",
+            bg="#d9d9d9",
+            fg="#1f1f1f",
+            font=("Segoe UI", 10, "bold"),
+        )
+        config_selector_label.pack(side="left", padx=(0, 10))
+        
+        self.config_combo = ttk.Combobox(
+            config_selector_frame,
+            state="readonly",
+            width=25,
+            font=("Segoe UI", 9)
+        )
+        self.config_combo.pack(side="left", padx=(0, 8))
+        self.config_combo.bind("<<ComboboxSelected>>", self._on_config_selected)
+        
+        btn_guardar_config = tk.Button(
+            config_selector_frame,
+            text="Guardar Como...",
+            bg="#00b86b",
+            activebackground="#21d087",
+            fg="white",
+            bd=0,
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
+            command=self._on_save_config_as
+        )
+        btn_guardar_config.pack(side="left", padx=(0, 4))
+        
+        btn_eliminar_config = tk.Button(
+            config_selector_frame,
+            text="Eliminar",
+            bg="#e53935",
+            activebackground="#f1625f",
+            fg="white",
+            bd=0,
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
+            command=self._on_delete_config
+        )
+        btn_eliminar_config.pack(side="left")
 
         body = tk.Frame(wrapper, bg="#d9d9d9")
         body.pack(fill="both", expand=True)
@@ -1297,6 +1412,380 @@ class SegmentacionApp:
 
         self._apply_status_after_id = self.root.after(duration_ms, _reset)
 
+    def _save_capture_to_db(self, filename: str, image: Any, image_bytes: Optional[bytes] = None) -> None:
+        """
+        Guardar metadata de captura en la base de datos (incluyendo binario de imagen).
+        """
+        if not self.current_user:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import create_capture, get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import create_capture, get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            
+            # Usar configuración seleccionada/aplicada si existe; si no, fallback al autosave
+            config_id = self.active_configuration_id
+            if config_id is None:
+                configs = get_user_configurations(user_id)
+                autosave_config = next((c for c in configs if c.get("config_name") == "_autosave_"), None)
+                config_id = autosave_config.get("id") if autosave_config else None
+            
+            # Obtener métricas actuales
+            try:
+                metricas = obtener_metricas()
+            except Exception:
+                metricas = {}
+            
+            # Obtener dimensiones de la imagen
+            file_size = len(image_bytes) if image_bytes else None
+            img_width = image.width if hasattr(image, "width") else None
+            img_height = image.height if hasattr(image, "height") else None
+            
+            # Metadata de la captura
+            metadata = {
+                "file_size_bytes": file_size,
+                "image_width": img_width,
+                "image_height": img_height,
+                "ransac_time_ms": metricas.get("ransac_ms"),
+                "fps": self.fps,
+                "dataset_index": self.dataset_index if self.mode == "prueba" else None,
+            }
+            
+            # Guardar en BD
+            capture_id = create_capture(
+                user_id=user_id,
+                filename=filename,
+                mode=self.mode,
+                configuration_id=config_id,
+                metadata=metadata,
+                image_bytes=image_bytes,
+            )
+            print(f"[GUI] Captura guardada en BD con ID: {capture_id}")
+        except Exception as exc:
+            print(f"[GUI] Error guardando captura en BD: {exc}")
+    
+    def _load_config_from_db(self) -> None:
+        """
+        Cargar configuración auto-guardada del usuario desde la BD al iniciar.
+        """
+        if not self.current_user:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            
+            # Buscar configuración auto-guardada
+            configs = get_user_configurations(user_id)
+            autosave_config = next((c for c in configs if c.get("config_name") == "_autosave_"), None)
+            
+            if autosave_config:
+                print(f"[GUI] Cargando configuración auto-guardada (ID: {autosave_config['id']})")
+                
+                # Mapear campos de BD a variables de GUI
+                param_mapping = {
+                    "subsample_stride": "subsample_stride",
+                    "dist_thresh": "dist_thresh",
+                    "max_iters": "max_iters",
+                    "min_inliers": "min_inliers",
+                    "max_angle_deg": "max_angle_deg",
+                    "score_subset": "score_subset",
+                    "time_budget_ms": "time_budget_ms",
+                    "early_stop_ratio": "early_stop_ratio",
+                    "batch_size": "batch_size",
+                    "low_height_pct": "low_height_pct",
+                    "roi_bottom_fraction": "roi_bottom_fraction",
+                    "roi_expand_step": "roi_expand_step",
+                    "max_agg_points": "max_agg_points",
+                    "refine_full_res": "refine_full_res",
+                    "refine_max_points": "refine_max_points",
+                    "refine_dist_mult": "refine_dist_mult",
+                    "second_pass_mask": "second_pass_mask",
+                }
+                
+                # Actualizar variables de GUI
+                for db_key, gui_key in param_mapping.items():
+                    if db_key in autosave_config and gui_key in self.config_vars:
+                        value = autosave_config[db_key]
+                        # Convertir booleanos a int para la GUI
+                        if isinstance(value, bool):
+                            value = int(value)
+                        self.config_vars[gui_key].set(str(value))
+                        self.config_defaults[gui_key] = str(value)
+                
+                # Aplicar parámetros al motor de segmentación
+                raw_values = {key: var.get() for key, var in self.config_vars.items()}
+                parsed = parse_config_params(raw_values)
+                if parsed:
+                    actualizar_parametros_ground(parsed)
+                    self._refresh_params_summary()
+                    print("[GUI] Configuración cargada y aplicada exitosamente")
+            else:
+                print("[GUI] No hay configuración auto-guardada, usando valores por defecto")
+            
+            # Cargar lista de configuraciones guardadas en el ComboBox
+            self._refresh_config_list()
+            
+        except Exception as exc:
+            print(f"[GUI] Error cargando configuración desde BD: {exc}")
+    
+    def _save_config_to_db(self, params: Dict[str, Any]) -> None:
+        """
+        Guardar configuración actual en la base de datos.
+        Usa una configuración especial llamada '_autosave_' que siempre se actualiza.
+        """
+        if not self.current_user:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import create_configuration, update_configuration, get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import create_configuration, update_configuration, get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            config_name = "_autosave_"  # Nombre especial para auto-guardado
+            
+            # Buscar si ya existe la configuración de auto-guardado
+            existing_configs = get_user_configurations(user_id)
+            autosave_config = next((c for c in existing_configs if c.get("config_name") == config_name), None)
+            
+            if autosave_config:
+                # ACTUALIZAR configuración existente (no crear nueva)
+                update_configuration(autosave_config["id"], params)
+                print(f"[GUI] Configuración auto-guardada actualizada en BD (ID: {autosave_config['id']})")
+            else:
+                # Crear configuración de auto-guardado por primera vez
+                config_id = create_configuration(
+                    user_id=user_id,
+                    config_name=config_name,
+                    params=params,
+                    description="Configuración guardada automáticamente al aplicar cambios",
+                    is_default=True
+                )
+                print(f"[GUI] Configuración auto-guardada creada en BD (ID: {config_id})")
+        except Exception as exc:
+            print(f"[GUI] Error guardando configuración en BD: {exc}")
+    
+    def _refresh_config_list(self) -> None:
+        """
+        Actualizar lista de configuraciones guardadas en el ComboBox.
+        """
+        if not self.current_user or not self.config_combo:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            self.saved_configs = get_user_configurations(user_id)
+            
+            # Filtrar configuración de auto-guardado
+            visible_configs = [c for c in self.saved_configs if c.get("config_name") != "_autosave_"]
+            
+            config_names = [c.get("config_name", f"Config {c.get('id')}") for c in visible_configs]
+            
+            self.config_combo['values'] = config_names
+            
+            if config_names:
+                self.config_combo.current(0)
+                # Sincronizar el ID activo con la primera opción visible
+                self._on_config_selected()
+            else:
+                self.active_configuration_id = None
+            
+            print(f"[GUI] {len(visible_configs)} configuraciones disponibles")
+        except Exception as exc:
+            print(f"[GUI] Error cargando lista de configuraciones: {exc}")
+    
+    def _on_config_selected(self, event=None) -> None:
+        """
+        Cargar configuración seleccionada del ComboBox.
+        """
+        if not self.config_combo:
+            return
+        
+        selected_name = self.config_combo.get()
+        if not selected_name:
+            return
+        
+        # Buscar configuración por nombre
+        config = next((c for c in self.saved_configs 
+                      if c.get("config_name") == selected_name), None)
+        
+        if not config:
+            print(f"[GUI] Configuración '{selected_name}' no encontrada")
+            return
+        
+        print(f"[GUI] Cargando configuración: {selected_name}")
+        
+        # Mapear campos de BD a GUI
+        param_mapping = {
+            "subsample_stride": "subsample_stride",
+            "dist_thresh": "dist_thresh",
+            "max_iters": "max_iters",
+            "min_inliers": "min_inliers",
+            "max_angle_deg": "max_angle_deg",
+            "score_subset": "score_subset",
+            "time_budget_ms": "time_budget_ms",
+            "early_stop_ratio": "early_stop_ratio",
+            "batch_size": "batch_size",
+            "low_height_pct": "low_height_pct",
+            "roi_bottom_fraction": "roi_bottom_fraction",
+            "roi_expand_step": "roi_expand_step",
+            "max_agg_points": "max_agg_points",
+            "refine_full_res": "refine_full_res",
+            "refine_max_points": "refine_max_points",
+            "refine_dist_mult": "refine_dist_mult",
+            "second_pass_mask": "second_pass_mask",
+        }
+        
+        # Actualizar GUI
+        for db_key, gui_key in param_mapping.items():
+            if db_key in config and gui_key in self.config_vars:
+                value = config[db_key]
+                if isinstance(value, bool):
+                    value = int(value)
+                self.config_vars[gui_key].set(str(value))
+        
+        print(f"[GUI] Configuración '{selected_name}' cargada. Presiona 'Aplicar' para usarla.")
+        self.active_configuration_id = config.get("id")
+    
+    def _on_save_config_as(self) -> None:
+        """
+        Guardar configuración actual con un nombre personalizado.
+        """
+        if not self.current_user:
+            messagebox.showwarning("Advertencia", "No hay usuario autenticado")
+            return
+        
+        # Pedir nombre de configuración
+        config_name = simpledialog.askstring(
+            "Guardar Configuración",
+            "Ingrese un nombre para esta configuración:",
+            parent=self.root
+        )
+        
+        if not config_name or config_name.strip() == "":
+            return
+        
+        config_name = config_name.strip()
+        
+        # Verificar que no sea nombre reservado
+        if config_name == "_autosave_":
+            messagebox.showerror("Error", "Nombre reservado. Use otro nombre.")
+            return
+        
+        # Pedir descripción (opcional)
+        description = simpledialog.askstring(
+            "Descripción",
+            "Descripción (opcional):",
+            parent=self.root
+        )
+        
+        try:
+            try:
+                from src.api.dbConection import create_configuration, get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import create_configuration, get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            
+            # Verificar si ya existe
+            existing = get_user_configurations(user_id)
+            if any(c.get("config_name") == config_name for c in existing):
+                overwrite = messagebox.askyesno(
+                    "Configuración Existente",
+                    f"Ya existe una configuración llamada '{config_name}'.\\n¿Desea sobrescribirla?"
+                )
+                if not overwrite:
+                    return
+            
+            # Obtener parámetros actuales
+            raw_values = {key: var.get() for key, var in self.config_vars.items()}
+            parsed = parse_config_params(raw_values)
+            
+            if not parsed:
+                messagebox.showerror("Error", "Parámetros inválidos. Verifique los valores.")
+                return
+            
+            # Guardar
+            config_id = create_configuration(
+                user_id=user_id,
+                config_name=config_name,
+                params=parsed,
+                description=description or f"Configuración guardada el {time.strftime('%Y-%m-%d %H:%M')}",
+                is_default=False
+            )
+            
+            print(f"[GUI] Configuración '{config_name}' guardada con ID: {config_id}")
+            messagebox.showinfo("Éxito", f"Configuración '{config_name}' guardada correctamente")
+            
+            # Actualizar lista
+            self._refresh_config_list()
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo guardar:\\n{exc}")
+            print(f"[GUI] Error guardando configuración: {exc}")
+    
+    def _on_delete_config(self) -> None:
+        """
+        Eliminar configuración seleccionada.
+        """
+        if not self.config_combo:
+            return
+        
+        selected_name = self.config_combo.get()
+        if not selected_name:
+            messagebox.showwarning("Advertencia", "Seleccione una configuración para eliminar")
+            return
+        
+        # Confirmar eliminación
+        confirm = messagebox.askyesno(
+            "Confirmar Eliminación",
+            f"¿Está seguro de eliminar la configuración '{selected_name}'?"
+        )
+        
+        if not confirm:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import delete_configuration
+            except ModuleNotFoundError:
+                from api.dbConection import delete_configuration
+            
+            # Buscar configuración
+            config = next((c for c in self.saved_configs 
+                          if c.get("config_name") == selected_name), None)
+            
+            if not config:
+                messagebox.showerror("Error", "Configuración no encontrada")
+                return
+            
+            # Eliminar
+            delete_configuration(config.get("id"))
+            print(f"[GUI] Configuración '{selected_name}' eliminada")
+            messagebox.showinfo("Éxito", f"Configuración '{selected_name}' eliminada")
+            
+            # Actualizar lista
+            self._refresh_config_list()
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo eliminar:\\n{exc}")
+            print(f"[GUI] Error eliminando configuración: {exc}")
+    
     def _on_config_apply(self) -> None:
         """
         \brief Apply configuration values to the segmentation thread.
@@ -1317,6 +1806,17 @@ class SegmentacionApp:
         if self._worker and self._worker.is_alive():
             self._restart_worker()
         print("[GUI] Parametros de segmentacion actualizados.")
+        # Registrar configuración aplicada (preferir la seleccionada en el combo)
+        if self.config_combo:
+            selected_name = self.config_combo.get()
+            config = next((c for c in self.saved_configs if c.get("config_name") == selected_name), None)
+            self.active_configuration_id = config.get("id") if config else None
+        else:
+            self.active_configuration_id = None
+        
+        # Guardar configuración en BD
+        self._save_config_to_db(updated)
+        
         self._set_apply_status(
             "Aplicado",
             bg="#5ee68a",
@@ -1488,6 +1988,66 @@ class SegmentacionApp:
             return
         self._set_dataset_index(slider_val - 1, update_controls=False)
 
+    def _on_delete_capture(self) -> None:
+        """
+        Delete the currently displayed capture from the database and show next image.
+        """
+        if not self.gallery_captures or self.gallery_index >= len(self.gallery_captures):
+            messagebox.showwarning("Advertencia", "No hay captura seleccionada para eliminar")
+            return
+        
+        capture = self.gallery_captures[self.gallery_index]
+        capture_id = capture.get("id")
+        filename = capture.get("filename", "captura")
+        current_index = self.gallery_index
+        
+        # Confirmar eliminación
+        confirm = messagebox.askyesno(
+            "Confirmar Eliminación",
+            f"¿Está seguro de eliminar la captura '{filename}'?\nEsta acción no se puede deshacer."
+        )
+        
+        if not confirm:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import delete_capture
+            except ModuleNotFoundError:
+                from api.dbConection import delete_capture
+            
+            delete_capture(capture_id)
+            print(f"[GUI] Captura ID {capture_id} eliminada de BD")
+            
+            # Recargar galería
+            if not self.current_user:
+                self.gallery_captures = []
+            else:
+                try:
+                    from src.api.dbConection import get_user_captures
+                except ModuleNotFoundError:
+                    from api.dbConection import get_user_captures
+                
+                user_id = self.current_user.get("id")
+                self.gallery_captures = get_user_captures(user_id, limit=100)
+            
+            # Ajustar índice: mostrar la siguiente imagen o la anterior si era la última
+            if not self.gallery_captures:
+                # No hay más imágenes
+                self.gallery_index = 0
+                messagebox.showinfo("Información", "No hay más imágenes en la galería")
+            else:
+                # Mantener el mismo índice si hay imágenes disponibles (muestra la siguiente)
+                # o ajustar al final si eliminamos la última
+                self.gallery_index = min(current_index, len(self.gallery_captures) - 1)
+            
+            self._sync_capture_slider_limits()
+            self._show_gallery_image(self.gallery_index)
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo eliminar la captura:\n{exc}")
+            print(f"[GUI] Error eliminando captura: {exc}")
+
     def _on_capturas_pressed(self) -> None:
         """
         Enable capture panel controls and highlight the Capturas action.
@@ -1617,9 +2177,18 @@ class SegmentacionApp:
                 image = Image.fromarray(frame_rgb)
                 ensure_upload_dir(UPLOAD_DIR)
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
-                filepath = os.path.join(UPLOAD_DIR, f"captura_{timestamp}.png")
+                filename = f"captura_{timestamp}.png"
+                filepath = os.path.join(UPLOAD_DIR, filename)
                 image.save(filepath)
                 print(f"[GUI] captura guardada en {filepath}")
+                # Convertir imagen a bytes para guardar en BD
+                buffer = io.BytesIO()
+                image.save(buffer, format="PNG")
+                image_bytes = buffer.getvalue()
+                
+                # Guardar metadata en BD
+                self._save_capture_to_db(filename, image, image_bytes=image_bytes)
+                
                 if self._gallery_active:
                     self._refresh_gallery_images()
                 return
@@ -1627,7 +2196,20 @@ class SegmentacionApp:
                 print(f"[GUI] no se pudo guardar captura desde frame: {exc}")
 
         # Fallback: widget screenshot if no frame is available.
-        capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
+        result = capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
+        if result:
+            # Guardar screenshot en BD
+            try:
+                filename = os.path.basename(result.get("filepath", ""))
+                image = result.get("image")
+                image_bytes = None
+                if image is not None:
+                    buffer = io.BytesIO()
+                    image.save(buffer, format="PNG")
+                    image_bytes = buffer.getvalue()
+                self._save_capture_to_db(filename, image, image_bytes=image_bytes)
+            except Exception as exc:
+                print(f"[GUI] no se pudo guardar metadata de captura: {exc}")
 
     def _worker_loop(self) -> None:
         r"""
@@ -1769,3 +2351,233 @@ if __name__ == "__main__":
     # Allow launching directly on any platform; default to dataset mode to avoid
     # camera/GPU dependencies when they are not available.
     run_app(mode="prueba")
+
+
+class LoginDialog:
+    """
+    Ventana de diálogo para inicio de sesión.
+    """
+    
+    def __init__(self, parent: tk.Tk):
+        self.parent = parent
+        self.result: Optional[Dict[str, Any]] = None
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Inicio de Sesión")
+        self.dialog.geometry("500x450")
+        self.dialog.resizable(False, False)
+        self.dialog.configure(bg="#2f2f2f")
+        
+        # Centrar ventana
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        self._build_ui()
+        
+        # Forzar foco
+        self.dialog.focus_force()
+        if hasattr(self, 'username_entry'):
+            self.username_entry.focus()
+        
+        # Esperar cierre
+        self.dialog.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.dialog.wait_window()
+    
+    def _build_ui(self) -> None:
+        """Construir interfaz de login."""
+        # Frame principal
+        main_frame = tk.Frame(self.dialog, bg="#2f2f2f")
+        main_frame.pack(expand=True, fill="both", padx=40, pady=30)
+        
+        # Frame de logos
+        logo_frame = tk.Frame(main_frame, bg="#2f2f2f")
+        logo_frame.pack(pady=(0, 15))
+        
+        # Cargar y mostrar logos
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Logo PSI
+            psi_path = os.path.join(script_dir, "images", "PSI_LOGO.png")
+            if os.path.exists(psi_path):
+                psi_img = Image.open(psi_path)
+                psi_img = psi_img.resize((150, 60), Image.LANCZOS)
+                psi_photo = ImageTk.PhotoImage(psi_img)
+                psi_label = tk.Label(logo_frame, image=psi_photo, bg="#2f2f2f")
+                psi_label.image = psi_photo  # Mantener referencia
+                psi_label.pack(side="left", padx=10)
+            
+            # Logo Univalle
+            univalle_path = os.path.join(script_dir, "images", "univalle.png")
+            if os.path.exists(univalle_path):
+                univalle_img = Image.open(univalle_path)
+                univalle_img = univalle_img.resize((60, 60), Image.LANCZOS)
+                univalle_photo = ImageTk.PhotoImage(univalle_img)
+                univalle_label = tk.Label(logo_frame, image=univalle_photo, bg="#2f2f2f")
+                univalle_label.image = univalle_photo  # Mantener referencia
+                univalle_label.pack(side="left", padx=10)
+        except Exception as e:
+            print(f"[Login] Error cargando logos: {e}")
+        
+        # Título
+        title = tk.Label(
+            main_frame,
+            text="Sistema de Segmentación",
+            bg="#2f2f2f",
+            fg="white",
+            font=("Segoe UI", 16, "bold")
+        )
+        title.pack(pady=(10, 10))
+        
+        subtitle = tk.Label(
+            main_frame,
+            text="Inicie sesión para continuar",
+            bg="#2f2f2f",
+            fg="#cccccc",
+            font=("Segoe UI", 10)
+        )
+        subtitle.pack(pady=(0, 25))
+        
+        # Campo de usuario
+        user_label = tk.Label(
+            main_frame,
+            text="Usuario:",
+            bg="#2f2f2f",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            anchor="w"
+        )
+        user_label.pack(fill="x", pady=(0, 5))
+        
+        self.username_entry = tk.Entry(
+            main_frame,
+            font=("Segoe UI", 11),
+            bg="#4a4a4a",
+            fg="white",
+            insertbackground="white",
+            relief=tk.FLAT,
+            bd=5
+        )
+        self.username_entry.pack(fill="x", pady=(0, 15))
+        self.username_entry.bind("<Return>", lambda e: self.password_entry.focus())
+        
+        # Campo de contraseña
+        pass_label = tk.Label(
+            main_frame,
+            text="Contraseña:",
+            bg="#2f2f2f",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            anchor="w"
+        )
+        pass_label.pack(fill="x", pady=(0, 5))
+        
+        self.password_entry = tk.Entry(
+            main_frame,
+            font=("Segoe UI", 11),
+            bg="#4a4a4a",
+            fg="white",
+            insertbackground="white",
+            relief=tk.FLAT,
+            bd=5,
+            show="●"
+        )
+        self.password_entry.pack(fill="x", pady=(0, 10))
+        self.password_entry.bind("<Return>", lambda e: self._on_login())
+        
+        # Mensaje de error
+        self.error_label = tk.Label(
+            main_frame,
+            text="",
+            bg="#2f2f2f",
+            fg="#ff5252",
+            font=("Segoe UI", 9),
+            wraplength=400,
+            justify="center",
+            height=3
+        )
+        self.error_label.pack(pady=(5, 10))
+        
+        # Botones
+        button_frame = tk.Frame(main_frame, bg="#2f2f2f")
+        button_frame.pack(fill="x", pady=(10, 0))
+        
+        cancel_btn = tk.Button(
+            button_frame,
+            text="Cancelar",
+            bg="#e53935",
+            fg="white",
+            activebackground="#f1625f",
+            activeforeground="white",
+            bd=0,
+            padx=20,
+            pady=10,
+            font=("Segoe UI", 10, "bold"),
+            command=self._on_cancel
+        )
+        cancel_btn.pack(side="left", expand=True, fill="x", padx=(0, 5))
+        
+        login_btn = tk.Button(
+            button_frame,
+            text="Iniciar Sesión",
+            bg="#00b86b",
+            fg="white",
+            activebackground="#21d087",
+            activeforeground="white",
+            bd=0,
+            padx=20,
+            pady=10,
+            font=("Segoe UI", 10, "bold"),
+            command=self._on_login
+        )
+        login_btn.pack(side="right", expand=True, fill="x", padx=(5, 0))
+    
+    def _on_login(self) -> None:
+        """Manejar intento de login."""
+        username = self.username_entry.get().strip()
+        password = self.password_entry.get()
+        
+        if not username or not password:
+            self.error_label.configure(
+                text="Por favor ingrese usuario y contraseña"
+            )
+            self.error_label.update()
+            return
+        
+        try:
+            # Importar función de autenticación
+            try:
+                from src.api.dbConection import authenticate_user
+            except ModuleNotFoundError:
+                from api.dbConection import authenticate_user
+            
+            user = authenticate_user(username, password)
+            
+            if user is not None:
+                self.result = user
+                self.dialog.destroy()
+            else:
+                # Mostrar mensaje de error detallado
+                error_msg = "⚠ Usuario o contraseña incorrectos.\nVerifique sus credenciales."
+                self.error_label.configure(text=error_msg)
+                self.error_label.update()
+                self.dialog.update()
+                self.password_entry.delete(0, tk.END)
+                self.password_entry.focus()
+                # Efecto visual: hacer parpadear el campo de contraseña
+                self.password_entry.configure(bg="#5a3a3a")
+                self.dialog.after(200, lambda: self.password_entry.configure(bg="#4a4a4a"))
+        
+        except Exception as exc:
+            error_msg = f"Error de conexión:\n{str(exc)[:60]}"
+            self.error_label.configure(text=error_msg)
+            self.error_label.update()
+            self.dialog.update()
+    
+    def _on_cancel(self) -> None:
+        """Cancelar login."""
+        self.result = None
+        self.dialog.destroy()
+    
+    def get_user(self) -> Optional[Dict[str, Any]]:
+        """Obtener usuario autenticado."""
+        return self.result
