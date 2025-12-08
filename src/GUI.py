@@ -9,10 +9,12 @@ import os
 import sys
 import time
 import threading
+import io
 from typing import Optional, Dict, Any, Callable, List
 
 import cv2
 import tkinter as tk
+from tkinter import ttk, simpledialog, messagebox
 from PIL import Image, ImageTk
 
 try:
@@ -103,6 +105,9 @@ class SegmentacionApp:
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
         self._config_apply_btn: Optional[tk.Button] = None
+        self.config_combo: Optional[ttk.Combobox] = None
+        self.saved_configs: List[Dict[str, Any]] = []
+        self.active_configuration_id: Optional[int] = None  # ID de config aplicada/seleccionada
         self._apply_btn_default_text: str = "Aplicar"
         self._apply_btn_default_bg: str = "#00b86b"
         self._apply_btn_default_activebg: str = "#21d087"
@@ -142,6 +147,10 @@ class SegmentacionApp:
         self._show_mode("config")
         # Do not auto-iniciar transmisión; arranca solo al presionar el botón.
         self._set_mode(self.mode, update_header=False)
+        
+        # Cargar configuración guardada del usuario (si existe)
+        self._load_config_from_db()
+        
         self._heartbeat()
 
     def _show_login(self) -> bool:
@@ -1117,6 +1126,56 @@ class SegmentacionApp:
         )
         subtitle.pack(fill="x", pady=(0, 10))
 
+        # Selector de configuraciones guardadas
+        config_selector_frame = tk.Frame(wrapper, bg="#d9d9d9")
+        config_selector_frame.pack(fill="x", pady=(0, 12))
+        
+        config_selector_label = tk.Label(
+            config_selector_frame,
+            text="Configuraciones Guardadas:",
+            bg="#d9d9d9",
+            fg="#1f1f1f",
+            font=("Segoe UI", 10, "bold"),
+        )
+        config_selector_label.pack(side="left", padx=(0, 10))
+        
+        self.config_combo = ttk.Combobox(
+            config_selector_frame,
+            state="readonly",
+            width=25,
+            font=("Segoe UI", 9)
+        )
+        self.config_combo.pack(side="left", padx=(0, 8))
+        self.config_combo.bind("<<ComboboxSelected>>", self._on_config_selected)
+        
+        btn_guardar_config = tk.Button(
+            config_selector_frame,
+            text="Guardar Como...",
+            bg="#00b86b",
+            activebackground="#21d087",
+            fg="white",
+            bd=0,
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
+            command=self._on_save_config_as
+        )
+        btn_guardar_config.pack(side="left", padx=(0, 4))
+        
+        btn_eliminar_config = tk.Button(
+            config_selector_frame,
+            text="Eliminar",
+            bg="#e53935",
+            activebackground="#f1625f",
+            fg="white",
+            bd=0,
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
+            command=self._on_delete_config
+        )
+        btn_eliminar_config.pack(side="left")
+
         body = tk.Frame(wrapper, bg="#d9d9d9")
         body.pack(fill="both", expand=True)
         body.grid_columnconfigure(0, weight=3, uniform="cfg_cols")
@@ -1322,6 +1381,380 @@ class SegmentacionApp:
 
         self._apply_status_after_id = self.root.after(duration_ms, _reset)
 
+    def _save_capture_to_db(self, filename: str, image: Any, image_bytes: Optional[bytes] = None) -> None:
+        """
+        Guardar metadata de captura en la base de datos (incluyendo binario de imagen).
+        """
+        if not self.current_user:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import create_capture, get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import create_capture, get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            
+            # Usar configuración seleccionada/aplicada si existe; si no, fallback al autosave
+            config_id = self.active_configuration_id
+            if config_id is None:
+                configs = get_user_configurations(user_id)
+                autosave_config = next((c for c in configs if c.get("config_name") == "_autosave_"), None)
+                config_id = autosave_config.get("id") if autosave_config else None
+            
+            # Obtener métricas actuales
+            try:
+                metricas = obtener_metricas()
+            except Exception:
+                metricas = {}
+            
+            # Obtener dimensiones de la imagen
+            file_size = len(image_bytes) if image_bytes else None
+            img_width = image.width if hasattr(image, "width") else None
+            img_height = image.height if hasattr(image, "height") else None
+            
+            # Metadata de la captura
+            metadata = {
+                "file_size_bytes": file_size,
+                "image_width": img_width,
+                "image_height": img_height,
+                "ransac_time_ms": metricas.get("ransac_ms"),
+                "fps": self.fps,
+                "dataset_index": self.dataset_index if self.mode == "prueba" else None,
+            }
+            
+            # Guardar en BD
+            capture_id = create_capture(
+                user_id=user_id,
+                filename=filename,
+                mode=self.mode,
+                configuration_id=config_id,
+                metadata=metadata,
+                image_bytes=image_bytes,
+            )
+            print(f"[GUI] Captura guardada en BD con ID: {capture_id}")
+        except Exception as exc:
+            print(f"[GUI] Error guardando captura en BD: {exc}")
+    
+    def _load_config_from_db(self) -> None:
+        """
+        Cargar configuración auto-guardada del usuario desde la BD al iniciar.
+        """
+        if not self.current_user:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            
+            # Buscar configuración auto-guardada
+            configs = get_user_configurations(user_id)
+            autosave_config = next((c for c in configs if c.get("config_name") == "_autosave_"), None)
+            
+            if autosave_config:
+                print(f"[GUI] Cargando configuración auto-guardada (ID: {autosave_config['id']})")
+                
+                # Mapear campos de BD a variables de GUI
+                param_mapping = {
+                    "subsample_stride": "subsample_stride",
+                    "dist_thresh": "dist_thresh",
+                    "max_iters": "max_iters",
+                    "min_inliers": "min_inliers",
+                    "max_angle_deg": "max_angle_deg",
+                    "score_subset": "score_subset",
+                    "time_budget_ms": "time_budget_ms",
+                    "early_stop_ratio": "early_stop_ratio",
+                    "batch_size": "batch_size",
+                    "low_height_pct": "low_height_pct",
+                    "roi_bottom_fraction": "roi_bottom_fraction",
+                    "roi_expand_step": "roi_expand_step",
+                    "max_agg_points": "max_agg_points",
+                    "refine_full_res": "refine_full_res",
+                    "refine_max_points": "refine_max_points",
+                    "refine_dist_mult": "refine_dist_mult",
+                    "second_pass_mask": "second_pass_mask",
+                }
+                
+                # Actualizar variables de GUI
+                for db_key, gui_key in param_mapping.items():
+                    if db_key in autosave_config and gui_key in self.config_vars:
+                        value = autosave_config[db_key]
+                        # Convertir booleanos a int para la GUI
+                        if isinstance(value, bool):
+                            value = int(value)
+                        self.config_vars[gui_key].set(str(value))
+                        self.config_defaults[gui_key] = str(value)
+                
+                # Aplicar parámetros al motor de segmentación
+                raw_values = {key: var.get() for key, var in self.config_vars.items()}
+                parsed = parse_config_params(raw_values)
+                if parsed:
+                    actualizar_parametros_ground(parsed)
+                    self._refresh_params_summary()
+                    print("[GUI] Configuración cargada y aplicada exitosamente")
+            else:
+                print("[GUI] No hay configuración auto-guardada, usando valores por defecto")
+            
+            # Cargar lista de configuraciones guardadas en el ComboBox
+            self._refresh_config_list()
+            
+        except Exception as exc:
+            print(f"[GUI] Error cargando configuración desde BD: {exc}")
+    
+    def _save_config_to_db(self, params: Dict[str, Any]) -> None:
+        """
+        Guardar configuración actual en la base de datos.
+        Usa una configuración especial llamada '_autosave_' que siempre se actualiza.
+        """
+        if not self.current_user:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import create_configuration, update_configuration, get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import create_configuration, update_configuration, get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            config_name = "_autosave_"  # Nombre especial para auto-guardado
+            
+            # Buscar si ya existe la configuración de auto-guardado
+            existing_configs = get_user_configurations(user_id)
+            autosave_config = next((c for c in existing_configs if c.get("config_name") == config_name), None)
+            
+            if autosave_config:
+                # ACTUALIZAR configuración existente (no crear nueva)
+                update_configuration(autosave_config["id"], params)
+                print(f"[GUI] Configuración auto-guardada actualizada en BD (ID: {autosave_config['id']})")
+            else:
+                # Crear configuración de auto-guardado por primera vez
+                config_id = create_configuration(
+                    user_id=user_id,
+                    config_name=config_name,
+                    params=params,
+                    description="Configuración guardada automáticamente al aplicar cambios",
+                    is_default=True
+                )
+                print(f"[GUI] Configuración auto-guardada creada en BD (ID: {config_id})")
+        except Exception as exc:
+            print(f"[GUI] Error guardando configuración en BD: {exc}")
+    
+    def _refresh_config_list(self) -> None:
+        """
+        Actualizar lista de configuraciones guardadas en el ComboBox.
+        """
+        if not self.current_user or not self.config_combo:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            self.saved_configs = get_user_configurations(user_id)
+            
+            # Filtrar configuración de auto-guardado
+            visible_configs = [c for c in self.saved_configs if c.get("config_name") != "_autosave_"]
+            
+            config_names = [c.get("config_name", f"Config {c.get('id')}") for c in visible_configs]
+            
+            self.config_combo['values'] = config_names
+            
+            if config_names:
+                self.config_combo.current(0)
+                # Sincronizar el ID activo con la primera opción visible
+                self._on_config_selected()
+            else:
+                self.active_configuration_id = None
+            
+            print(f"[GUI] {len(visible_configs)} configuraciones disponibles")
+        except Exception as exc:
+            print(f"[GUI] Error cargando lista de configuraciones: {exc}")
+    
+    def _on_config_selected(self, event=None) -> None:
+        """
+        Cargar configuración seleccionada del ComboBox.
+        """
+        if not self.config_combo:
+            return
+        
+        selected_name = self.config_combo.get()
+        if not selected_name:
+            return
+        
+        # Buscar configuración por nombre
+        config = next((c for c in self.saved_configs 
+                      if c.get("config_name") == selected_name), None)
+        
+        if not config:
+            print(f"[GUI] Configuración '{selected_name}' no encontrada")
+            return
+        
+        print(f"[GUI] Cargando configuración: {selected_name}")
+        
+        # Mapear campos de BD a GUI
+        param_mapping = {
+            "subsample_stride": "subsample_stride",
+            "dist_thresh": "dist_thresh",
+            "max_iters": "max_iters",
+            "min_inliers": "min_inliers",
+            "max_angle_deg": "max_angle_deg",
+            "score_subset": "score_subset",
+            "time_budget_ms": "time_budget_ms",
+            "early_stop_ratio": "early_stop_ratio",
+            "batch_size": "batch_size",
+            "low_height_pct": "low_height_pct",
+            "roi_bottom_fraction": "roi_bottom_fraction",
+            "roi_expand_step": "roi_expand_step",
+            "max_agg_points": "max_agg_points",
+            "refine_full_res": "refine_full_res",
+            "refine_max_points": "refine_max_points",
+            "refine_dist_mult": "refine_dist_mult",
+            "second_pass_mask": "second_pass_mask",
+        }
+        
+        # Actualizar GUI
+        for db_key, gui_key in param_mapping.items():
+            if db_key in config and gui_key in self.config_vars:
+                value = config[db_key]
+                if isinstance(value, bool):
+                    value = int(value)
+                self.config_vars[gui_key].set(str(value))
+        
+        print(f"[GUI] Configuración '{selected_name}' cargada. Presiona 'Aplicar' para usarla.")
+        self.active_configuration_id = config.get("id")
+    
+    def _on_save_config_as(self) -> None:
+        """
+        Guardar configuración actual con un nombre personalizado.
+        """
+        if not self.current_user:
+            messagebox.showwarning("Advertencia", "No hay usuario autenticado")
+            return
+        
+        # Pedir nombre de configuración
+        config_name = simpledialog.askstring(
+            "Guardar Configuración",
+            "Ingrese un nombre para esta configuración:",
+            parent=self.root
+        )
+        
+        if not config_name or config_name.strip() == "":
+            return
+        
+        config_name = config_name.strip()
+        
+        # Verificar que no sea nombre reservado
+        if config_name == "_autosave_":
+            messagebox.showerror("Error", "Nombre reservado. Use otro nombre.")
+            return
+        
+        # Pedir descripción (opcional)
+        description = simpledialog.askstring(
+            "Descripción",
+            "Descripción (opcional):",
+            parent=self.root
+        )
+        
+        try:
+            try:
+                from src.api.dbConection import create_configuration, get_user_configurations
+            except ModuleNotFoundError:
+                from api.dbConection import create_configuration, get_user_configurations
+            
+            user_id = self.current_user.get("id")
+            
+            # Verificar si ya existe
+            existing = get_user_configurations(user_id)
+            if any(c.get("config_name") == config_name for c in existing):
+                overwrite = messagebox.askyesno(
+                    "Configuración Existente",
+                    f"Ya existe una configuración llamada '{config_name}'.\\n¿Desea sobrescribirla?"
+                )
+                if not overwrite:
+                    return
+            
+            # Obtener parámetros actuales
+            raw_values = {key: var.get() for key, var in self.config_vars.items()}
+            parsed = parse_config_params(raw_values)
+            
+            if not parsed:
+                messagebox.showerror("Error", "Parámetros inválidos. Verifique los valores.")
+                return
+            
+            # Guardar
+            config_id = create_configuration(
+                user_id=user_id,
+                config_name=config_name,
+                params=parsed,
+                description=description or f"Configuración guardada el {time.strftime('%Y-%m-%d %H:%M')}",
+                is_default=False
+            )
+            
+            print(f"[GUI] Configuración '{config_name}' guardada con ID: {config_id}")
+            messagebox.showinfo("Éxito", f"Configuración '{config_name}' guardada correctamente")
+            
+            # Actualizar lista
+            self._refresh_config_list()
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo guardar:\\n{exc}")
+            print(f"[GUI] Error guardando configuración: {exc}")
+    
+    def _on_delete_config(self) -> None:
+        """
+        Eliminar configuración seleccionada.
+        """
+        if not self.config_combo:
+            return
+        
+        selected_name = self.config_combo.get()
+        if not selected_name:
+            messagebox.showwarning("Advertencia", "Seleccione una configuración para eliminar")
+            return
+        
+        # Confirmar eliminación
+        confirm = messagebox.askyesno(
+            "Confirmar Eliminación",
+            f"¿Está seguro de eliminar la configuración '{selected_name}'?"
+        )
+        
+        if not confirm:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import delete_configuration
+            except ModuleNotFoundError:
+                from api.dbConection import delete_configuration
+            
+            # Buscar configuración
+            config = next((c for c in self.saved_configs 
+                          if c.get("config_name") == selected_name), None)
+            
+            if not config:
+                messagebox.showerror("Error", "Configuración no encontrada")
+                return
+            
+            # Eliminar
+            delete_configuration(config.get("id"))
+            print(f"[GUI] Configuración '{selected_name}' eliminada")
+            messagebox.showinfo("Éxito", f"Configuración '{selected_name}' eliminada")
+            
+            # Actualizar lista
+            self._refresh_config_list()
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo eliminar:\\n{exc}")
+            print(f"[GUI] Error eliminando configuración: {exc}")
+    
     def _on_config_apply(self) -> None:
         """
         \brief Apply configuration values to the segmentation thread.
@@ -1342,6 +1775,17 @@ class SegmentacionApp:
         if self._worker and self._worker.is_alive():
             self._restart_worker()
         print("[GUI] Parametros de segmentacion actualizados.")
+        # Registrar configuración aplicada (preferir la seleccionada en el combo)
+        if self.config_combo:
+            selected_name = self.config_combo.get()
+            config = next((c for c in self.saved_configs if c.get("config_name") == selected_name), None)
+            self.active_configuration_id = config.get("id") if config else None
+        else:
+            self.active_configuration_id = None
+        
+        # Guardar configuración en BD
+        self._save_config_to_db(updated)
+        
         self._set_apply_status(
             "Aplicado",
             bg="#5ee68a",
@@ -1642,9 +2086,18 @@ class SegmentacionApp:
                 image = Image.fromarray(frame_rgb)
                 ensure_upload_dir(UPLOAD_DIR)
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
-                filepath = os.path.join(UPLOAD_DIR, f"captura_{timestamp}.png")
+                filename = f"captura_{timestamp}.png"
+                filepath = os.path.join(UPLOAD_DIR, filename)
                 image.save(filepath)
                 print(f"[GUI] captura guardada en {filepath}")
+                # Convertir imagen a bytes para guardar en BD
+                buffer = io.BytesIO()
+                image.save(buffer, format="PNG")
+                image_bytes = buffer.getvalue()
+                
+                # Guardar metadata en BD
+                self._save_capture_to_db(filename, image, image_bytes=image_bytes)
+                
                 if self._gallery_active:
                     self._refresh_gallery_images()
                 return
@@ -1652,7 +2105,20 @@ class SegmentacionApp:
                 print(f"[GUI] no se pudo guardar captura desde frame: {exc}")
 
         # Fallback: widget screenshot if no frame is available.
-        capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
+        result = capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
+        if result:
+            # Guardar screenshot en BD
+            try:
+                filename = os.path.basename(result.get("filepath", ""))
+                image = result.get("image")
+                image_bytes = None
+                if image is not None:
+                    buffer = io.BytesIO()
+                    image.save(buffer, format="PNG")
+                    image_bytes = buffer.getvalue()
+                self._save_capture_to_db(filename, image, image_bytes=image_bytes)
+            except Exception as exc:
+                print(f"[GUI] no se pudo guardar metadata de captura: {exc}")
 
     def _worker_loop(self) -> None:
         r"""

@@ -294,6 +294,7 @@ def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Opt
 
         return {
             "image": image,
+            "filepath": filepath,
             "config_params": config_params,
         }
     except Exception as exc:

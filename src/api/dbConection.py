@@ -344,17 +344,17 @@ def set_default_configuration(config_id: int, user_id: int) -> None:
 # CAPTURE OPERATIONS
 # ============================================================
 
-def create_capture(user_id: int, filename: str, filepath: str,
+def create_capture(user_id: int, filename: str,
                   mode: str = "camera",
                   configuration_id: Optional[int] = None,
-                  metadata: Optional[Dict[str, Any]] = None) -> int:
+                  metadata: Optional[Dict[str, Any]] = None,
+                  image_bytes: Optional[bytes] = None) -> int:
     """
     Save a capture to the database.
     
     Args:
         user_id: User ID
         filename: Filename (e.g., "captura_20251208_120000.png")
-        filepath: Full or relative path to file
         mode: "camera" or "dataset"
         configuration_id: Optional config ID used for this capture
         metadata: Optional dict with:
@@ -364,6 +364,7 @@ def create_capture(user_id: int, filename: str, filepath: str,
             - ransac_time_ms, fps
             - num_ground_pixels, num_wall_pixels, num_door_pixels
             - tags, notes
+        image_bytes: Optional binary contents of the image (stored as LONGBLOB)
     
     Returns the new capture's ID.
     """
@@ -373,17 +374,18 @@ def create_capture(user_id: int, filename: str, filepath: str,
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO `captures` (
-                    `user_id`, `configuration_id`, `filename`, `filepath`,
+                    `user_id`, `configuration_id`, `filename`,
                     `file_size_bytes`, `image_width`, `image_height`,
                     `mode`, `dataset_index`,
                     `ransac_time_ms`, `fps`,
                     `num_ground_pixels`, `num_wall_pixels`, `num_door_pixels`,
-                    `tags`, `notes`
+                    `tags`, `notes`,
+                    `image_data`
                    ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                    )""",
                 (
-                    user_id, configuration_id, filename, filepath,
+                    user_id, configuration_id, filename,
                     metadata.get("file_size_bytes"),
                     metadata.get("image_width"),
                     metadata.get("image_height"),
@@ -396,6 +398,7 @@ def create_capture(user_id: int, filename: str, filepath: str,
                     metadata.get("num_door_pixels"),
                     metadata.get("tags"),
                     metadata.get("notes"),
+                    image_bytes,
                 )
             )
         conn.commit()

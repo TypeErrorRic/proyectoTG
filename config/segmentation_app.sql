@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 08-12-2025 a las 07:01:17
+-- Tiempo de generación: 08-12-2025 a las 20:20:41
 -- Versión del servidor: 10.4.32-MariaDB
 -- Versión de PHP: 8.2.12
 
@@ -32,7 +32,7 @@ CREATE TABLE `captures` (
   `user_id` int(10) UNSIGNED NOT NULL,
   `configuration_id` int(10) UNSIGNED DEFAULT NULL,
   `filename` varchar(255) NOT NULL,
-  `filepath` varchar(512) NOT NULL,
+  `image_data` longblob DEFAULT NULL,
   `file_size_bytes` int(11) DEFAULT NULL,
   `image_width` int(11) DEFAULT NULL,
   `image_height` int(11) DEFAULT NULL,
@@ -87,7 +87,7 @@ CREATE TABLE `configurations` (
 --
 
 INSERT INTO `configurations` (`id`, `user_id`, `config_name`, `description`, `subsample_stride`, `dist_thresh`, `max_iters`, `min_inliers`, `max_angle_deg`, `score_subset`, `time_budget_ms`, `early_stop_ratio`, `batch_size`, `low_height_pct`, `roi_bottom_fraction`, `roi_expand_step`, `max_agg_points`, `refine_full_res`, `refine_max_points`, `refine_dist_mult`, `second_pass_mask`, `is_default`, `created_at`, `updated_at`) VALUES
-(1, 1, 'Default Configuration', 'Factory default parameters', 1, 0.0300, 400, 400, 60.00, 4096, 120.00, 0.920, 128, 25.00, 0.340, 0.200, 150000, 1, 200000, 1.60, 1, 1, '2025-12-08 05:56:58', '2025-12-08 05:56:58');
+(1, 1, 'Default Configuration', 'Factory default parameters', 1, 0.0300, 400, 400, 60.00, 4096, 120.00, 0.920, 128, 25.00, 0.340, 0.200, 150000, 1, 200000, 1.60, 1, 1, '2025-12-08 19:19:23', '2025-12-08 19:19:23');
 
 -- --------------------------------------------------------
 
@@ -111,7 +111,7 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `full_name`, `role`, `created_at`, `last_login`) VALUES
-(1, 'admin', 'admin@segmentation.local', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYvXq1v/K5W', 'Administrator', 'admin', '2025-12-08 05:56:58', NULL);
+(1, 'admin', 'admin@segmentation.local', '0192023a7bbd73250516f069df18b500', 'Administrator', 'admin', '2025-12-08 19:19:23', NULL);
 
 --
 -- Índices para tablas volcadas
