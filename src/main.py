@@ -8,9 +8,15 @@ if __package__ is None or __package__ == "":
     )
 
 from src.GUI import run_app
+from src.api.dbConection import test_query
 
 
 def main() -> None:
+    try:
+        result = test_query()
+        print(f"[DB] Conexion exitosa: {result}")
+    except Exception as exc:
+        print(f"[DB] No se pudo conectar/consultar: {exc}")
     run_app(mode="camera")
 
 
