@@ -1990,7 +1990,7 @@ class SegmentacionApp:
 
     def _on_delete_capture(self) -> None:
         """
-        Delete the currently displayed capture from the database.
+        Delete the currently displayed capture from the database and show next image.
         """
         if not self.gallery_captures or self.gallery_index >= len(self.gallery_captures):
             messagebox.showwarning("Advertencia", "No hay captura seleccionada para eliminar")
@@ -1999,6 +1999,7 @@ class SegmentacionApp:
         capture = self.gallery_captures[self.gallery_index]
         capture_id = capture.get("id")
         filename = capture.get("filename", "captura")
+        current_index = self.gallery_index
         
         # Confirmar eliminación
         confirm = messagebox.askyesno(
@@ -2017,10 +2018,31 @@ class SegmentacionApp:
             
             delete_capture(capture_id)
             print(f"[GUI] Captura ID {capture_id} eliminada de BD")
-            messagebox.showinfo("Éxito", f"Captura '{filename}' eliminada correctamente")
             
-            # Recargar galería y ajustar índice
-            self._refresh_gallery_images()
+            # Recargar galería
+            if not self.current_user:
+                self.gallery_captures = []
+            else:
+                try:
+                    from src.api.dbConection import get_user_captures
+                except ModuleNotFoundError:
+                    from api.dbConection import get_user_captures
+                
+                user_id = self.current_user.get("id")
+                self.gallery_captures = get_user_captures(user_id, limit=100)
+            
+            # Ajustar índice: mostrar la siguiente imagen o la anterior si era la última
+            if not self.gallery_captures:
+                # No hay más imágenes
+                self.gallery_index = 0
+                messagebox.showinfo("Información", "No hay más imágenes en la galería")
+            else:
+                # Mantener el mismo índice si hay imágenes disponibles (muestra la siguiente)
+                # o ajustar al final si eliminamos la última
+                self.gallery_index = min(current_index, len(self.gallery_captures) - 1)
+            
+            self._sync_capture_slider_limits()
+            self._show_gallery_image(self.gallery_index)
             
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo eliminar la captura:\n{exc}")
