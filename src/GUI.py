@@ -20,6 +20,7 @@ from PIL import Image, ImageTk
 try:
     # Preferred import when running as a package/module.
     from src.GUIFunctions import (
+        blob_to_image,
         capture_panel_screenshot,
         ensure_upload_dir,
         init_config_defaults,
@@ -33,6 +34,7 @@ try:
 except ModuleNotFoundError:
     # Fallback for direct script execution from the src directory.
     from GUIFunctions import (
+        blob_to_image,
         capture_panel_screenshot,
         ensure_upload_dir,
         init_config_defaults,
@@ -122,7 +124,7 @@ class SegmentacionApp:
         self._capturas_default_bg: Optional[str] = None
         self._capturas_default_activebg: Optional[str] = None
         self.btn_capturar: Optional[tk.Button] = None
-        self.gallery_paths: List[str] = []
+        self.gallery_captures: List[Dict[str, Any]] = []  # Lista de capturas desde BD
         self.gallery_index: int = 0
         self.gallery_photo_ref: Optional[ImageTk.PhotoImage] = None
         self.gallery_frame: Optional[tk.Frame] = None
@@ -562,7 +564,7 @@ class SegmentacionApp:
         """
         Keep navigation buttons in sync with gallery bounds.
         """
-        total = len(self.gallery_paths)
+        total = len(self.gallery_captures)
         at_start = self.gallery_index <= 0
         at_end = self.gallery_index >= max(total - 1, 0)
         prev_state = tk.NORMAL if total > 1 and not at_start else tk.DISABLED
@@ -577,55 +579,83 @@ class SegmentacionApp:
 
     def _refresh_gallery_images(self) -> None:
         """
-        Load the list of captures from the uploads folder.
+        Load the list of captures from the database.
         """
+        if not self.current_user:
+            self.gallery_captures = []
+            self.gallery_index = 0
+            self._sync_capture_slider_limits()
+            self._show_gallery_image(self.gallery_index)
+            return
+        
         try:
-            self.gallery_paths = load_upload_images(UPLOAD_DIR)
+            try:
+                from src.api.dbConection import get_user_captures
+            except ModuleNotFoundError:
+                from api.dbConection import get_user_captures
+            
+            user_id = self.current_user.get("id")
+            self.gallery_captures = get_user_captures(user_id, limit=100)
+            print(f"[GUI] {len(self.gallery_captures)} capturas cargadas desde BD")
         except Exception as exc:
-            print(f"[GUI] no se pudieron listar capturas: {exc}")
-            self.gallery_paths = []
+            print(f"[GUI] Error cargando capturas desde BD: {exc}")
+            self.gallery_captures = []
+        
         self.gallery_index = 0
         self._sync_capture_slider_limits()
         self._show_gallery_image(self.gallery_index)
 
     def _show_gallery_image(self, index: int) -> None:
         """
-        Display the requested capture image in the gallery frame.
+        Display the requested capture image from database in the gallery frame.
         """
         if not self.gallery_display:
             return
-        if not self.gallery_paths:
+        if not self.gallery_captures:
             self.gallery_photo_ref = None
             self.gallery_display.configure(
-                text="No hay capturas en uploads.",
+                text="No hay capturas guardadas.",
                 image="",
                 bg="#7f7f7f",
             )
             self._update_gallery_nav_state()
             return
 
-        clamped = max(0, min(index, len(self.gallery_paths) - 1))
+        clamped = max(0, min(index, len(self.gallery_captures) - 1))
         self.gallery_index = clamped
-        path = self.gallery_paths[clamped]
+        capture = self.gallery_captures[clamped]
+        
         try:
-            img = Image.open(path)
+            # Convertir BLOB a imagen PIL
+            img = blob_to_image(capture.get("image_data"))
+            if img is None:
+                raise ValueError("No se pudo convertir image_data a imagen")
+            
             w, h = img.size
             scale = min(DISPLAY_MAX_W / max(w, 1), DISPLAY_MAX_H / max(h, 1), 1.0)
             if scale < 1.0:
                 img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            
             self.gallery_photo_ref = ImageTk.PhotoImage(img)
+            
+            # Mostrar nombre y fecha de captura
+            filename = capture.get("filename", "captura")
+            captured_at = capture.get("captured_at", "")
+            label_text = f"{filename}\n{captured_at}"
+            
             self.gallery_display.configure(
                 image=self.gallery_photo_ref,
-                text=os.path.basename(path),
+                text=label_text,
                 bg="#7f7f7f",
                 fg="white",
                 compound=tk.BOTTOM,
             )
         except Exception as exc:
             self.gallery_photo_ref = None
+            filename = capture.get("filename", "captura")
             self.gallery_display.configure(
                 image="",
-                text=f"No se pudo cargar:\n{os.path.basename(path)}\n{exc}",
+                text=f"No se pudo cargar:\n{filename}\n{exc}",
                 bg="#7f7f7f",
                 fg="white",
                 compound=tk.TOP,
@@ -650,7 +680,7 @@ class SegmentacionApp:
         Adjust capture slider limits according to available images.
         """
         slider = self.capture_controls.get("slider") if hasattr(self, "capture_controls") else None
-        total = max(len(self.gallery_paths), 1)
+        total = max(len(self.gallery_captures), 1)
         if not slider or not hasattr(slider, "configure"):
             return
         try:
@@ -1011,6 +1041,7 @@ class SegmentacionApp:
             padx=12,
             pady=6,
             font=("Segoe UI", 9, "bold"),
+            command=self._on_delete_capture,
         )
         btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
         btn_siguiente = tk.Button(
@@ -1956,6 +1987,44 @@ class SegmentacionApp:
         except Exception:
             return
         self._set_dataset_index(slider_val - 1, update_controls=False)
+
+    def _on_delete_capture(self) -> None:
+        """
+        Delete the currently displayed capture from the database.
+        """
+        if not self.gallery_captures or self.gallery_index >= len(self.gallery_captures):
+            messagebox.showwarning("Advertencia", "No hay captura seleccionada para eliminar")
+            return
+        
+        capture = self.gallery_captures[self.gallery_index]
+        capture_id = capture.get("id")
+        filename = capture.get("filename", "captura")
+        
+        # Confirmar eliminación
+        confirm = messagebox.askyesno(
+            "Confirmar Eliminación",
+            f"¿Está seguro de eliminar la captura '{filename}'?\nEsta acción no se puede deshacer."
+        )
+        
+        if not confirm:
+            return
+        
+        try:
+            try:
+                from src.api.dbConection import delete_capture
+            except ModuleNotFoundError:
+                from api.dbConection import delete_capture
+            
+            delete_capture(capture_id)
+            print(f"[GUI] Captura ID {capture_id} eliminada de BD")
+            messagebox.showinfo("Éxito", f"Captura '{filename}' eliminada correctamente")
+            
+            # Recargar galería y ajustar índice
+            self._refresh_gallery_images()
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo eliminar la captura:\n{exc}")
+            print(f"[GUI] Error eliminando captura: {exc}")
 
     def _on_capturas_pressed(self) -> None:
         """

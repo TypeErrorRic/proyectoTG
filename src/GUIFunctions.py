@@ -1,5 +1,6 @@
 import os
 import time
+import io
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tkinter as tk
@@ -41,6 +42,25 @@ def ensure_upload_dir(upload_dir: str) -> None:
     Create the uploads folder if it does not exist.
     """
     os.makedirs(upload_dir, exist_ok=True)
+
+
+def blob_to_image(image_bytes: Optional[bytes]) -> Optional[Image.Image]:
+    """
+    Convert binary image data (BLOB) to PIL Image.
+    
+    Args:
+        image_bytes: Binary image data from database
+    
+    Returns:
+        PIL Image object or None if conversion fails
+    """
+    if not image_bytes:
+        return None
+    try:
+        return Image.open(io.BytesIO(image_bytes))
+    except Exception as exc:
+        print(f"[GUIFunctions] Error converting BLOB to image: {exc}")
+        return None
 
 
 def load_upload_images(upload_dir: str, extensions: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp")) -> List[str]:
