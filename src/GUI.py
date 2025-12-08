@@ -53,7 +53,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar2 import (
+from src.utilities.segmentar import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
