@@ -5,6 +5,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import tkinter as tk
 from PIL import Image, ImageDraw, ImageGrab
 
+# Optional import to fetch current configuration parameters at capture time.
+try:
+    from src.utilities.segmentar import obtener_parametros_ground
+except ModuleNotFoundError:
+    try:
+        from utilities.segmentar import obtener_parametros_ground  # type: ignore
+    except ModuleNotFoundError:  # pragma: no cover - fallback when segmentar is unavailable
+        obtener_parametros_ground = None  # type: ignore
+
 # Default parameter fallback used when runtime parameters are unavailable.
 DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "subsample_stride": "1",
@@ -252,9 +261,9 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return parsed
 
 
-def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Optional[str]:
+def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Optional[Dict[str, Any]]:
     """
-    Take a screenshot of a Tk widget and store it in the uploads folder.
+    Take a screenshot of a Tk widget, store it, and return the capture plus the active config parameters.
     """
     if panel is None:
         print("[GUI] panel de video no disponible para captura.")
@@ -275,7 +284,18 @@ def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Opt
         filepath = os.path.join(upload_dir, f"captura_{timestamp}.png")
         image.save(filepath)
         print(f"[GUI] captura guardada en {filepath}")
-        return filepath
+
+        config_params: Dict[str, Any] = {}
+        if obtener_parametros_ground:
+            try:
+                config_params = obtener_parametros_ground()
+            except Exception as exc:
+                print(f"[GUI] no se pudieron leer parametros de configuracion: {exc}")
+
+        return {
+            "image": image,
+            "config_params": config_params,
+        }
     except Exception as exc:
         print(f"[GUI] no se pudo guardar captura: {exc}")
         return None

@@ -322,11 +322,14 @@ def get_ground(
         - batch_size (int): Batch size for RANSAC models (default: 256)
         - debug_ransac (bool): If True, log timing information.
         - debug_ransac_every (int): Log average timing every N runs (default: 20).
+        - debug_timing (bool): If True, imprime tiempos por etapa.
 
     Returns:
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
     global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter, _last_ransac_ms
+    t_all_start = time.perf_counter()
+    timing_ms = {"refine_ms": 0.0}
     # Guard against missing inputs (e.g., first frames or sensor not ready)
     if mapaProfundidad is None or rays_cp is None or H is None or W is None:
         _last_ransac_ms = None
@@ -358,6 +361,7 @@ def get_ground(
     debug_ransac = bool(groundParams.get("debug_ransac", False))
     dre = groundParams.get("debug_ransac_every", 20)
     debug_ransac_every = max(1, int(20 if dre is None else dre))
+    debug_timing = bool(groundParams.get("debug_timing", False))
     # Nuevos controles
     low_height_pct = float(groundParams.get("low_height_pct", 0.0) or 0.0)
     roi_bottom_fraction = float(groundParams.get("roi_bottom_fraction", 1.0) or 1.0)
@@ -369,6 +373,7 @@ def get_ground(
     second_pass_mask = bool(groundParams.get("second_pass_mask", False))
 
     # Convert depth map to CuPy array for RANSAC
+    t_stage = time.perf_counter()
     try:
         depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
     except Exception:
@@ -377,11 +382,13 @@ def get_ground(
         rays_cp = cp.asarray(rays_cp, dtype=cp.float32)
     except Exception:
         return None
+    timing_ms["to_gpu_ms"] = (time.perf_counter() - t_stage) * 1000.0
     if rays_cp is None or depth_cp is None:
         return None
     if rays_cp.shape[:2] != depth_cp.shape[:2]:
         return None
     # Subsample depth and rays for RANSAC efficiency
+    t_stage = time.perf_counter()
     try:
         Dsub = depth_cp[::subsample_stride, ::subsample_stride]
         Rsub = rays_cp[::subsample_stride, ::subsample_stride]
@@ -403,9 +410,11 @@ def get_ground(
             break
         roi_used = min(1.0, roi_used + roi_expand_step)
     Dsub, Rsub = Droi, Rroi
+    timing_ms["subsample_roi_ms"] = (time.perf_counter() - t_stage) * 1000.0
     valid = Dsub > 0
     if int(cp.sum(valid)) >= 3:
         # Prepare 3D point cloud for RANSAC
+        t_stage = time.perf_counter()
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
         Psub = Psub[valid.reshape(-1)]
 
@@ -430,6 +439,7 @@ def get_ground(
             except Exception:
                 pass
 
+        timing_ms["point_prep_ms"] = (time.perf_counter() - t_stage) * 1000.0
         if int(Psub.shape[0]) >= int(min_inliers):
             # Run RANSAC plane fitting on the subsampled points
             t0 = time.perf_counter()
@@ -449,6 +459,7 @@ def get_ground(
             )
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             _last_ransac_ms = elapsed_ms
+            timing_ms["ransac_ms"] = elapsed_ms
             if debug_ransac:
                 _debug_ransac_counter += 1
                 _debug_ransac_times.append(elapsed_ms)
@@ -463,6 +474,7 @@ def get_ground(
                 # Store last valid plane parameters
                 last_n_cp = res['n']
                 last_d_cp = res['d']
+                t_refine = time.perf_counter()
                 if refine_full_res:
                     refined = _refine_with_full_res(
                         depth_cp,
@@ -477,6 +489,7 @@ def get_ground(
                     )
                     if refined is not None:
                         last_n_cp, last_d_cp = refined
+                    timing_ms["refine_ms"] = (time.perf_counter() - t_refine) * 1000.0
             else:
                 last_n_cp = None
                 last_d_cp = None
@@ -488,6 +501,7 @@ def get_ground(
         pass
 
     # Build mask for the best current plane (if available)
+    t_stage = time.perf_counter()
     if last_n_cp is not None:
         dotnr = cp.tensordot(rays_cp, last_n_cp, axes=([2], [0]))
         dists = cp.abs(depth_cp * dotnr + last_d_cp)
@@ -496,9 +510,11 @@ def get_ground(
     else:
         mask_cp = cp.zeros((H, W), dtype=cp.bool_)
 
+    timing_ms["mask_ms"] = (time.perf_counter() - t_stage) * 1000.0
     # Solidify the mask fully on GPU (close + fill holes) to avoid CPU hops
     mask_cp = mask_cp.astype(cp.bool_)
     structure = cp.ones((5, 5), dtype=cp.bool_)
+    t_stage = time.perf_counter()
     if second_pass_mask and last_n_cp is not None and refine_dist_mult > 1.0:
         try:
             relaxed = (dists <= (dist_thresh * refine_dist_mult)) & valid_depth
@@ -522,6 +538,10 @@ def get_ground(
         holes_mask = cp.logical_not(cp.isin(labels, keep_labels))
         filled = cp.logical_or(closed, holes_mask)
     ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
+    timing_ms["morph_ms"] = (time.perf_counter() - t_stage) * 1000.0
+    timing_ms["total_ms"] = (time.perf_counter() - t_all_start) * 1000.0
+    if debug_timing:
+        print(f"[ground timing] to_gpu={timing_ms.get('to_gpu_ms', 0.0):.2f} ms  subsample_roi={timing_ms.get('subsample_roi_ms', 0.0):.2f} ms  points={timing_ms.get('point_prep_ms', 0.0):.2f} ms  ransac={timing_ms.get('ransac_ms', 0.0):.2f} ms  refine={timing_ms.get('refine_ms', 0.0):.2f} ms  mask={timing_ms.get('mask_ms', 0.0):.2f} ms  morph={timing_ms.get('morph_ms', 0.0):.2f} ms  total={timing_ms.get('total_ms', 0.0):.2f} ms")
 
     return ground_mask_cp.get()
 

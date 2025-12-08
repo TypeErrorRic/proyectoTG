@@ -12,3 +12,6 @@ scipy==1.7.3
 matplotlib==3.7.5 ; python_version >= "3.8" and platform_machine != "aarch64"
 # CuPy 10.6.0 soporta CUDA 10.2 y funciona con NumPy 1.21.x
 cupy-cuda102==10.6.0 ; platform_system == "Linux" and platform_machine == "aarch64"
+
+# Driver de base de datos (puro Python, sin dependencias nativas)
+PyMySQL
