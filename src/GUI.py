@@ -376,8 +376,13 @@ class SegmentacionApp:
 
         gallery_nav = tk.Frame(self.gallery_frame, bg="#7f7f7f")
         gallery_nav.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+        
+        # Contenedor izquierdo para navegación
+        nav_left = tk.Frame(gallery_nav, bg="#7f7f7f")
+        nav_left.pack(side="left", fill="x", expand=True)
+        
         self.gallery_prev_btn = tk.Button(
-            gallery_nav,
+            nav_left,
             text="Anterior",
             bg="#5c5c5c",
             fg="white",
@@ -389,10 +394,10 @@ class SegmentacionApp:
             font=("Segoe UI", 9, "bold"),
             command=lambda: self._show_gallery_image(self.gallery_index - 1),
         )
-        self.gallery_prev_btn.pack(side="left", expand=True, fill="x", padx=(0, 8))
+        self.gallery_prev_btn.pack(side="left", padx=(0, 4))
 
         self.gallery_counter = tk.Label(
-            gallery_nav,
+            nav_left,
             text="0/0",
             bg="#7f7f7f",
             fg="white",
@@ -401,7 +406,7 @@ class SegmentacionApp:
         self.gallery_counter.pack(side="left", padx=4)
 
         self.gallery_next_btn = tk.Button(
-            gallery_nav,
+            nav_left,
             text="Siguiente",
             bg="#5c5c5c",
             fg="white",
@@ -413,8 +418,25 @@ class SegmentacionApp:
             font=("Segoe UI", 9, "bold"),
             command=lambda: self._show_gallery_image(self.gallery_index + 1),
         )
-        self.gallery_next_btn.pack(side="left", expand=True, fill="x", padx=(8, 0))
-        for btn in (self.gallery_prev_btn, self.gallery_next_btn):
+        self.gallery_next_btn.pack(side="left", padx=4)
+        
+        # Botón de descarga a la derecha
+        self.gallery_download_btn = tk.Button(
+            gallery_nav,
+            text="⬇ Descargar",
+            bg="#1e88e5",
+            fg="white",
+            activebackground="#1565c0",
+            activeforeground="white",
+            bd=0,
+            padx=10,
+            pady=6,
+            font=("Segoe UI", 9, "bold"),
+            command=self._download_current_capture,
+        )
+        self.gallery_download_btn.pack(side="right", padx=(4, 0))
+        
+        for btn in (self.gallery_prev_btn, self.gallery_next_btn, self.gallery_download_btn):
             btn.configure(state=tk.DISABLED)
 
         mode_panel = tk.Frame(
@@ -560,13 +582,57 @@ class SegmentacionApp:
         at_end = self.gallery_index >= max(total - 1, 0)
         prev_state = tk.NORMAL if total > 1 and not at_start else tk.DISABLED
         next_state = tk.NORMAL if total > 1 and not at_end else tk.DISABLED
+        download_state = tk.NORMAL if total > 0 else tk.DISABLED
         if self.gallery_prev_btn:
             self.gallery_prev_btn.configure(state=prev_state)
         if self.gallery_next_btn:
             self.gallery_next_btn.configure(state=next_state)
+        if hasattr(self, 'gallery_download_btn') and self.gallery_download_btn:
+            self.gallery_download_btn.configure(state=download_state)
         if self.gallery_counter:
             self.gallery_counter.configure(text=f"{total and (self.gallery_index + 1) or 0}/{total}")
         self._set_capture_index_var(self.gallery_index + 1)
+
+    def _download_current_capture(self) -> None:
+        """
+        Descargar la imagen actual de la galería como archivo PNG.
+        """
+        if not self.gallery_captures or self.gallery_index >= len(self.gallery_captures):
+            messagebox.showwarning("Descarga", "No hay imagen para descargar.")
+            return
+        
+        capture = self.gallery_captures[self.gallery_index]
+        
+        try:
+            from tkinter import filedialog
+            
+            # Sugerir nombre de archivo basado en el filename de la captura
+            filename = capture.get("filename", "captura.png")
+            if not filename.lower().endswith(".png"):
+                filename += ".png"
+            
+            # Abrir diálogo para seleccionar ubicación
+            filepath = filedialog.asksaveasfilename(
+                title="Guardar imagen",
+                defaultextension=".png",
+                initialfile=filename,
+                filetypes=[("PNG Image", "*.png"), ("All Files", "*.*")]
+            )
+            
+            if not filepath:
+                return  # Usuario canceló
+            
+            # Convertir BLOB a imagen y guardar
+            img = blob_to_image(capture.get("image_data"))
+            if img is None:
+                messagebox.showerror("Error", "No se pudo convertir la imagen.")
+                return
+            
+            img.save(filepath, "PNG")
+            messagebox.showinfo("Descarga completa", f"Imagen guardada en:\n{filepath}")
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo descargar la imagen:\n{exc}")
 
     def _refresh_gallery_images(self) -> None:
         """
@@ -594,6 +660,47 @@ class SegmentacionApp:
         self._sync_capture_slider_limits()
         self._show_gallery_image(self.gallery_index)
 
+    def _download_current_capture(self) -> None:
+        """
+        Descargar la imagen actual de la galería como archivo PNG.
+        """
+        if not self.gallery_captures or self.gallery_index >= len(self.gallery_captures):
+            messagebox.showwarning("Descarga", "No hay imagen para descargar.")
+            return
+        
+        capture = self.gallery_captures[self.gallery_index]
+        
+        try:
+            from tkinter import filedialog
+            
+            # Sugerir nombre de archivo basado en el filename de la captura
+            filename = capture.get("filename", "captura.png")
+            if not filename.lower().endswith(".png"):
+                filename += ".png"
+            
+            # Abrir diálogo para seleccionar ubicación
+            filepath = filedialog.asksaveasfilename(
+                title="Guardar imagen",
+                defaultextension=".png",
+                initialfile=filename,
+                filetypes=[("PNG Image", "*.png"), ("All Files", "*.*")]
+            )
+            
+            if not filepath:
+                return  # Usuario canceló
+            
+            # Convertir BLOB a imagen y guardar
+            img = blob_to_image(capture.get("image_data"))
+            if img is None:
+                messagebox.showerror("Error", "No se pudo convertir la imagen.")
+                return
+            
+            img.save(filepath, "PNG")
+            messagebox.showinfo("Descarga completa", f"Imagen guardada en:\n{filepath}")
+            
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo descargar la imagen:\n{exc}")
+    
     def _show_gallery_image(self, index: int) -> None:
         """
         Display the requested capture image from database in the gallery frame.
@@ -968,7 +1075,7 @@ class SegmentacionApp:
         header.pack(side="top", fill="x", padx=6, pady=(4, 2))
 
         body = tk.Frame(panel, bg=container_bg)
-        body.pack(fill="both", expand=True, padx=10, pady=8)
+        body.pack(fill="both", expand=True, padx=10, pady=4)
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=0)
         body.grid_rowconfigure(0, weight=0)
@@ -985,7 +1092,7 @@ class SegmentacionApp:
             validatecommand=numeric_validator,
             textvariable=self.capture_index_var,
         )
-        entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(6, 8))
+        entry_numero.grid(row=0, column=0, sticky="ew", padx=(4, 8), pady=(4, 4))
         entry_numero.insert(0, "1")
         entry_numero.bind("<Return>", lambda _event: self._on_capture_entry_apply())
         btn_aplicar = tk.Button(
@@ -996,12 +1103,12 @@ class SegmentacionApp:
             fg="#1f1f1f",
             bd=0,
             width=12,
-            padx=12,
-            pady=6,
+            padx=8,
+            pady=4,
             font=("Segoe UI", 9, "bold"),
             command=self._on_visualizar_capture,
         )
-        btn_aplicar.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=(6, 8))
+        btn_aplicar.grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=(4, 4))
 
         slider = tk.Scale(
             body,
@@ -1016,10 +1123,10 @@ class SegmentacionApp:
             variable=self.capture_index_var,
             command=self._on_capture_slider,
         )
-        slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(8, 8))
+        slider.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(4, 4))
 
         nav_row = tk.Frame(panel, bg=panel.cget("bg"))
-        nav_row.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
+        nav_row.pack(side="bottom", fill="x", padx=10, pady=(2, 4))
         btn_atras = tk.Button(
             nav_row,
             text="Borrar",
@@ -1027,12 +1134,12 @@ class SegmentacionApp:
             activebackground="#f1625f",
             fg="white",
             bd=0,
-            padx=12,
-            pady=6,
+            padx=8,
+            pady=4,
             font=("Segoe UI", 9, "bold"),
             command=self._on_delete_capture,
         )
-        btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 10))
+        btn_atras.pack(side="left", expand=True, fill="x", padx=(0, 6))
         btn_siguiente = tk.Button(
             nav_row,
             text="Capturas",
@@ -1040,12 +1147,31 @@ class SegmentacionApp:
             activebackground="#21d087",
             fg="white",
             bd=0,
-            padx=12,
-            pady=6,
+            padx=8,
+            pady=4,
             font=("Segoe UI", 9, "bold"),
             command=self._on_capturas_pressed,
         )
-        btn_siguiente.pack(side="left", expand=True, fill="x", padx=(10, 0))
+        btn_siguiente.pack(side="left", expand=True, fill="x", padx=(6, 0))
+        
+        # Botón de descarga
+        download_row = tk.Frame(panel, bg=panel.cget("bg"))
+        download_row.pack(side="bottom", fill="x", padx=10, pady=(0, 2))
+        self.btn_download_capture = tk.Button(
+            download_row,
+            text="⬇ Descargar",
+            bg="#1e88e5",
+            activebackground="#1565c0",
+            fg="white",
+            bd=0,
+            padx=8,
+            pady=4,
+            font=("Segoe UI", 8, "bold"),
+            command=self._download_current_capture,
+        )
+        self.btn_download_capture.pack(side="top", fill="x")
+        self.btn_download_capture.configure(state=tk.DISABLED)
+        
         entry_numero.configure(state=tk.DISABLED)
         btn_aplicar.configure(state=tk.DISABLED)
         slider.configure(state=tk.DISABLED)
@@ -1059,6 +1185,7 @@ class SegmentacionApp:
             "visualizar": btn_aplicar,
             "slider": slider,
             "borrar": btn_atras,
+            "descargar": self.btn_download_capture,
         }
 
     def _build_logo(self, container: tk.Frame) -> None:

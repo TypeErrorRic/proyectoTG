@@ -96,3 +96,12 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
     Dummy metrics accessor to match the real segmentation API.
     """
     return dict(_metrics) if copy else _metrics
+
+
+def obtener_ground_mask(copy: bool = True) -> Optional[np.ndarray]:
+    """
+    Dummy ground mask accessor for API compatibility.
+    
+    Returns None since this is a placeholder module for GUI debugging.
+    """
+    return None
