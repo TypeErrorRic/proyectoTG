@@ -13,6 +13,7 @@ from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
 # Runtime libraries
 import cupy as cp
 import cv2
+import numpy as np
 import threading
 import time
 import queue
@@ -113,6 +114,18 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
     return metrics.copy() if copy else metrics
 
 
+def obtener_ground_mask(copy: bool = True) -> Optional[np.ndarray]:
+    """
+    Get the last computed ground mask (binary mask with 0 and 255 values).
+    
+    Returns:
+        np.ndarray | None: Ground mask or None if not available.
+    """
+    with _runtime_lock:
+        mask = _runtime.get("ground_mask")
+    return mask.copy() if (copy and mask is not None) else mask
+
+
 def segmentar() -> Any:
     """
     Segmentation worker.
@@ -131,6 +144,7 @@ def segmentar() -> Any:
     if imagenRGB is None or mapaProfundidad is None or rays_cp is None or H is None or W is None:
         with _runtime_lock:
             _runtime["last_ransac_ms"] = None
+            _runtime["ground_mask"] = None
         return imagenRGB
 
     ground_params = obtener_parametros_ground()
@@ -143,6 +157,7 @@ def segmentar() -> Any:
     )
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
+        _runtime["ground_mask"] = ground
     return apply_mask_to_rgb(imagenRGB, ground)
 
 

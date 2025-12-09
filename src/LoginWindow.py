@@ -207,16 +207,21 @@ class LoginDialog:
             return
         
         try:
-            # Importar función de autenticación
+            # Usar DAO directamente (patrón DAO)
             try:
-                from src.api.dbConection import authenticate_user
+                from src.dao.user_dao import UserDAO
             except ModuleNotFoundError:
-                from api.dbConection import authenticate_user
+                # Fallback para imports directos
+                import sys
+                import os
+                sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+                from src.dao.user_dao import UserDAO
             
-            user = authenticate_user(username, password)
+            user_obj = UserDAO.authenticate(username, password)
             
-            if user is not None:
-                self.result = user
+            if user_obj is not None:
+                # Convertir a dict para compatibilidad con código existente
+                self.result = user_obj.to_dict()
                 self.dialog.destroy()
             else:
                 # Mostrar mensaje de error detallado

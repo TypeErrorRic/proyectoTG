@@ -40,7 +40,7 @@ CREATE TABLE `captures` (
   `dataset_index` int(11) DEFAULT NULL,
   `ransac_time_ms` decimal(8,2) DEFAULT NULL,
   `fps` decimal(6,2) DEFAULT NULL,
-  `num_ground_pixels` int(11) DEFAULT NULL,
+  `num_ground_pixels` longblob DEFAULT NULL,
   `num_wall_pixels` int(11) DEFAULT NULL,
   `num_door_pixels` int(11) DEFAULT NULL,
   `tags` varchar(255) DEFAULT NULL,

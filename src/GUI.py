@@ -32,6 +32,10 @@ try:
         visualize_capture,
     )
     from src.LoginWindow import LoginDialog
+    # DAO imports (patrón DAO)
+    from src.dao.user_dao import UserDAO
+    from src.dao.configuration_dao import ConfigurationDAO
+    from src.dao.capture_dao import CaptureDAO
 except ModuleNotFoundError:
     # Fallback for direct script execution from the src directory.
     from GUIFunctions import (
@@ -47,6 +51,13 @@ except ModuleNotFoundError:
         visualize_capture,
     )
     from LoginWindow import LoginDialog
+    # DAO imports with fallback
+    import sys
+    import os
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+    from src.dao.user_dao import UserDAO
+    from src.dao.configuration_dao import ConfigurationDAO
+    from src.dao.capture_dao import CaptureDAO
 
 # @note Adjust sys.path when executed as a script.
 if __package__ is None or __package__ == "":
@@ -61,6 +72,7 @@ from src.utilities.segmentar import (
     liberar_recursos,
     obtener_parametros_ground,
     obtener_metricas,
+    obtener_ground_mask,
 )
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
@@ -568,13 +580,11 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import get_user_captures
-            except ModuleNotFoundError:
-                from api.dbConection import get_user_captures
-            
             user_id = self.current_user.get("id")
-            self.gallery_captures = get_user_captures(user_id, limit=100)
+            # Usar DAO directamente (patrón DAO)
+            captures = CaptureDAO.get_user_captures(user_id, limit=100)
+            # Convertir a dicts para compatibilidad con código existente
+            self.gallery_captures = [cap.to_dict() for cap in captures]
             print(f"[GUI] {len(self.gallery_captures)} capturas cargadas desde BD")
         except Exception as exc:
             print(f"[GUI] Error cargando capturas desde BD: {exc}")
@@ -1399,19 +1409,15 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import create_capture, get_user_configurations
-            except ModuleNotFoundError:
-                from api.dbConection import create_capture, get_user_configurations
-            
             user_id = self.current_user.get("id")
             
             # Usar configuración seleccionada/aplicada si existe; si no, fallback al autosave
             config_id = self.active_configuration_id
             if config_id is None:
-                configs = get_user_configurations(user_id)
-                autosave_config = next((c for c in configs if c.get("config_name") == "_autosave_"), None)
-                config_id = autosave_config.get("id") if autosave_config else None
+                # Usar DAO para obtener configuraciones
+                configs = ConfigurationDAO.get_user_configurations(user_id)
+                autosave_config = next((c for c in configs if c.config_name == "_autosave_"), None)
+                config_id = autosave_config.id if autosave_config else None
             
             # Obtener métricas actuales
             try:
@@ -1424,6 +1430,16 @@ class SegmentacionApp:
             img_width = image.width if hasattr(image, "width") else None
             img_height = image.height if hasattr(image, "height") else None
             
+            # Obtener máscara de ground y convertirla a bytes
+            ground_mask_bytes = None
+            try:
+                ground_mask = obtener_ground_mask()
+                if ground_mask is not None:
+                    # Serializar la máscara a bytes usando numpy
+                    ground_mask_bytes = ground_mask.tobytes()
+            except Exception as exc:
+                print(f"[GUI] Error obteniendo máscara de ground: {exc}")
+            
             # Metadata de la captura
             metadata = {
                 "file_size_bytes": file_size,
@@ -1432,10 +1448,11 @@ class SegmentacionApp:
                 "ransac_time_ms": metricas.get("ransac_ms"),
                 "fps": self.fps,
                 "dataset_index": self.dataset_index if self.mode == "prueba" else None,
+                "num_ground_pixels": ground_mask_bytes,
             }
             
-            # Guardar en BD
-            capture_id = create_capture(
+            # Guardar en BD usando DAO
+            capture_id = CaptureDAO.create(
                 user_id=user_id,
                 filename=filename,
                 mode=self.mode,
@@ -1455,19 +1472,14 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import get_user_configurations
-            except ModuleNotFoundError:
-                from api.dbConection import get_user_configurations
-            
             user_id = self.current_user.get("id")
             
-            # Buscar configuración auto-guardada
-            configs = get_user_configurations(user_id)
-            autosave_config = next((c for c in configs if c.get("config_name") == "_autosave_"), None)
+            # Buscar configuración auto-guardada usando DAO
+            configs = ConfigurationDAO.get_user_configurations(user_id)
+            autosave_config = next((c for c in configs if c.config_name == "_autosave_"), None)
             
             if autosave_config:
-                print(f"[GUI] Cargando configuración auto-guardada (ID: {autosave_config['id']})")
+                print(f"[GUI] Cargando configuración auto-guardada (ID: {autosave_config.id})")
                 
                 # Mapear campos de BD a variables de GUI
                 param_mapping = {
@@ -1492,8 +1504,9 @@ class SegmentacionApp:
                 
                 # Actualizar variables de GUI
                 for db_key, gui_key in param_mapping.items():
-                    if db_key in autosave_config and gui_key in self.config_vars:
-                        value = autosave_config[db_key]
+                    # Usar atributos del objeto Configuration en lugar de dict
+                    if hasattr(autosave_config, db_key) and gui_key in self.config_vars:
+                        value = getattr(autosave_config, db_key)
                         # Convertir booleanos a int para la GUI
                         if isinstance(value, bool):
                             value = int(value)
@@ -1525,25 +1538,20 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import create_configuration, update_configuration, get_user_configurations
-            except ModuleNotFoundError:
-                from api.dbConection import create_configuration, update_configuration, get_user_configurations
-            
             user_id = self.current_user.get("id")
             config_name = "_autosave_"  # Nombre especial para auto-guardado
             
-            # Buscar si ya existe la configuración de auto-guardado
-            existing_configs = get_user_configurations(user_id)
-            autosave_config = next((c for c in existing_configs if c.get("config_name") == config_name), None)
+            # Buscar si ya existe la configuración de auto-guardado usando DAO
+            existing_configs = ConfigurationDAO.get_user_configurations(user_id)
+            autosave_config = next((c for c in existing_configs if c.config_name == config_name), None)
             
             if autosave_config:
-                # ACTUALIZAR configuración existente (no crear nueva)
-                update_configuration(autosave_config["id"], params)
-                print(f"[GUI] Configuración auto-guardada actualizada en BD (ID: {autosave_config['id']})")
+                # ACTUALIZAR configuración existente (no crear nueva) usando DAO
+                ConfigurationDAO.update(autosave_config.id, params)
+                print(f"[GUI] Configuración auto-guardada actualizada en BD (ID: {autosave_config.id})")
             else:
-                # Crear configuración de auto-guardado por primera vez
-                config_id = create_configuration(
+                # Crear configuración de auto-guardado por primera vez usando DAO
+                config_id = ConfigurationDAO.create(
                     user_id=user_id,
                     config_name=config_name,
                     params=params,
@@ -1562,13 +1570,11 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import get_user_configurations
-            except ModuleNotFoundError:
-                from api.dbConection import get_user_configurations
-            
             user_id = self.current_user.get("id")
-            self.saved_configs = get_user_configurations(user_id)
+            # Usar DAO para obtener configuraciones
+            configs = ConfigurationDAO.get_user_configurations(user_id)
+            # Convertir a dicts para compatibilidad
+            self.saved_configs = [c.to_dict() for c in configs]
             
             # Filtrar configuración de auto-guardado
             visible_configs = [c for c in self.saved_configs if c.get("config_name") != "_autosave_"]
@@ -1674,16 +1680,11 @@ class SegmentacionApp:
         )
         
         try:
-            try:
-                from src.api.dbConection import create_configuration, get_user_configurations
-            except ModuleNotFoundError:
-                from api.dbConection import create_configuration, get_user_configurations
-            
             user_id = self.current_user.get("id")
             
-            # Verificar si ya existe
-            existing = get_user_configurations(user_id)
-            if any(c.get("config_name") == config_name for c in existing):
+            # Verificar si ya existe usando DAO
+            existing = ConfigurationDAO.get_user_configurations(user_id)
+            if any(c.config_name == config_name for c in existing):
                 overwrite = messagebox.askyesno(
                     "Configuración Existente",
                     f"Ya existe una configuración llamada '{config_name}'.\\n¿Desea sobrescribirla?"
@@ -1699,8 +1700,8 @@ class SegmentacionApp:
                 messagebox.showerror("Error", "Parámetros inválidos. Verifique los valores.")
                 return
             
-            # Guardar
-            config_id = create_configuration(
+            # Guardar usando DAO
+            config_id = ConfigurationDAO.create(
                 user_id=user_id,
                 config_name=config_name,
                 params=parsed,
@@ -1740,11 +1741,6 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import delete_configuration
-            except ModuleNotFoundError:
-                from api.dbConection import delete_configuration
-            
             # Buscar configuración
             config = next((c for c in self.saved_configs 
                           if c.get("config_name") == selected_name), None)
@@ -1753,8 +1749,8 @@ class SegmentacionApp:
                 messagebox.showerror("Error", "Configuración no encontrada")
                 return
             
-            # Eliminar
-            delete_configuration(config.get("id"))
+            # Eliminar usando DAO
+            ConfigurationDAO.delete(config.get("id"))
             print(f"[GUI] Configuración '{selected_name}' eliminada")
             messagebox.showinfo("Éxito", f"Configuración '{selected_name}' eliminada")
             
@@ -1990,25 +1986,18 @@ class SegmentacionApp:
             return
         
         try:
-            try:
-                from src.api.dbConection import delete_capture
-            except ModuleNotFoundError:
-                from api.dbConection import delete_capture
-            
-            delete_capture(capture_id)
+            # Eliminar usando DAO
+            CaptureDAO.delete(capture_id)
             print(f"[GUI] Captura ID {capture_id} eliminada de BD")
             
-            # Recargar galería
+            # Recargar galería usando DAO
             if not self.current_user:
                 self.gallery_captures = []
             else:
-                try:
-                    from src.api.dbConection import get_user_captures
-                except ModuleNotFoundError:
-                    from api.dbConection import get_user_captures
-                
                 user_id = self.current_user.get("id")
-                self.gallery_captures = get_user_captures(user_id, limit=100)
+                captures = CaptureDAO.get_user_captures(user_id, limit=100)
+                # Convertir a dicts para compatibilidad
+                self.gallery_captures = [cap.to_dict() for cap in captures]
             
             # Ajustar índice: mostrar la siguiente imagen o la anterior si era la última
             if not self.gallery_captures:
