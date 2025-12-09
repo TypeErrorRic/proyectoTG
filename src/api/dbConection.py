@@ -20,10 +20,10 @@ from pymysql.cursors import DictCursor
 def get_db_config() -> Dict[str, Any]:
     """Read database connection config from environment variables."""
     return {
-        "host": os.getenv("DB_HOST", "127.0.0.1"),
+        "host": os.getenv("DB_HOST", "192.168.1.7"),
         "port": int(os.getenv("DB_PORT", "3306")),
-        "user": os.getenv("DB_USER", "arley"),
-        "password": os.getenv("DB_PASSWORD", "qwerty"),
+        "user": os.getenv("DB_USER", "jetson"),
+        "password": os.getenv("DB_PASSWORD", "1234"),
         "database": os.getenv("DB_NAME", "segmentation_app"),
         "charset": "utf8mb4",
         "cursorclass": DictCursor,
