@@ -63,9 +63,10 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
         # Create builder config
         config = builder.create_builder_config()
 
-        # Set memory pool limit (important for Jetson Nano with limited RAM)
+        # Set workspace size (important for Jetson Nano with limited RAM)
         # Using 512MB for workspace (adjust if needed)
-        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 512 * (1 << 20))
+        # TensorRT 8.0.1.6 uses max_workspace_size (older API)
+        config.max_workspace_size = 512 * (1 << 20)
 
         # Enable FP16 mode if supported and requested
         if fp16_mode and builder.platform_has_fast_fp16:
