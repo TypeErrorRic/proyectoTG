@@ -68,6 +68,19 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
         # TensorRT 8.0.1.6 uses max_workspace_size (older API)
         config.max_workspace_size = 512 * (1 << 20)
 
+        # Handle dynamic shapes - create optimization profile
+        # Input shape is (-1, 5, 256, 256) where -1 is dynamic batch
+        profile = builder.create_optimization_profile()
+        input_name = network.get_input(0).name
+        # Set min, opt, max shapes for dynamic batch dimension
+        # Using batch size = 1 for all (typical for Jetson Nano inference)
+        profile.set_shape(input_name,
+                         min=(1, 5, 256, 256),   # minimum shape
+                         opt=(1, 5, 256, 256),   # optimal shape
+                         max=(1, 5, 256, 256))   # maximum shape
+        config.add_optimization_profile(profile)
+        print("Added optimization profile for dynamic batch (batch=1)")
+
         # Enable FP16 mode if supported and requested
         if fp16_mode and builder.platform_has_fast_fp16:
             print("Enabling FP16 precision mode")
