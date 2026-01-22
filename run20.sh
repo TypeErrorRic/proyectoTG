@@ -448,7 +448,37 @@ PY
       exit 1
     fi
     ;;
+  build-engine)
+    require_jetson
+    ensure_python
+    echo "Convirtiendo ONNX a TensorRT engine..."
+    echo "Este proceso puede tardar 5-15 minutos en Jetson Nano. Por favor, espera..."
+    if [[ -f "src/models/onnx_to_engine.py" ]]; then
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" src/models/onnx_to_engine.py
+    else
+      echo "ERROR: No se encontro src/models/onnx_to_engine.py"
+      exit 1
+    fi
+    ;;
+  test-trt)
+    require_jetson
+    ensure_python
+    echo "Iniciando prueba de inferencia TensorRT..."
+    if [[ -f "src/models/unet_trt.py" ]]; then
+      if [[ ! -f "src/models/mobilenetv2_unet_jetson.engine" ]]; then
+        echo "ERROR: No se encontro el archivo .engine"
+        echo "Ejecuta primero: ./run20.sh build-engine"
+        exit 1
+      fi
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" src/models/unet_trt.py
+    else
+      echo "ERROR: No se encontro src/models/unet_trt.py"
+      exit 1
+    fi
+    ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2}"
+    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|test-v1|test-v2|build-engine|test-trt}"
     ;;
 esac
