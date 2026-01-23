@@ -408,8 +408,8 @@ def preprocesar(
             valid_from_dilation = depth_dilated > 0.3
             mapaProfundidad[invalid_mask & valid_from_dilation] = depth_dilated[invalid_mask & valid_from_dilation]
 
-        # Filtro de mediana para eliminar ruido tipo manchas (kernel 5x5)
-        mapaProfundidad = cv2.medianBlur(mapaProfundidad.astype(np.float32), 5)
+        # Suavizar ruido con Gaussian blur
+        mapaProfundidad = cv2.GaussianBlur(mapaProfundidad, (5, 5), 0)
 
         # Ensure shapes match expected HxW (from camera intrinsics).
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
