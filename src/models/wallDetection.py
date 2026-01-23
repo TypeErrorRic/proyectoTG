@@ -89,11 +89,7 @@ def _preprocess_inputs(
     # Detect format and normalize only dataset format
     max_val = depth_normalized.max()
     if 10 < max_val <= 255:  # Likely uint8 [0, 255] from dataset
-        print(f"[DEBUG] Detected dataset format (uint8), normalizing by 255")
         depth_normalized = depth_normalized / 255.0
-    else:
-        # RealSense format: no normalization
-        print(f"[DEBUG] Detected RealSense format, no normalization applied")
 
     # Normalize RGB (0-1 range)
     rgb_normalized = rgb_resized.astype(np.float32) / 255.0
@@ -154,53 +150,6 @@ def _postprocess_outputs(
     return wall_mask, door_mask
 
 
-def _preprocess_realsense_depth(
-    depth_m: np.ndarray,
-    min_depth: float = 0.3,
-    max_depth: float = 5.0,
-    hole_fill_radius: int = 5,
-    apply_bilateral: bool = True
-) -> np.ndarray:
-    """
-    Preprocess RealSense depth data to make it similar to dataset format.
-
-    Args:
-        depth_m: Raw depth in meters (H, W), float32
-        min_depth: Minimum valid depth in meters (closer values -> 0)
-        max_depth: Maximum valid depth in meters (farther values clipped)
-        hole_fill_radius: Radius for hole filling (0 to disable)
-        apply_bilateral: Apply bilateral filter to reduce noise
-
-    Returns:
-        Preprocessed depth (H, W), float32, values in [0, max_depth] range
-    """
-    depth = depth_m.copy()
-
-    # 1. Clip to valid range
-    depth = np.clip(depth, 0, max_depth)
-
-    # 2. Create mask of invalid values (too close or zero)
-    invalid_mask = (depth < min_depth).astype(np.uint8)
-
-    # 3. Hole filling: interpolate invalid regions using inpainting
-    if hole_fill_radius > 0 and invalid_mask.any():
-        # Convert to uint16 for inpainting (cv2.inpaint requires 8-bit or 16-bit)
-        depth_scaled = (depth * 1000).astype(np.uint16)  # Convert to mm
-        depth_filled = cv2.inpaint(depth_scaled, invalid_mask, hole_fill_radius, cv2.INPAINT_NS)
-        depth = depth_filled.astype(np.float32) / 1000.0  # Back to meters
-
-    # 4. Apply bilateral filter to reduce noise while preserving edges (slow)
-    if apply_bilateral:
-        # Use float32 for filtering (bilateralFilter requires uint8 or float32)
-        depth_filtered = cv2.bilateralFilter(depth, d=5, sigmaColor=0.01, sigmaSpace=10)
-        depth = depth_filtered
-
-    # 5. Re-clip after filtering
-    depth = np.clip(depth, 0, max_depth)
-
-    return depth
-
-
 def wallDetection(
     depth_image: np.ndarray,
     rgb_image: np.ndarray,
@@ -240,14 +189,8 @@ def wallDetection(
     is_realsense = (max_val > 0 and max_val <= 10)  # Likely meters
 
     if is_realsense and preprocess_realsense:
-        print("[wallDetection] Detected RealSense format, applying preprocessing...")
-        depth_work = _preprocess_realsense_depth(
-            depth_work,
-            min_depth=0.3,
-            max_depth=5.0,
-            hole_fill_radius=3,
-            apply_bilateral=False
-        )
+        # Simple clip to valid depth range
+        depth_work = np.clip(depth_work, 0, 5.0)
 
     # Visualize depth map (normalize for display only)
     depth_vis = depth_work.copy()
