@@ -15,7 +15,7 @@ from .trt_inference import TRTInference
 _runtime: Dict[str, Any] = {
     "model": None,
     "engine_path": None,
-    "input_size": (256, 256),  # (width, height) - must match TensorRT engine
+    "input_size": (192, 160),  # (width, height) - must match TensorRT engine
 }
 
 
@@ -30,7 +30,7 @@ class WallDetector:
             engine_path: Path to TensorRT engine file. If None, uses default path.
         """
         self.model = None
-        self.input_size = (256, 256)
+        self.input_size = (192, 160)
         self.engine_path = engine_path
 
     def init_model(self, engine_path: Optional[str] = None) -> bool:
@@ -82,7 +82,7 @@ class WallDetector:
             floor_mask: Floor mask (H, W) or (H, W, 1)
 
         Returns:
-            Preprocessed input tensor of shape (1, 5, 256, 256)
+            Preprocessed input tensor of shape (1, 5, 160, 192)
         """
         # Ensure correct shapes
         if depth_image.ndim == 3:
@@ -128,13 +128,13 @@ class WallDetector:
         Postprocess model outputs
 
         Args:
-            output: Model output of shape (1, 2, 256, 256)
+            output: Model output of shape (1, 2, 160, 192)
             original_size: Original image size (height, width)
 
         Returns:
             Tuple of (wall_mask, door_mask) resized to original size
         """
-        # Remove batch dimension: (2, 256, 256)
+        # Remove batch dimension: (2, 160, 192)
         output = output[0]
 
         # Extract wall and door channels
@@ -246,7 +246,7 @@ def _preprocess_inputs(
         floor_mask: Floor mask (H, W) or (H, W, 1)
 
     Returns:
-        Preprocessed input tensor of shape (1, 5, 256, 256)
+        Preprocessed input tensor of shape (1, 5, 160, 192)
     """
     input_size = _runtime["input_size"]
 
@@ -306,13 +306,13 @@ def _postprocess_outputs(
     Postprocess model outputs
 
     Args:
-        output: Model output of shape (1, 2, 256, 256)
+        output: Model output of shape (1, 2, 160, 192)
         original_size: Original image size (height, width)
 
     Returns:
         Tuple of (wall_mask, door_mask) resized to original size
     """
-    # Remove batch dimension: (2, 256, 256)
+    # Remove batch dimension: (2, 160, 192)
     output = output[0]
 
     # Extract wall and door channels
