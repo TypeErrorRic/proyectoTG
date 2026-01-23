@@ -95,9 +95,33 @@ class WallDetector:
         rgb_resized = cv2.resize(rgb_image, self.input_size, interpolation=cv2.INTER_LINEAR)
         floor_resized = cv2.resize(floor_mask, self.input_size, interpolation=cv2.INTER_NEAREST)
 
-        # Normalize depth (0-1 range, assuming depth in mm)
-        depth_normalized = depth_resized.astype(np.float32) / 10000.0  # Adjust scaling as needed
+        # Normalize depth (0-1 range)
+        depth_normalized = depth_resized.astype(np.float32)
+
+        # DEBUG: Print depth statistics before normalization
+        print(f"[DEBUG] Depth BEFORE normalization - min: {depth_normalized.min():.2f}, max: {depth_normalized.max():.2f}, mean: {depth_normalized.mean():.2f}")
+
+        # Detect format and normalize accordingly
+        max_val = depth_normalized.max()
+        if max_val > 100:  # Likely uint8 [0, 255] from dataset OR mm values (RealSense)
+            if max_val > 1000:  # Likely mm (RealSense raw depth)
+                print(f"[DEBUG] Detected RealSense format (mm), normalizing by 5000")
+                depth_normalized = depth_normalized / 5000.0  # Normalize assuming max ~5m
+            else:  # Likely uint8 [0, 255] from dataset
+                print(f"[DEBUG] Detected dataset format (uint8), normalizing by 255")
+                depth_normalized = depth_normalized / 255.0
+        elif max_val > 10:  # Likely in mm but smaller range
+            print(f"[DEBUG] Detected intermediate format, normalizing by 10000")
+            depth_normalized = depth_normalized / 10000.0
+        else:
+            # Assume meters, normalize by typical max depth (10m)
+            print(f"[DEBUG] Detected meters format, normalizing by 10")
+            depth_normalized = depth_normalized / 10.0
+
         depth_normalized = np.clip(depth_normalized, 0, 1)
+
+        # DEBUG: Print depth statistics after normalization
+        print(f"[DEBUG] Depth AFTER normalization - min: {depth_normalized.min():.4f}, max: {depth_normalized.max():.4f}, mean: {depth_normalized.mean():.4f}")
 
         # Normalize RGB (0-1 range)
         rgb_normalized = rgb_resized.astype(np.float32) / 255.0
@@ -113,6 +137,14 @@ class WallDetector:
             rgb_normalized[:, :, 2],  # B channel
             floor_normalized
         ], axis=0)
+
+        # DEBUG: Show all 5 input channels
+        cv2.imshow("Input 0 - Depth (normalized)", depth_normalized)
+        cv2.imshow("Input 1 - Red channel", rgb_normalized[:, :, 0])
+        cv2.imshow("Input 2 - Green channel", rgb_normalized[:, :, 1])
+        cv2.imshow("Input 3 - Blue channel", rgb_normalized[:, :, 2])
+        cv2.imshow("Input 4 - Floor mask", floor_normalized)
+        cv2.waitKey(1)  # Non-blocking wait to update windows
 
         # Add batch dimension: (1, 5, H, W)
         input_tensor = np.expand_dims(input_tensor, axis=0)
@@ -264,18 +296,30 @@ def _preprocess_inputs(
     # Normalize depth (0-1 range)
     depth_normalized = depth_resized.astype(np.float32)
 
+    # DEBUG: Print depth statistics before normalization
+    print(f"[DEBUG] Depth BEFORE normalization - min: {depth_normalized.min():.2f}, max: {depth_normalized.max():.2f}, mean: {depth_normalized.mean():.2f}")
+
     # Detect format and normalize accordingly
     max_val = depth_normalized.max()
-    if max_val > 100:  # Likely uint8 [0, 255] from dataset
-        depth_normalized = depth_normalized / 255.0
-    elif max_val > 10:  # Likely in mm (RealSense raw)
+    if max_val > 100:  # Likely uint8 [0, 255] from dataset OR mm values (RealSense)
+        if max_val > 1000:  # Likely mm (RealSense raw depth)
+            print(f"[DEBUG] Detected RealSense format (mm), normalizing by 5000")
+            depth_normalized = depth_normalized / 5000.0  # Normalize assuming max ~5m
+        else:  # Likely uint8 [0, 255] from dataset
+            print(f"[DEBUG] Detected dataset format (uint8), normalizing by 255")
+            depth_normalized = depth_normalized / 255.0
+    elif max_val > 10:  # Likely in mm but smaller range
+        print(f"[DEBUG] Detected intermediate format, normalizing by 10000")
         depth_normalized = depth_normalized / 10000.0
-    # else: already in meters [0-10], normalize by max or fixed value
     else:
         # Assume meters, normalize by typical max depth (10m)
+        print(f"[DEBUG] Detected meters format, normalizing by 10")
         depth_normalized = depth_normalized / 10.0
 
     depth_normalized = np.clip(depth_normalized, 0, 1)
+
+    # DEBUG: Print depth statistics after normalization
+    print(f"[DEBUG] Depth AFTER normalization - min: {depth_normalized.min():.4f}, max: {depth_normalized.max():.4f}, mean: {depth_normalized.mean():.4f}")
 
     # Normalize RGB (0-1 range)
     rgb_normalized = rgb_resized.astype(np.float32) / 255.0
