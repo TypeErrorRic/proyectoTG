@@ -126,7 +126,7 @@ def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None, 
 
         # Aplicar solo a regiones inválidas
         depth_m_gpu[invalid_mask_gpu] = depth_dilated_gpu[invalid_mask_gpu]
-
+        print("Applying morphological dilation to depth map on GPU")
     # Descargar resultado final de GPU
     return cp.asnumpy(depth_m_gpu)
 
