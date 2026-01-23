@@ -114,8 +114,8 @@ class WallDetector:
             print(f"[DEBUG] Detected intermediate format, normalizing by 10000")
             depth_normalized = depth_normalized / 10000.0
         else:
-            # Assume meters, normalize by typical max depth (10m)
-            print(f"[DEBUG] Detected meters format, normalizing by 10")
+            # RealSense in meters: normalize by 10m constant
+            print(f"[DEBUG] Detected RealSense meters format, normalizing by 10")
             depth_normalized = depth_normalized / 10.0
 
         depth_normalized = np.clip(depth_normalized, 0, 1)
@@ -312,8 +312,8 @@ def _preprocess_inputs(
         print(f"[DEBUG] Detected intermediate format, normalizing by 10000")
         depth_normalized = depth_normalized / 10000.0
     else:
-        # Assume meters, normalize by typical max depth (10m)
-        print(f"[DEBUG] Detected meters format, normalizing by 10")
+        # RealSense in meters: normalize by 10m constant
+        print(f"[DEBUG] Detected RealSense meters format, normalizing by 10")
         depth_normalized = depth_normalized / 10.0
 
     depth_normalized = np.clip(depth_normalized, 0, 1)
