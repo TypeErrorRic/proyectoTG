@@ -78,17 +78,57 @@ def extract_depth_raw(frames: rs.composite_frame) -> np.ndarray:
     return depth_raw
 
 
-def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None) -> np.ndarray:
+def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None, pipeline: rs.pipeline = None) -> np.ndarray:
     """
-    Profundidad en metros (float32, H×W). Usa depth_scale cacheado si no se pasa.
+    Profundidad en metros (float32, H×W). Promedia 3 frames en GPU y aplica filtro morfológico GPU con CuPy.
     """
-    depth_raw = extract_depth_raw(frames)
-    if depth_raw is None:
-        return None
     if depth_scale is None:
         depth_scale = get_depth_scale()
-    depth_m = depth_raw.astype(np.float32) * float(depth_scale)
-    return depth_m
+
+    # Capturar 3 frames
+    depth_frames = []
+    depth_raw = extract_depth_raw(frames)
+    if depth_raw is not None:
+        depth_frames.append(depth_raw.astype(np.float32) * float(depth_scale))
+
+    if pipeline is not None:
+        for _ in range(2):
+            try:
+                extra_frames = pipeline.wait_for_frames()
+                depth_raw = extract_depth_raw(extra_frames)
+                if depth_raw is not None:
+                    depth_frames.append(depth_raw.astype(np.float32) * float(depth_scale))
+            except:
+                break
+
+    if len(depth_frames) == 0:
+        return None
+
+    # Promediar valores válidos en GPU con CuPy
+    depth_stack_gpu = cp.asarray(np.stack(depth_frames, axis=0))
+    valid_mask = depth_stack_gpu > 0.3
+    count = valid_mask.sum(axis=0).astype(cp.float32)
+    count[count == 0] = 1
+    depth_stack_gpu[~valid_mask] = 0
+    depth_m_gpu = depth_stack_gpu.sum(axis=0) / count
+
+    # Filtro morfológico GPU con CuPy: dilatación 3x3
+    invalid_mask_gpu = (depth_m_gpu < 0.3) | (depth_m_gpu == 0)
+    if cp.any(invalid_mask_gpu):
+        # Dilatación morfológica 3x3: máximo de vecindario
+        padded = cp.pad(depth_m_gpu, 1, mode='edge')
+        depth_dilated_gpu = padded[1:-1, 1:-1].copy()
+
+        # Tomar máximo de los 8 vecinos + centro
+        for di in [-1, 0, 1]:
+            for dj in [-1, 0, 1]:
+                depth_dilated_gpu = cp.maximum(depth_dilated_gpu, padded[1+di:padded.shape[0]-1+di, 1+dj:padded.shape[1]-1+dj])
+
+        # Aplicar solo a regiones inválidas
+        depth_m_gpu[invalid_mask_gpu] = depth_dilated_gpu[invalid_mask_gpu]
+
+    # Descargar resultado final de GPU
+    return cp.asnumpy(depth_m_gpu)
 
 
 def compute_rays_from_intrinsics(intr) -> np.ndarray:
@@ -257,7 +297,7 @@ def make_depth_to_color_aligner(pipeline: rs.pipeline) -> Callable[[rs.composite
         aligner_gpu = DepthToColorAlignerGPU(pipeline, downsample=ds, max_depth_m=max_d, reuse_output=True)
 
         def _align(frames: rs.composite_frame) -> Optional[np.ndarray]:
-            depth_native = extract_depth_meters(frames)
+            depth_native = extract_depth_meters(frames, pipeline=pipeline)
             if depth_native is None:
                 return None
             return aligner_gpu.align(depth_native)
@@ -269,7 +309,7 @@ def make_depth_to_color_aligner(pipeline: rs.pipeline) -> Callable[[rs.composite
 
         def _align_cpu(frames: rs.composite_frame) -> Optional[np.ndarray]:
             aligned_frames = align_to_color.process(frames)
-            return extract_depth_meters(aligned_frames)
+            return extract_depth_meters(aligned_frames, pipeline=pipeline)
 
         return _align_cpu
 
@@ -385,7 +425,7 @@ if __name__ == "__main__":
             # 2) RGB y DEPTH→COLOR
             rgb = extract_rgb(frames)
             t2a = time.perf_counter()
-            depth_m = align_depth_fn(frames) if align_depth_fn is not None else extract_depth_meters(frames)
+            depth_m = align_depth_fn(frames) if align_depth_fn is not None else extract_depth_meters(frames, pipeline=pipeline)
             t3 = time.perf_counter()
             
             if rgb is None or depth_m is None:

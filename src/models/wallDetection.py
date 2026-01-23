@@ -192,12 +192,6 @@ def wallDetection(
         # Clip to valid depth range
         depth_work = np.clip(depth_work, 0, 5.0)
 
-        # GPU-accelerated bilateral filter
-        depth_gpu = cv2.cuda_GpuMat()
-        depth_gpu.upload(depth_work)
-        depth_filtered_gpu = cv2.cuda.bilateralFilter(depth_gpu, kernel_size=5, sigma_color=50, sigma_spatial=50)
-        depth_work = depth_filtered_gpu.download()
-
     # Visualize depth map (normalize for display only)
     depth_vis = depth_work.copy()
 
