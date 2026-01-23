@@ -112,21 +112,25 @@ def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None, 
     depth_stack_gpu[~valid_mask] = 0
     depth_m_gpu = depth_stack_gpu.sum(axis=0) / count
 
-    # Filtro morfológico GPU con CuPy: dilatación 3x3
+    # Filtro morfológico GPU con CuPy: dilatar valores válidos hacia inválidos
     invalid_mask_gpu = (depth_m_gpu < 0.3) | (depth_m_gpu == 0)
     if cp.any(invalid_mask_gpu):
-        # Dilatación morfológica 3x3: máximo de vecindario
-        padded = cp.pad(depth_m_gpu, 1, mode='edge')
-        depth_dilated_gpu = padded[1:-1, 1:-1].copy()
+        # Reemplazar inválidos temporalmente con -inf para no afectar el máximo
+        depth_temp = depth_m_gpu.copy()
+        depth_temp[invalid_mask_gpu] = -cp.inf
 
-        # Tomar máximo de los 8 vecinos + centro
+        # Padding con -inf
+        padded = cp.pad(depth_temp, 1, mode='constant', constant_values=-cp.inf)
+        depth_dilated_gpu = cp.full_like(depth_m_gpu, -cp.inf)
+
+        # Tomar máximo de los 8 vecinos + centro (dilata valores válidos)
         for di in [-1, 0, 1]:
             for dj in [-1, 0, 1]:
                 depth_dilated_gpu = cp.maximum(depth_dilated_gpu, padded[1+di:padded.shape[0]-1+di, 1+dj:padded.shape[1]-1+dj])
 
-        # Aplicar solo a regiones inválidas
-        depth_m_gpu[invalid_mask_gpu] = depth_dilated_gpu[invalid_mask_gpu]
-        print("Applying morphological dilation to depth map on GPU")
+        # Aplicar solo donde había inválidos Y ahora hay un valor válido cercano
+        valid_from_dilation = depth_dilated_gpu > 0.3
+        depth_m_gpu[invalid_mask_gpu & valid_from_dilation] = depth_dilated_gpu[invalid_mask_gpu & valid_from_dilation]
     # Descargar resultado final de GPU
     return cp.asnumpy(depth_m_gpu)
 
