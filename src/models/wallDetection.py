@@ -86,9 +86,6 @@ def _preprocess_inputs(
     # Normalize depth only if from dataset (uint8 format)
     depth_normalized = depth_resized.astype(np.float32)
 
-    # DEBUG: Print depth statistics
-    print(f"[DEBUG] Depth - min: {depth_normalized.min():.2f}, max: {depth_normalized.max():.2f}, mean: {depth_normalized.mean():.2f}")
-
     # Detect format and normalize only dataset format
     max_val = depth_normalized.max()
     if 10 < max_val <= 255:  # Likely uint8 [0, 255] from dataset
@@ -157,10 +154,59 @@ def _postprocess_outputs(
     return wall_mask, door_mask
 
 
+def _preprocess_realsense_depth(
+    depth_m: np.ndarray,
+    min_depth: float = 0.3,
+    max_depth: float = 5.0,
+    hole_fill_radius: int = 5,
+    apply_bilateral: bool = True
+) -> np.ndarray:
+    """
+    Preprocess RealSense depth data to make it similar to dataset format.
+
+    Args:
+        depth_m: Raw depth in meters (H, W), float32
+        min_depth: Minimum valid depth in meters (closer values -> 0)
+        max_depth: Maximum valid depth in meters (farther values clipped)
+        hole_fill_radius: Radius for hole filling (0 to disable)
+        apply_bilateral: Apply bilateral filter to reduce noise
+
+    Returns:
+        Preprocessed depth (H, W), float32, values in [0, max_depth] range
+    """
+    depth = depth_m.copy()
+
+    # 1. Clip to valid range
+    depth = np.clip(depth, 0, max_depth)
+
+    # 2. Create mask of invalid values (too close or zero)
+    invalid_mask = (depth < min_depth).astype(np.uint8)
+
+    # 3. Hole filling: interpolate invalid regions using inpainting
+    if hole_fill_radius > 0 and invalid_mask.any():
+        # Convert to uint16 for inpainting (cv2.inpaint requires 8-bit or 16-bit)
+        depth_scaled = (depth * 1000).astype(np.uint16)  # Convert to mm
+        depth_filled = cv2.inpaint(depth_scaled, invalid_mask, hole_fill_radius, cv2.INPAINT_NS)
+        depth = depth_filled.astype(np.float32) / 1000.0  # Back to meters
+
+    # 4. Apply bilateral filter to reduce noise while preserving edges
+    if apply_bilateral:
+        # Convert to uint16 for filtering
+        depth_scaled = (depth * 1000).astype(np.uint16)
+        depth_filtered = cv2.bilateralFilter(depth_scaled, d=5, sigmaColor=10, sigmaSpace=10)
+        depth = depth_filtered.astype(np.float32) / 1000.0
+
+    # 5. Re-clip after filtering
+    depth = np.clip(depth, 0, max_depth)
+
+    return depth
+
+
 def wallDetection(
     depth_image: np.ndarray,
     rgb_image: np.ndarray,
-    floor_mask: np.ndarray
+    floor_mask: np.ndarray,
+    preprocess_realsense: bool = True
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Detect walls and doors from depth, RGB, and floor mask
@@ -169,6 +215,7 @@ def wallDetection(
         depth_image: Depth image (H, W) or (H, W, 1), depth values in meters or mm
         rgb_image: RGB color image (H, W, 3), values 0-255
         floor_mask: Floor mask (H, W) or (H, W, 1), binary mask 0-255
+        preprocess_realsense: Apply RealSense preprocessing (hole filling, denoising)
 
     Returns:
         Tuple of (wall_mask, door_mask):
@@ -182,23 +229,51 @@ def wallDetection(
     if not _lazy_init():
         raise RuntimeError("Model not initialized. Cannot run wallDetection.")
 
+    # Preprocess depth for visualization and inference
+    depth_work = depth_image.copy().astype(np.float32)
+
+    # Ensure 2D
+    if depth_work.ndim == 3:
+        depth_work = depth_work[:, :, 0]
+
+    # Detect if this is RealSense data (float, values in meters range)
+    max_val = depth_work.max()
+    is_realsense = (max_val > 0 and max_val <= 10)  # Likely meters
+
+    if is_realsense and preprocess_realsense:
+        print("[wallDetection] Detected RealSense format, applying preprocessing...")
+        depth_work = _preprocess_realsense_depth(
+            depth_work,
+            min_depth=0.3,
+            max_depth=5.0,
+            hole_fill_radius=5,
+            apply_bilateral=True
+        )
+
     # Visualize depth map (normalize for display only)
-    depth_vis = depth_image.copy().astype(np.float32)
-    # Normalize to 0-1 range for visualization
-    min_depth = depth_vis.min()
-    max_depth = depth_vis.max()
-    if max_depth > min_depth:
-        depth_vis = (depth_vis - min_depth) / (max_depth - min_depth)
+    depth_vis = depth_work.copy()
+
+    # Use percentiles for robust normalization (ignore outliers)
+    p2, p98 = np.percentile(depth_vis[depth_vis > 0], [2, 98]) if (depth_vis > 0).any() else (0, 1)
+
+    if p98 > p2:
+        depth_vis = np.clip(depth_vis, p2, p98)
+        depth_vis = ((depth_vis - p2) / (p98 - p2) * 255).astype(np.uint8)
     else:
-        depth_vis = np.zeros_like(depth_vis)
+        depth_vis = np.zeros_like(depth_vis, dtype=np.uint8)
+
+    # Display depth in grayscale
     cv2.imshow("Profundidad", depth_vis)
     cv2.waitKey(1)
 
     # Store original size
     original_size = depth_image.shape[:2]
 
+    # Use preprocessed depth for model input
+    depth_for_model = depth_work if (is_realsense and preprocess_realsense) else depth_image
+
     # Preprocess inputs
-    input_tensor = _preprocess_inputs(depth_image, rgb_image, floor_mask)
+    input_tensor = _preprocess_inputs(depth_for_model, rgb_image, floor_mask)
 
     # Run inference
     output = _runtime["model"].infer(input_tensor)
