@@ -126,7 +126,7 @@ class WallDetector:
         ], axis=0)
 
         # DEBUG: Show all 5 input channels
-        cv2.imshow("Input 0 - Depth (normalized)", depth_normalized)
+        cv2.imshow("Input 0 - Depth (normalized)", depth_image)
         cv2.imshow("Input 1 - Red channel", rgb_normalized[:, :, 0])
         cv2.imshow("Input 2 - Green channel", rgb_normalized[:, :, 1])
         cv2.imshow("Input 3 - Blue channel", rgb_normalized[:, :, 2])
