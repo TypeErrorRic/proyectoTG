@@ -405,6 +405,14 @@ def preprocesar(
             valid_from_dilation = depth_dilated > 0.3
             mapaProfundidad[invalid_mask & valid_from_dilation] = depth_dilated[invalid_mask & valid_from_dilation]
 
+        # Guided filter: suaviza ruido preservando bordes usando RGB como guía
+        mapaProfundidad = cv2.ximgproc.guidedFilter(
+            guide=imagenRGB,
+            src=mapaProfundidad.astype(np.float32),
+            radius=8,
+            eps=0.01
+        )
+
         # Ensure shapes match expected HxW (from camera intrinsics).
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
             mapaProfundidad = _resize_gpu(
