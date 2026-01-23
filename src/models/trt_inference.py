@@ -3,9 +3,21 @@
 UNet inference using TensorRT engine
 """
 import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit
+from cuda import cuda
 import numpy as np
+
+
+def check_cuda_err(err):
+    """Check CUDA error and raise exception if failed"""
+    if isinstance(err, cuda.CUresult):
+        if err != cuda.CUresult.CUDA_SUCCESS:
+            raise RuntimeError(f"CUDA error: {err}")
+    elif isinstance(err, tuple):
+        err, val = err
+        if err != cuda.CUresult.CUDA_SUCCESS:
+            raise RuntimeError(f"CUDA error: {err}")
+        return val
+    return err
 
 
 class TRTInference:
@@ -18,6 +30,10 @@ class TRTInference:
         Args:
             engine_path: Path to TensorRT engine file
         """
+        # Initialize CUDA
+        check_cuda_err(cuda.cuInit(0))
+        self.cuda_ctx = check_cuda_err(cuda.cuCtxGetCurrent())
+
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.engine = self._load_engine(engine_path)
         self.context = self.engine.create_execution_context()
@@ -39,7 +55,7 @@ class TRTInference:
         inputs = []
         outputs = []
         bindings = []
-        stream = cuda.Stream()
+        stream = check_cuda_err(cuda.cuStreamCreate(0))
 
         for i in range(self.engine.num_io_tensors):
             tensor_name = self.engine.get_tensor_name(i)
@@ -47,8 +63,9 @@ class TRTInference:
             dtype = trt.nptype(self.engine.get_tensor_dtype(tensor_name))
 
             # Allocate host and device buffers
-            host_mem = cuda.pagelocked_empty(size, dtype)
-            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            host_mem = np.empty(size, dtype=dtype)
+            nbytes = host_mem.nbytes
+            device_mem = check_cuda_err(cuda.cuMemAlloc(nbytes))
 
             # Append to the appropriate list
             bindings.append(int(device_mem))
@@ -74,7 +91,12 @@ class TRTInference:
         np.copyto(self.inputs[0]['host'], input_data.ravel())
 
         # Transfer input data to device
-        cuda.memcpy_htod_async(self.inputs[0]['device'], self.inputs[0]['host'], self.stream)
+        check_cuda_err(cuda.cuMemcpyHtoDAsync(
+            self.inputs[0]['device'],
+            self.inputs[0]['host'].ctypes.data,
+            self.inputs[0]['host'].nbytes,
+            self.stream
+        ))
 
         # Set input/output bindings
         for i, inp in enumerate(self.inputs):
@@ -83,13 +105,18 @@ class TRTInference:
             self.context.set_tensor_address(out['name'], self.bindings[len(self.inputs) + i])
 
         # Run inference
-        self.context.execute_async_v3(stream_handle=self.stream.handle)
+        self.context.execute_async_v3(stream_handle=self.stream)
 
         # Transfer predictions back from device
-        cuda.memcpy_dtoh_async(self.outputs[0]['host'], self.outputs[0]['device'], self.stream)
+        check_cuda_err(cuda.cuMemcpyDtoHAsync(
+            self.outputs[0]['host'].ctypes.data,
+            self.outputs[0]['device'],
+            self.outputs[0]['host'].nbytes,
+            self.stream
+        ))
 
         # Synchronize the stream
-        self.stream.synchronize()
+        check_cuda_err(cuda.cuStreamSynchronize(self.stream))
 
         # Reshape output to expected shape
         output_shape = self.engine.get_tensor_shape(self.outputs[0]['name'])
@@ -99,6 +126,21 @@ class TRTInference:
 
     def __del__(self):
         """Cleanup"""
+        # Free device memory
+        if hasattr(self, 'inputs'):
+            for inp in self.inputs:
+                if 'device' in inp:
+                    cuda.cuMemFree(inp['device'])
+        if hasattr(self, 'outputs'):
+            for out in self.outputs:
+                if 'device' in out:
+                    cuda.cuMemFree(out['device'])
+
+        # Destroy stream
+        if hasattr(self, 'stream'):
+            cuda.cuStreamDestroy(self.stream)
+
+        # Delete TensorRT objects
         if hasattr(self, 'context'):
             del self.context
         if hasattr(self, 'engine'):
