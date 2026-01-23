@@ -395,18 +395,31 @@ def preprocesar(
             _runtime["mapaProfundidad"] = None
             return False
 
-        # Filtro morfológico con OpenCV: dilatar valores válidos hacia inválidos
+        # Filtro morfológico GPU: dilatar valores válidos hacia inválidos
         invalid_mask = (mapaProfundidad < 0.3) | (mapaProfundidad == 0)
         if np.any(invalid_mask):
-            # Usar dilatación con kernel 3x3 para expandir valores válidos
+            # Usar dilatación GPU con kernel 3x3 para expandir valores válidos
             kernel = np.ones((3, 3), dtype=np.uint8)
-            # Crear máscara de válidos y dilatar el mapa de profundidad
             depth_temp = mapaProfundidad.copy()
             depth_temp[invalid_mask] = 0
-            depth_dilated = cv2.dilate(depth_temp, kernel, iterations=1)
+            # Subir a GPU y dilatar
+            depth_temp_gpu = cv2.cuda_GpuMat()
+            depth_temp_gpu.upload(depth_temp.astype(np.float32))
+            morph_filter = cv2.cuda.createMorphologyFilter(cv2.MORPH_DILATE, cv2.CV_32F, kernel)
+            depth_dilated_gpu = morph_filter.apply(depth_temp_gpu)
+            depth_dilated = depth_dilated_gpu.download()
             # Aplicar solo donde había inválidos y ahora hay valor válido
             valid_from_dilation = depth_dilated > 0.3
             mapaProfundidad[invalid_mask & valid_from_dilation] = depth_dilated[invalid_mask & valid_from_dilation]
+
+        # Guided filter GPU: suaviza ruido preservando bordes usando RGB como guía
+        guide_gpu = cv2.cuda_GpuMat()
+        src_gpu = cv2.cuda_GpuMat()
+        guide_gpu.upload(imagenRGB)
+        src_gpu.upload(mapaProfundidad.astype(np.float32))
+        guided_filter = cv2.cuda.createGuidedFilter(guide_gpu, radius=8, eps=0.01)
+        dst_gpu = guided_filter.apply(src_gpu)
+        mapaProfundidad = dst_gpu.download()
 
         # Ensure shapes match expected HxW (from camera intrinsics).
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
