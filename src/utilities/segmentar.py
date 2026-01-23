@@ -134,7 +134,13 @@ def segmentar() -> Any:
         with _runtime_lock:
             _runtime["last_ransac_ms"] = None
         return imagenRGB
-    cv2.imshow("Input 0 - Depth (normalized)", mapaProfundidad)
+
+    # Visualize depth map (normalize for display only)
+    depth_vis = mapaProfundidad.copy().astype(np.float32)
+    if depth_vis.max() > 1.0:
+        depth_vis = depth_vis / 10.0  # Assume max 10m for visualization
+        depth_vis = np.clip(depth_vis, 0, 1)
+    cv2.imshow("Profundidad", depth_vis)
     # Get ground mask
     ground_params = obtener_parametros_ground()
     ground_mask = get_ground(

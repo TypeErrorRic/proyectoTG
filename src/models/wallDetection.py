@@ -125,8 +125,7 @@ class WallDetector:
             rgb_normalized[:, :, 2],  # B channel
             floor_normalized
         ], axis=0)
-
-        # DEBUG: Show all 5 input channels
+        
         cv2.imshow("Input 1 - Red channel", rgb_normalized[:, :, 0])
         cv2.imshow("Input 2 - Green channel", rgb_normalized[:, :, 1])
         cv2.imshow("Input 3 - Blue channel", rgb_normalized[:, :, 2])
@@ -311,7 +310,13 @@ def _preprocess_inputs(
     ], axis=0)
 
     # DEBUG: Show all 5 input channels
-    cv2.imshow("Input 0 - Depth (normalized)", depth_resized)
+    # Normalize depth for visualization only (0-1 range)
+    depth_vis = depth_normalized.copy()
+    if depth_vis.max() > 1.0:
+        depth_vis = depth_vis / 10.0  # Assume max 10m for visualization
+        depth_vis = np.clip(depth_vis, 0, 1)
+
+    cv2.imshow("Input 0 - Depth (for model)", depth_vis)
     cv2.imshow("Input 1 - Red channel", rgb_normalized[:, :, 0])
     cv2.imshow("Input 2 - Green channel", rgb_normalized[:, :, 1])
     cv2.imshow("Input 3 - Blue channel", rgb_normalized[:, :, 2])
