@@ -85,6 +85,7 @@ class WallDetector:
             Preprocessed input tensor of shape (1, 5, 160, 192)
         """
         # Ensure correct shapes
+        depth_image2 = depth_image.copy()
         if depth_image.ndim == 3:
             depth_image = depth_image[:, :, 0]
         if floor_mask.ndim == 3:
@@ -126,7 +127,7 @@ class WallDetector:
         ], axis=0)
 
         # DEBUG: Show all 5 input channels
-        cv2.imshow("Input 0 - Depth (normalized)", depth_image)
+        cv2.imshow("Input 0 - Depth (normalized)", depth_image2)
         cv2.imshow("Input 1 - Red channel", rgb_normalized[:, :, 0])
         cv2.imshow("Input 2 - Green channel", rgb_normalized[:, :, 1])
         cv2.imshow("Input 3 - Blue channel", rgb_normalized[:, :, 2])
