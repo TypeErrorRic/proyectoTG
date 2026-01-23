@@ -138,8 +138,10 @@ def segmentar() -> Any:
     # Visualize depth map (normalize for display only)
     depth_vis = mapaProfundidad.copy().astype(np.float32)
     if depth_vis.max() > 1.0:
-        depth_vis = depth_vis / 10.0  # Assume max 10m for visualization
-        depth_vis = np.clip(depth_vis, 0, 1)
+        # Normalize by actual max value for better contrast
+        max_depth = depth_vis.max()
+        if max_depth > 0:
+            depth_vis = depth_vis / max_depth
     cv2.imshow("Profundidad", depth_vis)
     # Get ground mask
     ground_params = obtener_parametros_ground()
