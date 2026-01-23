@@ -189,8 +189,13 @@ def wallDetection(
     is_realsense = (max_val > 0 and max_val <= 10)  # Likely meters
 
     if is_realsense and preprocess_realsense:
-        # Simple clip to valid depth range
+        # Clip to valid depth range
         depth_work = np.clip(depth_work, 0, 5.0)
+
+        # Fast hole filling with median blur (accurate + fast)
+        depth_mm = (depth_work * 1000).astype(np.uint16)  # Convert to mm
+        depth_filled = cv2.medianBlur(depth_mm, 3)  # 3x3 kernel
+        depth_work = depth_filled.astype(np.float32) / 1000.0  # Back to meters
 
     # Visualize depth map (normalize for display only)
     depth_vis = depth_work.copy()
