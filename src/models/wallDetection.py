@@ -15,7 +15,7 @@ from .trt_inference import TRTInference
 _runtime: Dict[str, Any] = {
     "model": None,
     "engine_path": None,
-    "input_size": (256, 256),
+    "input_size": (192, 160),  # (width, height)
 }
 
 
@@ -246,7 +246,7 @@ def _preprocess_inputs(
         floor_mask: Floor mask (H, W) or (H, W, 1)
 
     Returns:
-        Preprocessed input tensor of shape (1, 5, 256, 256)
+        Preprocessed input tensor of shape (1, 5, 160, 192)
     """
     input_size = _runtime["input_size"]
 
@@ -261,10 +261,20 @@ def _preprocess_inputs(
     rgb_resized = cv2.resize(rgb_image, input_size, interpolation=cv2.INTER_LINEAR)
     floor_resized = cv2.resize(floor_mask, input_size, interpolation=cv2.INTER_NEAREST)
 
-    # Normalize depth (0-1 range, assuming depth in meters)
+    # Normalize depth (0-1 range)
     depth_normalized = depth_resized.astype(np.float32)
-    if depth_normalized.max() > 10:  # Likely in mm
+
+    # Detect format and normalize accordingly
+    max_val = depth_normalized.max()
+    if max_val > 100:  # Likely uint8 [0, 255] from dataset
+        depth_normalized = depth_normalized / 255.0
+    elif max_val > 10:  # Likely in mm (RealSense raw)
         depth_normalized = depth_normalized / 10000.0
+    # else: already in meters [0-10], normalize by max or fixed value
+    else:
+        # Assume meters, normalize by typical max depth (10m)
+        depth_normalized = depth_normalized / 10.0
+
     depth_normalized = np.clip(depth_normalized, 0, 1)
 
     # Normalize RGB (0-1 range)
@@ -296,7 +306,7 @@ def _postprocess_outputs(
     Postprocess model outputs
 
     Args:
-        output: Model output of shape (1, 2, 256, 256)
+        output: Model output of shape (1, 2, 160, 192)
         original_size: Original image size (height, width)
 
     Returns:

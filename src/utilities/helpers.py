@@ -315,9 +315,16 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
             )
             return None, None
 
+        # Handle different depth formats
         if depth_raw.dtype == np.uint16:
+            # RealSense format: depth in mm, convert to meters
             mapa_profundidad = depth_raw.astype(np.float32) / 1000.0
+        elif depth_raw.dtype == np.uint8:
+            # NYU dataset format: normalized depth [0, 255] → keep as-is
+            # wallDetection will handle the normalization
+            mapa_profundidad = depth_raw.astype(np.float32)
         else:
+            # Already float32, assume in meters
             mapa_profundidad = depth_raw.astype(np.float32)
 
         return imagen_rgb, mapa_profundidad
