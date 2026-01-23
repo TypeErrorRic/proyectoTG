@@ -114,8 +114,8 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
 if __name__ == "__main__":
     # Paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    onnx_file = os.path.join(script_dir, "mobilenetv2_unet_jetson.onnx")
-    engine_file = os.path.join(script_dir, "mobilenetv2_unet_jetson.engine")
+    onnx_file = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.onnx")
+    engine_file = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.engine")
 
     # Check if ONNX file exists
     if not os.path.exists(onnx_file):

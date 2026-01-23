@@ -47,7 +47,7 @@ class WallDetector:
             if self.engine_path is None:
                 # Default path: same directory as this script
                 script_dir = os.path.dirname(os.path.abspath(__file__))
-                engine_path = os.path.join(script_dir, "mobilenetv2_unet_jetson.engine")
+                engine_path = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.engine")
             else:
                 engine_path = self.engine_path
 
@@ -214,7 +214,7 @@ def _lazy_init(engine_path: Optional[str] = None) -> bool:
     if engine_path is None:
         # Default path: same directory as this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        engine_path = os.path.join(script_dir, "mobilenetv2_unet_jetson.engine")
+        engine_path = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.engine")
 
     # Check if engine file exists
     if not os.path.exists(engine_path):

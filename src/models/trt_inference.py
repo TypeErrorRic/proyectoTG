@@ -157,7 +157,7 @@ if __name__ == "__main__":
 
     # Paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    engine_file = os.path.join(script_dir, "mobilenetv2_unet_jetson.engine")
+    engine_file = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.engine")
 
     # Check if engine file exists
     if not os.path.exists(engine_file):
