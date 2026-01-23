@@ -292,6 +292,14 @@ def _preprocess_inputs(
         floor_normalized
     ], axis=0)
 
+    # DEBUG: Show all 5 input channels
+    cv2.imshow("Input 0 - Depth (normalized)", depth_normalized)
+    cv2.imshow("Input 1 - Red channel", rgb_normalized[:, :, 0])
+    cv2.imshow("Input 2 - Green channel", rgb_normalized[:, :, 1])
+    cv2.imshow("Input 3 - Blue channel", rgb_normalized[:, :, 2])
+    cv2.imshow("Input 4 - Floor mask", floor_normalized)
+    cv2.waitKey(1)  # Non-blocking wait to update windows
+
     # Add batch dimension: (1, 5, H, W)
     input_tensor = np.expand_dims(input_tensor, axis=0)
 
