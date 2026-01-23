@@ -395,6 +395,19 @@ def preprocesar(
             _runtime["mapaProfundidad"] = None
             return False
 
+        # Filtro morfológico con OpenCV: dilatar valores válidos hacia inválidos
+        invalid_mask = (mapaProfundidad < 0.3) | (mapaProfundidad == 0)
+        if np.any(invalid_mask):
+            # Usar dilatación con kernel 3x3 para expandir valores válidos
+            kernel = np.ones((3, 3), dtype=np.uint8)
+            # Crear máscara de válidos y dilatar el mapa de profundidad
+            depth_temp = mapaProfundidad.copy()
+            depth_temp[invalid_mask] = 0
+            depth_dilated = cv2.dilate(depth_temp, kernel, iterations=1)
+            # Aplicar solo donde había inválidos y ahora hay valor válido
+            valid_from_dilation = depth_dilated > 0.3
+            mapaProfundidad[invalid_mask & valid_from_dilation] = depth_dilated[invalid_mask & valid_from_dilation]
+
         # Ensure shapes match expected HxW (from camera intrinsics).
         if mapaProfundidad.shape[0] != H or mapaProfundidad.shape[1] != W:
             mapaProfundidad = _resize_gpu(

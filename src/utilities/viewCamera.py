@@ -80,21 +80,21 @@ def extract_depth_raw(frames: rs.composite_frame) -> np.ndarray:
 
 def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None, pipeline: rs.pipeline = None) -> np.ndarray:
     """
-    Profundidad en metros (float32, H×W). Promedia 3 frames en GPU y aplica filtro morfológico GPU con CuPy.
+    Profundidad en metros (float32, H×W). Promedia 10 frames en GPU con CuPy.
     """
     if depth_scale is None:
         depth_scale = get_depth_scale()
 
-    # Capturar 3 frames
+    # Capturar 10 frames
     depth_frames = []
     depth_raw = extract_depth_raw(frames)
     if depth_raw is not None:
         depth_frames.append(depth_raw.astype(np.float32) * float(depth_scale))
 
     if pipeline is not None:
-        for _ in range(2):
+        for _ in range(9):
             try:
-                extra_frames = pipeline.wait_for_frames()
+                extra_frames = pipeline.wait_for_frames(10)
                 depth_raw = extract_depth_raw(extra_frames)
                 if depth_raw is not None:
                     depth_frames.append(depth_raw.astype(np.float32) * float(depth_scale))
@@ -112,26 +112,6 @@ def extract_depth_meters(frames: rs.composite_frame, depth_scale: float = None, 
     depth_stack_gpu[~valid_mask] = 0
     depth_m_gpu = depth_stack_gpu.sum(axis=0) / count
 
-    # Filtro morfológico GPU con CuPy: dilatar valores válidos hacia inválidos
-    invalid_mask_gpu = (depth_m_gpu < 0.3) | (depth_m_gpu == 0)
-    if cp.any(invalid_mask_gpu):
-        # Reemplazar inválidos temporalmente con -inf para no afectar el máximo
-        depth_temp = depth_m_gpu.copy()
-        depth_temp[invalid_mask_gpu] = -cp.inf
-
-        # Padding con -inf
-        padded = cp.pad(depth_temp, 1, mode='constant', constant_values=-cp.inf)
-        depth_dilated_gpu = cp.full_like(depth_m_gpu, -cp.inf)
-
-        # Tomar máximo de los 8 vecinos + centro (dilata valores válidos)
-        for di in [-1, 0, 1]:
-            for dj in [-1, 0, 1]:
-                depth_dilated_gpu = cp.maximum(depth_dilated_gpu, padded[1+di:padded.shape[0]-1+di, 1+dj:padded.shape[1]-1+dj])
-
-        # Aplicar solo donde había inválidos Y ahora hay un valor válido cercano
-        valid_from_dilation = depth_dilated_gpu > 0.3
-        depth_m_gpu[invalid_mask_gpu & valid_from_dilation] = depth_dilated_gpu[invalid_mask_gpu & valid_from_dilation]
-    # Descargar resultado final de GPU
     return cp.asnumpy(depth_m_gpu)
 
 
