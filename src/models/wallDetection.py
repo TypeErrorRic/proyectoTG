@@ -204,8 +204,9 @@ def wallDetection(
     else:
         depth_vis = np.zeros_like(depth_vis, dtype=np.uint8)
 
-    # Display depth in grayscale
+    # Display depth and RGB
     cv2.imshow("Profundidad", depth_vis)
+    cv2.imshow("RGB", rgb_image)
     cv2.waitKey(1)
 
     # Store original size
