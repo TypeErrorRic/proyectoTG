@@ -134,7 +134,7 @@ def segmentar() -> Any:
         with _runtime_lock:
             _runtime["last_ransac_ms"] = None
         return imagenRGB
-
+    cv2.imshow("Input 0 - Depth (normalized)", mapaProfundidad)
     # Get ground mask
     ground_params = obtener_parametros_ground()
     ground_mask = get_ground(
