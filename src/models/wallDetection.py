@@ -189,12 +189,11 @@ def _preprocess_realsense_depth(
         depth_filled = cv2.inpaint(depth_scaled, invalid_mask, hole_fill_radius, cv2.INPAINT_NS)
         depth = depth_filled.astype(np.float32) / 1000.0  # Back to meters
 
-    # 4. Apply bilateral filter to reduce noise while preserving edges
+    # 4. Apply bilateral filter to reduce noise while preserving edges (slow)
     if apply_bilateral:
-        # Convert to uint16 for filtering
-        depth_scaled = (depth * 1000).astype(np.uint16)
-        depth_filtered = cv2.bilateralFilter(depth_scaled, d=5, sigmaColor=10, sigmaSpace=10)
-        depth = depth_filtered.astype(np.float32) / 1000.0
+        # Use float32 for filtering (bilateralFilter requires uint8 or float32)
+        depth_filtered = cv2.bilateralFilter(depth, d=5, sigmaColor=0.01, sigmaSpace=10)
+        depth = depth_filtered
 
     # 5. Re-clip after filtering
     depth = np.clip(depth, 0, max_depth)
@@ -246,8 +245,8 @@ def wallDetection(
             depth_work,
             min_depth=0.3,
             max_depth=5.0,
-            hole_fill_radius=5,
-            apply_bilateral=True
+            hole_fill_radius=3,
+            apply_bilateral=False
         )
 
     # Visualize depth map (normalize for display only)
