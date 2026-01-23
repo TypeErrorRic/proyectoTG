@@ -66,10 +66,12 @@ class TRTInference:
         bindings = []
         stream = check_cuda_err(cuda.cuStreamCreate(0))
 
-        for i in range(self.engine.num_io_tensors):
-            tensor_name = self.engine.get_tensor_name(i)
-            size = trt.volume(self.engine.get_tensor_shape(tensor_name))
-            dtype = trt.nptype(self.engine.get_tensor_dtype(tensor_name))
+        for i in range(self.engine.num_bindings):
+            # Get binding properties
+            shape = self.engine.get_binding_shape(i)
+            size = trt.volume(shape)
+            dtype = trt.nptype(self.engine.get_binding_dtype(i))
+            name = self.engine.get_binding_name(i)
 
             # Allocate host and device buffers
             host_mem = np.empty(size, dtype=dtype)
@@ -79,10 +81,10 @@ class TRTInference:
             # Append to the appropriate list
             bindings.append(int(device_mem))
 
-            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
-                inputs.append({'host': host_mem, 'device': device_mem, 'name': tensor_name})
+            if self.engine.binding_is_input(i):
+                inputs.append({'host': host_mem, 'device': device_mem, 'name': name, 'index': i})
             else:
-                outputs.append({'host': host_mem, 'device': device_mem, 'name': tensor_name})
+                outputs.append({'host': host_mem, 'device': device_mem, 'name': name, 'index': i})
 
         return inputs, outputs, bindings, stream
 
@@ -107,14 +109,8 @@ class TRTInference:
             self.stream
         ))
 
-        # Set input/output bindings
-        for i, inp in enumerate(self.inputs):
-            self.context.set_tensor_address(inp['name'], self.bindings[i])
-        for i, out in enumerate(self.outputs):
-            self.context.set_tensor_address(out['name'], self.bindings[len(self.inputs) + i])
-
-        # Run inference
-        self.context.execute_async_v3(stream_handle=self.stream)
+        # Run inference (bindings are already set up in self.bindings)
+        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream)
 
         # Transfer predictions back from device
         check_cuda_err(cuda.cuMemcpyDtoHAsync(
@@ -128,7 +124,7 @@ class TRTInference:
         check_cuda_err(cuda.cuStreamSynchronize(self.stream))
 
         # Reshape output to expected shape
-        output_shape = self.engine.get_tensor_shape(self.outputs[0]['name'])
+        output_shape = self.engine.get_binding_shape(self.outputs[0]['index'])
         output = self.outputs[0]['host'].reshape(output_shape)
 
         return output
