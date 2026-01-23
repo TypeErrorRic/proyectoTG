@@ -9,8 +9,10 @@ and shares its result with the main thread through a small queue.
 import src.utilities.viewCamera as viewCamera
 from utilities.GroundDetection import get_ground, get_last_ransac_ms
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
+from src.models.wallDetection import wallDetection
 
 # Runtime libraries
+import numpy as np
 import cupy as cp
 import cv2
 import threading
@@ -118,7 +120,7 @@ def segmentar() -> Any:
     Segmentation worker.
 
     Uses the current frame and parameters stored in _runtime to detect
-    the ground, wall and door plane and returns the RGB image with the ground mask
+    the ground, wall and door planes and returns the RGB image with all masks
     overlaid.
     """
     imagenRGB = _runtime.get("imagenRGB")
@@ -133,8 +135,9 @@ def segmentar() -> Any:
             _runtime["last_ransac_ms"] = None
         return imagenRGB
 
+    # Get ground mask
     ground_params = obtener_parametros_ground()
-    ground = get_ground(
+    ground_mask = get_ground(
         mapaProfundidad,
         rays_cp,
         H,
@@ -143,7 +146,23 @@ def segmentar() -> Any:
     )
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
-    return apply_mask_to_rgb(imagenRGB, ground)
+
+    # Get wall and door masks using TensorRT model
+    wall_mask = None
+    door_mask = None
+    try:
+        wall_mask, door_mask = wallDetection(
+            mapaProfundidad,
+            imagenRGB,
+            ground_mask
+        )
+    except Exception as e:
+        print(f"[segmentar] Wall detection failed: {e}")
+        # Continue with only ground mask if wall detection fails
+        wall_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
+        door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
+
+    return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
 
 
 def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:

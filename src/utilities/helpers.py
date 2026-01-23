@@ -138,53 +138,114 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
 
 # No additional helpers at the moment
 
-def apply_mask_to_rgb(rgb_image: np.ndarray, ground_mask: np.ndarray) -> np.ndarray:
+def apply_mask_to_rgb(
+    rgb_image: np.ndarray,
+    ground_mask: np.ndarray,
+    wall_mask: Optional[np.ndarray] = None,
+    door_mask: Optional[np.ndarray] = None
+) -> np.ndarray:
     """
-    Paint floor region in green over the RGB image.
+    Paint floor, wall, and door regions with different colors over the RGB image.
+
+    Args:
+        rgb_image: RGB image (H, W, 3)
+        ground_mask: Floor mask (H, W) - painted in GREEN
+        wall_mask: Wall mask (H, W) - painted in BLUE (optional)
+        door_mask: Door mask (H, W) - painted in RED (optional)
+
+    Returns:
+        RGB image with colored masks overlaid
     """
     if rgb_image is None:
         return None
     if ground_mask is None:
         ground_mask = np.zeros(rgb_image.shape[:2], dtype=np.uint8)
 
-    ground_mask = np.asarray(ground_mask)
-    mask_h, mask_w = ground_mask.shape[:2]
+    def _prepare_mask(mask, target_shape):
+        """Normalize, resize, and threshold a mask using GPU"""
+        if mask is None:
+            return None
 
-    # Normalize mask to a single channel using GPU
-    mask_gpu = cv2.cuda_GpuMat()
-    mask_gpu.upload(ground_mask)
-    if ground_mask.ndim == 3 and ground_mask.shape[-1] == 3:
-        mask_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_BGR2GRAY)
+        mask = np.asarray(mask)
+        mask_h, mask_w = mask.shape[:2]
 
-    # Resize on GPU if shape differs from RGB
-    if (mask_h, mask_w) != (rgb_image.shape[0], rgb_image.shape[1]):
-        mask_gpu = cv2.cuda.resize(
-            mask_gpu,
-            (rgb_image.shape[1], rgb_image.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        )
+        # Upload to GPU
+        mask_gpu = cv2.cuda_GpuMat()
+        mask_gpu.upload(mask)
 
-    # Ensure binary mask 0/255 and single channel
-    _, mask_gpu = cv2.cuda.threshold(mask_gpu, 0, 255, cv2.THRESH_BINARY)
+        # Convert to grayscale if needed
+        if mask.ndim == 3 and mask.shape[-1] == 3:
+            mask_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_BGR2GRAY)
 
-    # Upload RGB and prepare green overlay on GPU
+        # Resize if needed
+        if (mask_h, mask_w) != target_shape:
+            mask_gpu = cv2.cuda.resize(
+                mask_gpu,
+                (target_shape[1], target_shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+
+        # Binary threshold
+        _, mask_gpu = cv2.cuda.threshold(mask_gpu, 0, 255, cv2.THRESH_BINARY)
+        return mask_gpu
+
+    # Prepare all masks
+    target_shape = (rgb_image.shape[0], rgb_image.shape[1])
+    ground_gpu = _prepare_mask(ground_mask, target_shape)
+    wall_gpu = _prepare_mask(wall_mask, target_shape) if wall_mask is not None else None
+    door_gpu = _prepare_mask(door_mask, target_shape) if door_mask is not None else None
+
+    # Upload RGB to GPU
     rgb_gpu = cv2.cuda_GpuMat()
     rgb_gpu.upload(rgb_image)
-    green_cpu = np.zeros_like(rgb_image, dtype=rgb_image.dtype)
-    green_cpu[..., 1] = 255
-    green_gpu = cv2.cuda_GpuMat()
-    green_gpu.upload(green_cpu)
 
-    # Expand masks to 3 channels and apply without mask arg to avoid type checks
-    mask3_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_GRAY2BGR)
-    mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
-    mask_inv3_gpu = cv2.cuda.cvtColor(mask_inv_gpu, cv2.COLOR_GRAY2BGR)
+    # Create color overlays
+    def _create_color_overlay(color_bgr):
+        """Create a solid color image matching RGB size"""
+        color_cpu = np.zeros_like(rgb_image, dtype=rgb_image.dtype)
+        color_cpu[:, :, 0] = color_bgr[0]  # B
+        color_cpu[:, :, 1] = color_bgr[1]  # G
+        color_cpu[:, :, 2] = color_bgr[2]  # R
+        color_gpu = cv2.cuda_GpuMat()
+        color_gpu.upload(color_cpu)
+        return color_gpu
 
-    fg_gpu = cv2.cuda.bitwise_and(green_gpu, mask3_gpu)
-    bg_gpu = cv2.cuda.bitwise_and(rgb_gpu, mask_inv3_gpu)
-    out_gpu = cv2.cuda.bitwise_or(bg_gpu, fg_gpu)
+    # Green for ground, Blue for wall, Red for door
+    green_gpu = _create_color_overlay((0, 255, 0))    # Green (BGR)
+    blue_gpu = _create_color_overlay((255, 0, 0))     # Blue (BGR)
+    red_gpu = _create_color_overlay((0, 0, 255))      # Red (BGR)
 
-    return out_gpu.download()
+    # Start with the original RGB
+    result_gpu = rgb_gpu.clone()
+
+    # Apply masks in order: ground -> wall -> door (door has priority)
+    def _apply_overlay(base_gpu, overlay_gpu, mask_gpu):
+        """Apply colored overlay using mask"""
+        if mask_gpu is None:
+            return base_gpu
+
+        # Convert mask to 3 channels
+        mask3_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_GRAY2BGR)
+        mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
+        mask_inv3_gpu = cv2.cuda.cvtColor(mask_inv_gpu, cv2.COLOR_GRAY2BGR)
+
+        # Apply overlay: fg = overlay & mask, bg = base & ~mask
+        fg_gpu = cv2.cuda.bitwise_and(overlay_gpu, mask3_gpu)
+        bg_gpu = cv2.cuda.bitwise_and(base_gpu, mask_inv3_gpu)
+        return cv2.cuda.bitwise_or(bg_gpu, fg_gpu)
+
+    # Apply ground (green)
+    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu)
+
+    # Apply wall (blue)
+    if wall_gpu is not None:
+        result_gpu = _apply_overlay(result_gpu, blue_gpu, wall_gpu)
+
+    # Apply door (red) - has highest priority
+    if door_gpu is not None:
+        result_gpu = _apply_overlay(result_gpu, red_gpu, door_gpu)
+
+    return result_gpu.download()
 
 _DATASET_IMAGE_FILES = None
 _DATASET_INDEX = 0
