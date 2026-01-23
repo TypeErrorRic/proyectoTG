@@ -10,11 +10,18 @@ import numpy as np
 def check_cuda_err(err):
     """Check CUDA error and raise exception if failed"""
     if isinstance(err, tuple):
-        # Function returns (CUresult, value)
-        err_code, val = err
-        if err_code != cuda.CUresult.CUDA_SUCCESS:
-            raise RuntimeError(f"CUDA error: {err_code}")
-        return val
+        if len(err) == 2:
+            # Function returns (CUresult, value)
+            err_code, val = err
+            if err_code != cuda.CUresult.CUDA_SUCCESS:
+                raise RuntimeError(f"CUDA error: {err_code}")
+            return val
+        else:
+            # Function returns (CUresult,) - single element tuple
+            err_code = err[0]
+            if err_code != cuda.CUresult.CUDA_SUCCESS:
+                raise RuntimeError(f"CUDA error: {err_code}")
+            return None
     else:
         # Function returns only CUresult
         if err != cuda.CUresult.CUDA_SUCCESS:
