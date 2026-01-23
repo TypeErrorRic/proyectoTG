@@ -69,15 +69,15 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
         config.max_workspace_size = 512 * (1 << 20)
 
         # Handle dynamic shapes - create optimization profile
-        # Input shape is (-1, 5, 256, 256) where -1 is dynamic batch
+        # Input shape is (-1, 5, 160, 192) where -1 is dynamic batch
         profile = builder.create_optimization_profile()
         input_name = network.get_input(0).name
         # Set min, opt, max shapes for dynamic batch dimension
         # Using batch size = 1 for all (typical for Jetson Nano inference)
         profile.set_shape(input_name,
-                         min=(1, 5, 256, 256),   # minimum shape
-                         opt=(1, 5, 256, 256),   # optimal shape
-                         max=(1, 5, 256, 256))   # maximum shape
+                         min=(1, 5, 160, 192),   # minimum shape
+                         opt=(1, 5, 160, 192),   # optimal shape
+                         max=(1, 5, 160, 192))   # maximum shape
         config.add_optimization_profile(profile)
         print("Added optimization profile for dynamic batch (batch=1)")
 

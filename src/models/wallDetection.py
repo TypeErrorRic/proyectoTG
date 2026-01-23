@@ -15,7 +15,7 @@ from .trt_inference import TRTInference
 _runtime: Dict[str, Any] = {
     "model": None,
     "engine_path": None,
-    "input_size": (192, 160),  # (width, height)
+    "input_size": (256, 256),  # (width, height) - must match TensorRT engine
 }
 
 
@@ -246,7 +246,7 @@ def _preprocess_inputs(
         floor_mask: Floor mask (H, W) or (H, W, 1)
 
     Returns:
-        Preprocessed input tensor of shape (1, 5, 160, 192)
+        Preprocessed input tensor of shape (1, 5, 256, 256)
     """
     input_size = _runtime["input_size"]
 
@@ -306,7 +306,7 @@ def _postprocess_outputs(
     Postprocess model outputs
 
     Args:
-        output: Model output of shape (1, 2, 160, 192)
+        output: Model output of shape (1, 2, 256, 256)
         original_size: Original image size (height, width)
 
     Returns:
