@@ -465,16 +465,16 @@ PY
     require_jetson
     ensure_python
     echo "Iniciando prueba de inferencia TensorRT..."
-    if [[ -f "src/models/unet_trt.py" ]]; then
+    if [[ -f "src/models/trt_inference.py" ]]; then
       if [[ ! -f "src/models/mobilenetv2_unet_jetson.engine" ]]; then
         echo "ERROR: No se encontro el archivo .engine"
         echo "Ejecuta primero: ./run20.sh build-engine"
         exit 1
       fi
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/models/unet_trt.py
+      "$PYTHON_BIN" src/models/trt_inference.py
     else
-      echo "ERROR: No se encontro src/models/unet_trt.py"
+      echo "ERROR: No se encontro src/models/trt_inference.py"
       exit 1
     fi
     ;;
