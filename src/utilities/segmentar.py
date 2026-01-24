@@ -395,6 +395,12 @@ def preprocesar(
             _runtime["mapaProfundidad"] = None
             return False
 
+        # Aplicar CLAHE a la imagen RGB (mejora contraste adaptativo)
+        lab = cv2.cvtColor(imagenRGB, cv2.COLOR_BGR2LAB)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+        imagenRGB = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
         # Filtro morfológico: dilatar valores válidos hacia inválidos
         invalid_mask = (mapaProfundidad < 0.3) | (mapaProfundidad == 0)
         if np.any(invalid_mask):
