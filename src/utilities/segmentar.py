@@ -143,6 +143,12 @@ def segmentar() -> Any:
             _runtime["last_ransac_ms"] = None
         return imagenRGB
 
+    depth_cp = None
+    try:
+        depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
+    except Exception:
+        depth_cp = None
+
     # Get ground mask
     ground_params = obtener_parametros_ground()
     ground_mask = get_ground(
@@ -151,6 +157,7 @@ def segmentar() -> Any:
         H,
         W,
         ground_params,
+        depth_cp=depth_cp,
     )
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
@@ -185,6 +192,7 @@ def segmentar() -> Any:
             W,
             wallParams=wall_params,
             ground_mask=ground_mask,
+            depth_cp=depth_cp,
         )
         wall_mask = wall_res.get("wall_mask")
         door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)

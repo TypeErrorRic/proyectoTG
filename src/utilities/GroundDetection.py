@@ -278,11 +278,12 @@ def _refine_with_full_res(
         return None
 
 def get_ground(
-        mapaProfundidad: np.ndarray, 
-        rays_cp: cp.ndarray, 
-        H: int, 
-        W: int, 
-        groundParams: Dict[str, Any]
+        mapaProfundidad: np.ndarray,
+        rays_cp: cp.ndarray,
+        H: int,
+        W: int,
+        groundParams: Dict[str, Any],
+        depth_cp: Optional[cp.ndarray] = None,
         ) -> Optional[np.ndarray]:
     """
     Detects the ground plane using RANSAC and returns the RGB image
@@ -291,6 +292,7 @@ def get_ground(
     Args:
         rgb_image (np.ndarray): RGB image (height x width x 3)
         mapaProfundidad (np.ndarray): Depth map (height x width)
+        depth_cp (cp.ndarray | None): Optional depth map already on GPU.
         rays_cp (cp.ndarray): Precomputed rays (height x width x 3, CuPy array)
         H (int): Image height
         W (int): Image width
@@ -319,7 +321,7 @@ def get_ground(
         _t_total_start = time.perf_counter()
 
     # Guard against missing inputs (e.g., first frames or sensor not ready)
-    if mapaProfundidad is None or rays_cp is None or H is None or W is None:
+    if (mapaProfundidad is None and depth_cp is None) or rays_cp is None or H is None or W is None:
         _last_ransac_ms = None
         return None
 
@@ -366,10 +368,16 @@ def get_ground(
     # Convert depth map to CuPy array for RANSAC
     if DEBUG_TIMING:
         _t_convert_start = time.perf_counter()
-    try:
-        depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
-    except Exception:
-        return None
+    if depth_cp is None:
+        try:
+            depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
+        except Exception:
+            return None
+    else:
+        try:
+            depth_cp = cp.asarray(depth_cp, dtype=cp.float32)
+        except Exception:
+            return None
     try:
         rays_cp = cp.asarray(rays_cp, dtype=cp.float32)
     except Exception:

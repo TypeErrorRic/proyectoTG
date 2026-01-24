@@ -34,6 +34,7 @@ def get_wall_planes(
     W: int,
     wallParams: Optional[Dict[str, Any]] = None,
     ground_mask: Optional[np.ndarray] = None,
+    depth_cp: Optional[cp.ndarray] = None,
 ) -> Dict[str, Any]:
     """
     Extract wall plane(s) from depth using GPU RANSAC.
@@ -41,8 +42,10 @@ def get_wall_planes(
     Returns a dict with:
         - planes: list of { "n": <cp.ndarray>, "d": <cp.ndarray>, "num_inliers": int }
         - wall_mask: wall mask used (CPU, uint8) or None
+    depth_cp:
+        Optional depth map already on GPU to avoid an extra host->device copy.
     """
-    if mapaProfundidad is None or rays_cp is None or H is None or W is None:
+    if (mapaProfundidad is None and depth_cp is None) or rays_cp is None or H is None or W is None:
         return {"planes": [], "wall_mask": None}
 
     wallParams = wallParams or {}
@@ -77,7 +80,10 @@ def get_wall_planes(
         _t_params_ms = (_t_params_end - _t_params_start) * 1000.0
         _t_convert_start = time.perf_counter()
 
-    depth_full = _to_cp(mapaProfundidad, dtype=cp.float32)
+    if depth_cp is None:
+        depth_full = _to_cp(mapaProfundidad, dtype=cp.float32)
+    else:
+        depth_full = _to_cp(depth_cp, dtype=cp.float32)
     rays_full = _to_cp(rays_cp, dtype=cp.float32)
     if depth_full is None or rays_full is None:
         return {"planes": [], "wall_mask": None}
