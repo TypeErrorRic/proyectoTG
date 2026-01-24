@@ -29,12 +29,10 @@ def _norm_up(up_axis) -> cp.ndarray:
 
 def get_wall_planes(
     mapaProfundidad: np.ndarray,
-    imagenRGB: Optional[np.ndarray],
     rays_cp: cp.ndarray,
     H: int,
     W: int,
     wallParams: Optional[Dict[str, Any]] = None,
-    wall_mask: Optional[np.ndarray] = None,
     ground_mask: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """
@@ -128,7 +126,7 @@ def get_wall_planes(
     idx = cp.flatnonzero(valid)
 
     if int(idx.size) < min_points:
-        return {"planes": [], "wall_mask": wall_mask}
+        return {"planes": [], "wall_mask": None}
 
     if max_points and int(idx.size) > max_points:
         try:

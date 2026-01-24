@@ -53,7 +53,17 @@ _runtime: Dict[str, Any] = {
         "refine_full_res": True,         # refinar plano con inliers full-res
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
+        "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
     },
+}
+
+# Wall-plane overrides applied on top of ground parameters.
+WALL_PARAMS_OVERRIDES: Dict[str, Any] = {
+    "max_angle_deg": 20.0,
+    "max_planes": 1,
+    "enforce_vertical": True,
+    "max_up_dot": 0.35,
+    "refine": True,
 }
 
 # Protect shared runtime parameters updated from the GUI while the worker runs.
@@ -145,18 +155,35 @@ def segmentar() -> Any:
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
 
+    # Reuse common ground params for wall RANSAC, then override wall-specific values
+    wall_params = {
+        "subsample_stride": ground_params.get("subsample_stride"),
+        "min_points": ground_params.get("min_inliers"),
+        "max_points": ground_params.get("max_agg_points"),
+        "dist_thresh": ground_params.get("dist_thresh"),
+        "max_iters": ground_params.get("max_iters"),
+        "score_subset": ground_params.get("score_subset"),
+        "batch_size": ground_params.get("batch_size"),
+        "early_stop_ratio": ground_params.get("early_stop_ratio"),
+        "up_axis": ground_params.get("up_axis"),
+        "refine_dist_mult": ground_params.get("refine_dist_mult"),
+    }
+    wall_params.update(WALL_PARAMS_OVERRIDES)
+    wall_params["max_up_dot"] = ground_params.get(
+        "max_up_dot",
+        WALL_PARAMS_OVERRIDES.get("max_up_dot", 0.35),
+    )
+
     # Get wall planes using the fast plane fitter (no TensorRT)
     wall_mask = None
     door_mask = None
     try:
         wall_res = get_wall_planes(
             mapaProfundidad,
-            imagenRGB,
             rays_cp,
             H,
             W,
-            wallParams=None,
-            wall_mask=None,
+            wallParams=wall_params,
             ground_mask=ground_mask,
         )
         wall_mask = wall_res.get("wall_mask")

@@ -1109,6 +1109,7 @@ class SegmentacionApp:
             ("max_iters", "Iteraciones máximas (max_iters)", "900"),
             ("min_inliers", "Mínimo de inliers", "400"),
             ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
+            ("max_up_dot", "Max up dot (0-1)", "0.35"),
             ("score_subset", "Subconjunto para puntuar (score_subset)", "4096"),
             ("early_stop_ratio", "Ratio de corte temprano", "0.92"),
             ("batch_size", "Tamaño de lote (batch_size)", "256"),

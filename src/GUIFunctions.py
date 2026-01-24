@@ -21,6 +21,7 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "max_iters": "400",
     "min_inliers": "400",
     "max_angle_deg": "60.0",
+    "max_up_dot": "0.35",
     "score_subset": "4096",
     "early_stop_ratio": "0.92",
     "batch_size": "128",
@@ -151,6 +152,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("max_iters", "Iteraciones max"),
         ("min_inliers", "Min inliers"),
         ("max_angle_deg", "Angulo max"),
+        ("max_up_dot", "Max up dot"),
         ("score_subset", "Score subset"),
         ("early_stop_ratio", "Corte temprano"),
         ("batch_size", "Batch size"),
@@ -184,6 +186,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "max_iters": (int, 0.0),
         "min_inliers": (int, 0.0),
         "max_angle_deg": (float, 0.0),
+        "max_up_dot": (float, -0.01),
         "score_subset": (int, 0.0),
         "early_stop_ratio": (float, 0.0),
         "batch_size": (int, 0.0),
@@ -219,6 +222,10 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
         if key == "early_stop_ratio":
             if not (0.0 < float(val) <= 1.0):
+                errors.append(key)
+                continue
+        elif key == "max_up_dot":
+            if not (0.0 <= float(val) <= 1.0):
                 errors.append(key)
                 continue
         elif key == "low_height_pct":
