@@ -14,6 +14,9 @@ import numpy as np
 
 _last_ransac_ms: Optional[float] = None
 
+# Variable para activar la impresión de tiempos de cada etapa en get_ground
+DEBUG_TIMING = False
+
 def _to_xp(a):
     """Ensure array lives on GPU (CuPy)."""
     return cp.asarray(a)
@@ -313,6 +316,11 @@ def get_ground(
         np.ndarray | None: BGR image with ground mask overlay, or None if no valid data.
     """
     global last_n_cp, last_d_cp, _debug_ransac_times, _debug_ransac_counter, _last_ransac_ms
+
+    # Timing para debug
+    if DEBUG_TIMING:
+        _t_total_start = time.perf_counter()
+
     # Guard against missing inputs (e.g., first frames or sensor not ready)
     if mapaProfundidad is None or rays_cp is None or H is None or W is None:
         _last_ransac_ms = None
@@ -322,6 +330,9 @@ def get_ground(
     # The RGB overlay is applied later in helpers.apply_mask_to_rgb.
     # RGB se aplica posteriormente en helpers.apply_mask_to_rgb.
     groundParams = groundParams or {}
+
+    if DEBUG_TIMING:
+        _t_params_start = time.perf_counter()
     # Extract parameters from groundParams dictionary
     try:
         subsample_stride = max(1, int(groundParams.get("subsample_stride") or 1))
@@ -354,7 +365,13 @@ def get_ground(
     refine_dist_mult = float(groundParams.get("refine_dist_mult", 1.0) or 1.0)
     second_pass_mask = bool(groundParams.get("second_pass_mask", False))
 
+    if DEBUG_TIMING:
+        _t_params_end = time.perf_counter()
+        _t_params_ms = (_t_params_end - _t_params_start) * 1000.0
+
     # Convert depth map to CuPy array for RANSAC
+    if DEBUG_TIMING:
+        _t_convert_start = time.perf_counter()
     try:
         depth_cp = cp.asarray(mapaProfundidad, dtype=cp.float32)
     except Exception:
@@ -367,7 +384,14 @@ def get_ground(
         return None
     if rays_cp.shape[:2] != depth_cp.shape[:2]:
         return None
+
+    if DEBUG_TIMING:
+        _t_convert_end = time.perf_counter()
+        _t_convert_ms = (_t_convert_end - _t_convert_start) * 1000.0
+
     # Subsample depth and rays for RANSAC efficiency
+    if DEBUG_TIMING:
+        _t_subsample_start = time.perf_counter()
     try:
         Dsub = depth_cp[::subsample_stride, ::subsample_stride]
         Rsub = rays_cp[::subsample_stride, ::subsample_stride]
@@ -390,7 +414,17 @@ def get_ground(
         roi_used = min(1.0, roi_used + roi_expand_step)
     Dsub, Rsub = Droi, Rroi
     valid = Dsub > 0
+
+    if DEBUG_TIMING:
+        _t_subsample_end = time.perf_counter()
+        _t_subsample_ms = (_t_subsample_end - _t_subsample_start) * 1000.0
+        _t_ransac_ms = 0.0
+        _t_pointcloud_ms = 0.0
+        _t_refine_ms = 0.0
+
     if int(cp.sum(valid)) >= 3:
+        if DEBUG_TIMING:
+            _t_pointcloud_start = time.perf_counter()
         # Prepare 3D point cloud for RANSAC
         Psub = (Rsub.reshape(-1, 3) * Dsub.reshape(-1, 1)).astype(cp.float32)
         Psub = Psub[valid.reshape(-1)]
@@ -415,6 +449,10 @@ def get_ground(
                 Psub = Psub[idx]
             except Exception:
                 pass
+
+        if DEBUG_TIMING:
+            _t_pointcloud_end = time.perf_counter()
+            _t_pointcloud_ms = (_t_pointcloud_end - _t_pointcloud_start) * 1000.0
 
         if int(Psub.shape[0]) >= int(min_inliers):
             # Run RANSAC plane fitting on the subsampled points
@@ -445,11 +483,16 @@ def get_ground(
                     avg_ms = sum(window) / len(window)
                     print(f"[ransac] Promedio últimas {debug_ransac_every} ejecuciones: {avg_ms:.2f} ms")
 
+            if DEBUG_TIMING:
+                _t_ransac_ms = elapsed_ms
+
             if res is not None:
                 # Store last valid plane parameters
                 last_n_cp = res['n']
                 last_d_cp = res['d']
                 if refine_full_res:
+                    if DEBUG_TIMING:
+                        _t_refine_start = time.perf_counter()
                     refined = _refine_with_full_res(
                         depth_cp,
                         rays_cp,
@@ -463,6 +506,9 @@ def get_ground(
                     )
                     if refined is not None:
                         last_n_cp, last_d_cp = refined
+                    if DEBUG_TIMING:
+                        _t_refine_end = time.perf_counter()
+                        _t_refine_ms = (_t_refine_end - _t_refine_start) * 1000.0
             else:
                 last_n_cp = None
                 last_d_cp = None
@@ -474,6 +520,8 @@ def get_ground(
         pass
 
     # Build mask for the best current plane (if available)
+    if DEBUG_TIMING:
+        _t_mask_start = time.perf_counter()
     if last_n_cp is not None:
         dotnr = cp.tensordot(rays_cp, last_n_cp, axes=([2], [0]))
         dists = cp.abs(depth_cp * dotnr + last_d_cp)
@@ -482,7 +530,13 @@ def get_ground(
     else:
         mask_cp = cp.zeros((H, W), dtype=cp.bool_)
 
+    if DEBUG_TIMING:
+        _t_mask_end = time.perf_counter()
+        _t_mask_ms = (_t_mask_end - _t_mask_start) * 1000.0
+
     # Solidify the mask fully on GPU (close + fill holes) to avoid CPU hops
+    if DEBUG_TIMING:
+        _t_postproc_start = time.perf_counter()
     mask_cp = mask_cp.astype(cp.bool_)
     structure = cp.ones((5, 5), dtype=cp.bool_)
     if second_pass_mask and last_n_cp is not None and refine_dist_mult > 1.0:
@@ -508,6 +562,20 @@ def get_ground(
         holes_mask = cp.logical_not(cp.isin(labels, keep_labels))
         filled = cp.logical_or(closed, holes_mask)
     ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
+
+    if DEBUG_TIMING:
+        _t_postproc_end = time.perf_counter()
+        _t_postproc_ms = (_t_postproc_end - _t_postproc_start) * 1000.0
+        _t_total_ms = (_t_postproc_end - _t_total_start) * 1000.0
+        print(f"[get_ground timing] params: {_t_params_ms:.2f}ms | "
+              f"convert: {_t_convert_ms:.2f}ms | "
+              f"subsample: {_t_subsample_ms:.2f}ms | "
+              f"pointcloud: {_t_pointcloud_ms:.2f}ms | "
+              f"ransac: {_t_ransac_ms:.2f}ms | "
+              f"refine: {_t_refine_ms:.2f}ms | "
+              f"mask: {_t_mask_ms:.2f}ms | "
+              f"postproc: {_t_postproc_ms:.2f}ms | "
+              f"TOTAL: {_t_total_ms:.2f}ms")
 
     return ground_mask_cp.get()
 
