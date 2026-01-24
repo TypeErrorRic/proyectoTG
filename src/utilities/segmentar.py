@@ -9,7 +9,7 @@ and shares its result with the main thread through a small queue.
 import src.utilities.viewCamera as viewCamera
 from utilities.GroundDetection import get_ground, get_last_ransac_ms
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
-from src.models.wallDetection import wallDetection
+from utilities.WallPlaneDetection import get_wall_planes
 
 # Runtime libraries
 import numpy as np
@@ -145,18 +145,25 @@ def segmentar() -> Any:
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
 
-    # Get wall and door masks using TensorRT model
+    # Get wall planes using the fast plane fitter (no TensorRT)
     wall_mask = None
     door_mask = None
     try:
-        wall_mask, door_mask = wallDetection(
+        wall_res = get_wall_planes(
             mapaProfundidad,
             imagenRGB,
-            ground_mask
+            rays_cp,
+            H,
+            W,
+            wallParams=None,
+            wall_mask=None,
+            ground_mask=ground_mask,
         )
+        wall_mask = wall_res.get("wall_mask")
+        door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
     except Exception as e:
-        print(f"[segmentar] Wall detection failed: {e}")
-        # Continue with only ground mask if wall detection fails
+        print(f"[segmentar] Wall plane extraction failed: {e}")
+        # Continue with only ground mask if wall extraction fails
         wall_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
         door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
 
