@@ -37,14 +37,14 @@ _runtime: Dict[str, Any] = {
         "dist_thresh": 0.03,
         "max_iters": 300,
         "min_inliers": 400,
-        "subsample_stride": 2,
+        "subsample_stride": 3,
         "up_axis": (0.0, -1.0, 0.0),
         "max_angle_deg": 60.0,
         "seed": 42,
         "score_subset": 2048,
         "orientation": "ground",
         "early_stop_ratio": 0.90,
-        "batch_size": 1024,
+        "batch_size": 512,
         # Extra controls for quality vs velocidad
         "low_height_pct": 25.0,          # usar percentil inferior en altura
         "roi_bottom_fraction": 0.34,     # arranca con este porcentaje inferior
