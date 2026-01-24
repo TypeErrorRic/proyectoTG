@@ -9,13 +9,12 @@ import time
 from typing import Optional, Dict, Any
 
 import cupy as cp
-import cupyx.scipy.ndimage as cnd
 import numpy as np
 
 _last_ransac_ms: Optional[float] = None
 
 # Variable para activar la impresión de tiempos de cada etapa en get_ground
-DEBUG_TIMING = False
+DEBUG_TIMING = True
 
 def _to_xp(a):
     """Ensure array lives on GPU (CuPy)."""
@@ -363,7 +362,6 @@ def get_ground(
     refine_full_res = bool(groundParams.get("refine_full_res", False))
     refine_max_points = int(groundParams.get("refine_max_points", 0) or 0)
     refine_dist_mult = float(groundParams.get("refine_dist_mult", 1.0) or 1.0)
-    second_pass_mask = bool(groundParams.get("second_pass_mask", False))
 
     if DEBUG_TIMING:
         _t_params_end = time.perf_counter()
@@ -534,39 +532,11 @@ def get_ground(
         _t_mask_end = time.perf_counter()
         _t_mask_ms = (_t_mask_end - _t_mask_start) * 1000.0
 
-    # Solidify the mask fully on GPU (close + fill holes) to avoid CPU hops
-    if DEBUG_TIMING:
-        _t_postproc_start = time.perf_counter()
-    mask_cp = mask_cp.astype(cp.bool_)
-    structure = cp.ones((5, 5), dtype=cp.bool_)
-    if second_pass_mask and last_n_cp is not None and refine_dist_mult > 1.0:
-        try:
-            relaxed = (dists <= (dist_thresh * refine_dist_mult)) & valid_depth
-            band = cnd.binary_dilation(mask_cp, structure=structure, iterations=1, brute_force=True)
-            mask_cp = cp.logical_or(mask_cp, cp.logical_and(relaxed, band))
-        except Exception:
-            pass
-    dilated = cnd.binary_dilation(mask_cp, structure=structure, iterations=2, brute_force=True)
-    closed = cnd.binary_erosion(dilated, structure=structure, iterations=2, brute_force=True)
-
-    # Hole filling on GPU; fallback to label/unique if not available
-    try:
-        filled = cnd.binary_fill_holes(closed)
-    except Exception:
-        inv = cp.logical_not(closed)
-        labels, _ = cnd.label(inv)
-        border_labels = cp.concatenate(
-            [labels[0], labels[-1], labels[:, 0], labels[:, -1]], axis=None
-        )
-        keep_labels = cp.unique(border_labels)
-        holes_mask = cp.logical_not(cp.isin(labels, keep_labels))
-        filled = cp.logical_or(closed, holes_mask)
-    ground_mask_cp = cp.where(filled, cp.uint8(255), cp.uint8(0))
+    # Convertir máscara a uint8
+    ground_mask_cp = cp.where(mask_cp, cp.uint8(255), cp.uint8(0))
 
     if DEBUG_TIMING:
-        _t_postproc_end = time.perf_counter()
-        _t_postproc_ms = (_t_postproc_end - _t_postproc_start) * 1000.0
-        _t_total_ms = (_t_postproc_end - _t_total_start) * 1000.0
+        _t_total_ms = (_t_mask_end - _t_total_start) * 1000.0
         print(f"[get_ground timing] params: {_t_params_ms:.2f}ms | "
               f"convert: {_t_convert_ms:.2f}ms | "
               f"subsample: {_t_subsample_ms:.2f}ms | "
@@ -574,7 +544,6 @@ def get_ground(
               f"ransac: {_t_ransac_ms:.2f}ms | "
               f"refine: {_t_refine_ms:.2f}ms | "
               f"mask: {_t_mask_ms:.2f}ms | "
-              f"postproc: {_t_postproc_ms:.2f}ms | "
               f"TOTAL: {_t_total_ms:.2f}ms")
 
     return ground_mask_cp.get()
