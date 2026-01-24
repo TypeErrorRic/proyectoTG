@@ -14,7 +14,7 @@ import numpy as np
 _last_ransac_ms: Optional[float] = None
 
 # Variable para activar la impresión de tiempos de cada etapa en get_ground
-DEBUG_TIMING = True
+DEBUG_TIMING = False
 
 def _to_xp(a):
     """Ensure array lives on GPU (CuPy)."""

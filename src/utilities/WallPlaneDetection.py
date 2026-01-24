@@ -68,9 +68,9 @@ def get_wall_planes(
 
     t0 = time.perf_counter() if debug_timing else None
 
-    depth_cp = _to_cp(mapaProfundidad, dtype=cp.float32)
-    rays_cp = _to_cp(rays_cp, dtype=cp.float32)
-    if depth_cp is None or rays_cp is None:
+    depth_full = _to_cp(mapaProfundidad, dtype=cp.float32)
+    rays_full = _to_cp(rays_cp, dtype=cp.float32)
+    if depth_full is None or rays_full is None:
         return {"planes": [], "wall_mask": None}
 
     if ground_mask is not None:
@@ -83,9 +83,11 @@ def get_wall_planes(
     else:
         ground_mask_cp = None
 
-    if depth_cp.shape[:2] != rays_cp.shape[:2]:
+    if depth_full.shape[:2] != rays_full.shape[:2]:
         return {"planes": [], "wall_mask": None}
 
+    depth_cp = depth_full
+    rays_cp = rays_full
     if subsample_stride > 1:
         depth_cp = depth_cp[::subsample_stride, ::subsample_stride]
         rays_cp = rays_cp[::subsample_stride, ::subsample_stride]
@@ -180,8 +182,6 @@ def get_wall_planes(
         active[active_idx[inliers]] = False
 
     if planes:
-        depth_full = _to_cp(mapaProfundidad, dtype=cp.float32)
-        rays_full = _to_cp(rays_cp, dtype=cp.float32)
         mask_cp = cp.zeros((H, W), dtype=cp.bool_)
         gm_full = None
         if ground_mask is not None:
