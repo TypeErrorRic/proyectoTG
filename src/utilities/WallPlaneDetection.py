@@ -12,6 +12,9 @@ import numpy as np
 
 from utilities.GroundDetection import ransac_plane_gpu, _refine_plane
 
+# Variable para activar la impresion de tiempos de cada etapa en get_wall_planes
+DEBUG_TIMING = True
+
 
 def _to_cp(a, dtype=cp.float32):
     if a is None:
@@ -45,6 +48,12 @@ def get_wall_planes(
         return {"planes": [], "wall_mask": None}
 
     wallParams = wallParams or {}
+    debug_timing = bool(wallParams.get("debug_timing", False))
+    timing_on = DEBUG_TIMING or debug_timing
+
+    if timing_on:
+        _t_total_start = time.perf_counter()
+        _t_params_start = time.perf_counter()
     subsample_stride = max(1, int(wallParams.get("subsample_stride", 2) or 2))
     min_points = int(wallParams.get("min_points", 400) or 400)
     max_points_raw = wallParams.get("max_points", 120000)
@@ -64,9 +73,11 @@ def get_wall_planes(
     max_up_dot = float(wallParams.get("max_up_dot", 0.35) or 0.35)
     up_axis = wallParams.get("up_axis", (0.0, -1.0, 0.0))
     return_cpu = bool(wallParams.get("return_cpu", False))
-    debug_timing = bool(wallParams.get("debug_timing", False))
 
-    t0 = time.perf_counter() if debug_timing else None
+    if timing_on:
+        _t_params_end = time.perf_counter()
+        _t_params_ms = (_t_params_end - _t_params_start) * 1000.0
+        _t_convert_start = time.perf_counter()
 
     depth_full = _to_cp(mapaProfundidad, dtype=cp.float32)
     rays_full = _to_cp(rays_cp, dtype=cp.float32)
@@ -83,8 +94,15 @@ def get_wall_planes(
     else:
         ground_mask_cp = None
 
+    if timing_on:
+        _t_convert_end = time.perf_counter()
+        _t_convert_ms = (_t_convert_end - _t_convert_start) * 1000.0
+
     if depth_full.shape[:2] != rays_full.shape[:2]:
         return {"planes": [], "wall_mask": None}
+
+    if timing_on:
+        _t_subsample_start = time.perf_counter()
 
     depth_cp = depth_full
     rays_cp = rays_full
@@ -93,6 +111,11 @@ def get_wall_planes(
         rays_cp = rays_cp[::subsample_stride, ::subsample_stride]
         if ground_mask_cp is not None:
             ground_mask_cp = ground_mask_cp[::subsample_stride, ::subsample_stride]
+
+    if timing_on:
+        _t_subsample_end = time.perf_counter()
+        _t_subsample_ms = (_t_subsample_end - _t_subsample_start) * 1000.0
+        _t_pointcloud_start = time.perf_counter()
 
     mask = depth_cp > 0
     if ground_mask_cp is not None:
@@ -116,6 +139,12 @@ def get_wall_planes(
     pts = rays_flat[idx] * depth_flat[idx, None]
     up_vec = _norm_up(up_axis)
 
+    if timing_on:
+        _t_pointcloud_end = time.perf_counter()
+        _t_pointcloud_ms = (_t_pointcloud_end - _t_pointcloud_start) * 1000.0
+        _t_ransac_ms = 0.0
+        _t_refine_ms = 0.0
+
     planes: List[Dict[str, Any]] = []
     active = cp.ones((int(pts.shape[0]),), dtype=cp.bool_)
 
@@ -123,6 +152,9 @@ def get_wall_planes(
         pts_active = pts[active]
         if int(pts_active.shape[0]) < min_points:
             break
+
+        if timing_on:
+            _t_ransac_start = time.perf_counter()
 
         res = ransac_plane_gpu(
             pts_active,
@@ -141,18 +173,28 @@ def get_wall_planes(
             break
         n, d = res["n"], res["d"]
 
+        if timing_on:
+            _t_ransac_end = time.perf_counter()
+            _t_ransac_ms += (_t_ransac_end - _t_ransac_start) * 1000.0
+
         if enforce_vertical:
             dot_up = cp.abs(cp.dot(n, up_vec))
             if float(dot_up.get()) > max_up_dot:
                 break
 
         if refine:
+            if timing_on:
+                _t_refine_start = time.perf_counter()
+
             signed = pts_active @ n + d
             inliers = cp.abs(signed) <= (dist_thresh * refine_dist_mult)
             if int(inliers.sum().get()) >= min_points:
                 fit2 = _refine_plane(pts_active[inliers], up_vec, "any")
                 if fit2 is not None:
                     n, d = fit2
+            if timing_on:
+                _t_refine_end = time.perf_counter()
+                _t_refine_ms += (_t_refine_end - _t_refine_start) * 1000.0
 
         signed = pts_active @ n + d
         inliers = cp.abs(signed) <= dist_thresh
@@ -181,6 +223,9 @@ def get_wall_planes(
             break
         active[active_idx[inliers]] = False
 
+    if timing_on:
+        _t_mask_start = time.perf_counter()
+
     if planes:
         mask_cp = cp.zeros((H, W), dtype=cp.bool_)
         gm_full = None
@@ -201,8 +246,19 @@ def get_wall_planes(
     else:
         wall_mask = None
 
-    if debug_timing and t0 is not None:
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        print(f"[wall_planes] total_ms={elapsed_ms:.2f}")
+    if timing_on:
+        _t_mask_end = time.perf_counter()
+        _t_mask_ms = (_t_mask_end - _t_mask_start) * 1000.0
+        _t_total_ms = (_t_mask_end - _t_total_start) * 1000.0
+        print(
+            f"[get_wall_planes timing] params: {_t_params_ms:.2f}ms | "
+            f"convert: {_t_convert_ms:.2f}ms | "
+            f"subsample: {_t_subsample_ms:.2f}ms | "
+            f"pointcloud: {_t_pointcloud_ms:.2f}ms | "
+            f"ransac: {_t_ransac_ms:.2f}ms | "
+            f"refine: {_t_refine_ms:.2f}ms | "
+            f"mask: {_t_mask_ms:.2f}ms | "
+            f"TOTAL: {_t_total_ms:.2f}ms"
+        )
 
     return {"planes": planes, "wall_mask": wall_mask}
