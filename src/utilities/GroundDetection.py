@@ -51,7 +51,8 @@ def ransac_plane_gpu(points,
     - batch_size: batch size for models (auto)
     - point_chunk: block size of points for inlier counting (auto)
     - score_subset: points to score models per batch (best validated with ALL points). Reduces K*N on Jetson.
-    - orientation: "any" (floor or ceiling), "ground" (prefer normal opposite to up), "ceiling" (normal aligned with up)
+    - orientation: "any" (floor or ceiling), "ground" (normal opposite to up),
+      "ceiling" (normal aligned with up), "vertical" (normal perpendicular to up)
 
     Return: dict with "n", "d", "inliers_mask", "inliers_idx", "num_inliers"
     """
@@ -141,6 +142,10 @@ def ransac_plane_gpu(points,
         elif orientation == 'ceiling':
             # normal alineada con up (~+1)
             cond = dot_up >= cos_thresh
+        elif orientation == 'vertical':
+            # normal perpendicular to up (~0)
+            sin_thresh = math.sin(math.radians(float(max_angle_deg)))
+            cond = cp.abs(dot_up) <= sin_thresh
         else:  # 'any'
             cond = cp.abs(dot_up) >= cos_thresh
         valid = cp.logical_and(valid, cond)

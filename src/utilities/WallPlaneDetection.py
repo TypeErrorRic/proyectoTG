@@ -1,8 +1,8 @@
 """
-Fast wall-plane extraction using the existing wall mask and GPU least-squares fitting.
+Fast wall-plane extraction using GPU RANSAC (no ML model).
 
-This avoids RANSAC by fitting planes directly to the wall pixels (optionally
-refined once by distance-to-plane filtering), which is typically much faster.
+Uses the existing RANSAC implementation with a vertical orientation constraint
+and builds a wall mask from the fitted plane(s).
 """
 import time
 from typing import Optional, Dict, Any, List
@@ -10,8 +10,7 @@ from typing import Optional, Dict, Any, List
 import cupy as cp
 import numpy as np
 
-from utilities.GroundDetection import _refine_plane
-from src.models.wallDetection import wallDetection
+from utilities.GroundDetection import ransac_plane_gpu, _refine_plane
 
 
 def _to_cp(a, dtype=cp.float32):
@@ -36,10 +35,7 @@ def get_wall_planes(
     ground_mask: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """
-    Extract wall plane(s) from depth using an existing wall mask.
-
-    If wall_mask is None, this function runs wallDetection (TensorRT) using
-    imagenRGB and ground_mask to obtain it.
+    Extract wall plane(s) from depth using GPU RANSAC.
 
     Returns a dict with:
         - planes: list of { "n": <cp.ndarray>, "d": <cp.ndarray>, "num_inliers": int }
@@ -54,6 +50,13 @@ def get_wall_planes(
     max_points_raw = wallParams.get("max_points", 120000)
     max_points = int(max_points_raw) if max_points_raw is not None else 120000
     dist_thresh = float(wallParams.get("dist_thresh", 0.03) or 0.03)
+    max_iters = int(wallParams.get("max_iters", 300) or 300)
+    max_angle_deg = float(wallParams.get("max_angle_deg", 20.0) or 20.0)
+    score_subset = wallParams.get("score_subset", 4096)
+    score_subset = int(score_subset) if score_subset is not None else 4096
+    batch_size = wallParams.get("batch_size", 1024)
+    batch_size = int(batch_size) if batch_size is not None else None
+    early_stop_ratio = float(wallParams.get("early_stop_ratio", 0.90) or 0.90)
     refine = bool(wallParams.get("refine", True))
     refine_dist_mult = float(wallParams.get("refine_dist_mult", 1.6) or 1.6)
     max_planes = max(1, int(wallParams.get("max_planes", 1) or 1))
@@ -65,29 +68,11 @@ def get_wall_planes(
 
     t0 = time.perf_counter() if debug_timing else None
 
-    if wall_mask is None:
-        if imagenRGB is None:
-            return {"planes": [], "wall_mask": None}
-        if ground_mask is None:
-            ground_mask = np.zeros((H, W), dtype=np.uint8)
-        try:
-            wall_mask, _ = wallDetection(mapaProfundidad, imagenRGB, ground_mask)
-        except Exception as exc:
-            print(f"[wall_planes] wallDetection failed: {exc}")
-            return {"planes": [], "wall_mask": None}
-
-    if wall_mask is None:
-        return {"planes": [], "wall_mask": None}
-
     depth_cp = _to_cp(mapaProfundidad, dtype=cp.float32)
     rays_cp = _to_cp(rays_cp, dtype=cp.float32)
-    wall_mask_cp = _to_cp(wall_mask, dtype=cp.uint8)
-
-    if depth_cp is None or rays_cp is None or wall_mask_cp is None:
+    if depth_cp is None or rays_cp is None:
         return {"planes": [], "wall_mask": None}
 
-    if wall_mask_cp.ndim == 3:
-        wall_mask_cp = wall_mask_cp[:, :, 0]
     if ground_mask is not None:
         ground_mask_cp = _to_cp(ground_mask, dtype=cp.uint8)
         if ground_mask_cp is not None:
@@ -98,17 +83,16 @@ def get_wall_planes(
     else:
         ground_mask_cp = None
 
-    if depth_cp.shape[:2] != rays_cp.shape[:2] or depth_cp.shape[:2] != wall_mask_cp.shape[:2]:
-        return {"planes": [], "wall_mask": wall_mask}
+    if depth_cp.shape[:2] != rays_cp.shape[:2]:
+        return {"planes": [], "wall_mask": None}
 
     if subsample_stride > 1:
         depth_cp = depth_cp[::subsample_stride, ::subsample_stride]
         rays_cp = rays_cp[::subsample_stride, ::subsample_stride]
-        wall_mask_cp = wall_mask_cp[::subsample_stride, ::subsample_stride]
         if ground_mask_cp is not None:
             ground_mask_cp = ground_mask_cp[::subsample_stride, ::subsample_stride]
 
-    mask = wall_mask_cp > 0
+    mask = depth_cp > 0
     if ground_mask_cp is not None:
         mask = cp.logical_and(mask, ground_mask_cp == 0)
 
@@ -138,10 +122,22 @@ def get_wall_planes(
         if int(pts_active.shape[0]) < min_points:
             break
 
-        fit = _refine_plane(pts_active, up_vec, "any")
-        if fit is None:
+        res = ransac_plane_gpu(
+            pts_active,
+            dist_thresh=dist_thresh,
+            max_iters=max_iters,
+            min_inliers=min_points,
+            up_axis=up_axis,
+            max_angle_deg=max_angle_deg,
+            seed=42,
+            score_subset=score_subset,
+            orientation="vertical",
+            early_stop_ratio=early_stop_ratio,
+            batch_size=batch_size,
+        )
+        if res is None:
             break
-        n, d = fit
+        n, d = res["n"], res["d"]
 
         if enforce_vertical:
             dot_up = cp.abs(cp.dot(n, up_vec))
@@ -182,6 +178,28 @@ def get_wall_planes(
         if int(inliers.size) != int(active_idx.size):
             break
         active[active_idx[inliers]] = False
+
+    if planes:
+        depth_full = _to_cp(mapaProfundidad, dtype=cp.float32)
+        rays_full = _to_cp(rays_cp, dtype=cp.float32)
+        mask_cp = cp.zeros((H, W), dtype=cp.bool_)
+        gm_full = None
+        if ground_mask is not None:
+            gm_full = _to_cp(ground_mask, dtype=cp.uint8)
+            if gm_full is not None and gm_full.ndim == 3:
+                gm_full = gm_full[:, :, 0]
+        for plane in planes:
+            n_use = plane["n"] if not return_cpu else _to_cp(plane["n"])
+            d_use = plane["d"] if not return_cpu else _to_cp(plane["d"])
+            dotnr = cp.tensordot(rays_full, n_use, axes=([2], [0]))
+            dists = cp.abs(depth_full * dotnr + d_use)
+            mask_i = (dists <= dist_thresh) & (depth_full > 0)
+            if gm_full is not None and gm_full.shape[:2] == mask_i.shape:
+                mask_i = cp.logical_and(mask_i, gm_full == 0)
+            mask_cp = cp.logical_or(mask_cp, mask_i)
+        wall_mask = cp.where(mask_cp, cp.uint8(255), cp.uint8(0)).get()
+    else:
+        wall_mask = None
 
     if debug_timing and t0 is not None:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
