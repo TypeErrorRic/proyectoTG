@@ -22,7 +22,6 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "min_inliers": "400",
     "max_angle_deg": "60.0",
     "score_subset": "4096",
-    "time_budget_ms": "120",
     "early_stop_ratio": "0.92",
     "batch_size": "128",
     "low_height_pct": "25.0",
@@ -32,7 +31,6 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "refine_full_res": "1",
     "refine_max_points": "200000",
     "refine_dist_mult": "1.6",
-    "second_pass_mask": "1",
 }
 
 
@@ -154,7 +152,6 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("min_inliers", "Min inliers"),
         ("max_angle_deg", "Angulo max"),
         ("score_subset", "Score subset"),
-        ("time_budget_ms", "Tiempo ms"),
         ("early_stop_ratio", "Corte temprano"),
         ("batch_size", "Batch size"),
         ("low_height_pct", "Percentil bajo"),
@@ -188,7 +185,6 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "min_inliers": (int, 0.0),
         "max_angle_deg": (float, 0.0),
         "score_subset": (int, 0.0),
-        "time_budget_ms": (float, 0.0),
         "early_stop_ratio": (float, 0.0),
         "batch_size": (int, 0.0),
         "low_height_pct": (float, -1.0),
@@ -197,7 +193,6 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "max_agg_points": (int, -0.1),
         "refine_max_points": (int, -0.1),
         "refine_dist_mult": (float, 0.99),
-        "second_pass_mask": (int, -1.0),
     }
     parsed: Dict[str, Any] = {}
     errors = []
@@ -244,7 +239,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     # Normalize boolean fields and practical limits
-    for key in ("refine_full_res", "second_pass_mask"):
+    for key in ("refine_full_res",):
         if key in parsed:
             parsed[key] = bool(int(parsed[key]))
     if "roi_expand_step" in parsed:

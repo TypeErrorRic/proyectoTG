@@ -31,7 +31,6 @@ def ransac_plane_gpu(points,
                      point_chunk=None,
                      score_subset=None,
                      orientation: str = 'any',
-                     time_budget_ms: Optional[float] = None,
                      early_stop_ratio: float = 0.92):
     """
     GPU-optimized RANSAC for a horizontal plane (floor/ceiling).
@@ -171,11 +170,6 @@ def ransac_plane_gpu(points,
         # Early-stop por calidad del modelo (en la submuestra)
         if score_subset and batch_best_count >= int(early_stop_ratio * int(score_subset)):
             break
-        # Time budget (si aplica): cortar si se excede, sin esperar a 2 lotes
-        if time_budget_ms is not None:
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-            if elapsed_ms >= time_budget_ms:
-                break
 
     if best_count < 0:
         return None
@@ -305,7 +299,6 @@ def get_ground(
             - seed (int): Random seed (default: 42)
             - score_subset (int): Number of points for scoring models (default: 2048)
         - orientation (str): Plane orientation ('ground', 'ceiling', 'any')
-        - time_budget_ms (float): Time budget per RANSAC run (default: 50)
         - early_stop_ratio (float): Early stop ratio for RANSAC (default: 0.92)
         - batch_size (int): Batch size for RANSAC models (default: 256)
         - debug_ransac (bool): If True, log timing information.
@@ -346,8 +339,6 @@ def get_ground(
     score_subset = groundParams.get("score_subset", 4096)
     score_subset = int(score_subset) if score_subset is not None else 4096
     orientation = groundParams.get("orientation", "ground") or "ground"
-    time_budget_ms = groundParams.get("time_budget_ms", 120)
-    time_budget_ms = float(time_budget_ms) if time_budget_ms is not None else None
     early_stop_ratio = float(groundParams.get("early_stop_ratio", 0.92) or 0.92)
     batch_size = groundParams.get("batch_size", 128)
     batch_size = int(batch_size) if batch_size is not None else None
@@ -465,7 +456,6 @@ def get_ground(
                 seed=seed,
                 score_subset=score_subset,
                 orientation=orientation,
-                time_budget_ms=time_budget_ms,
                 early_stop_ratio=early_stop_ratio,
                 batch_size=batch_size,
             )

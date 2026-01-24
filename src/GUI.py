@@ -1110,7 +1110,6 @@ class SegmentacionApp:
             ("min_inliers", "Mínimo de inliers", "400"),
             ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
             ("score_subset", "Subconjunto para puntuar (score_subset)", "4096"),
-            ("time_budget_ms", "Presupuesto de tiempo (ms)", "120"),
             ("early_stop_ratio", "Ratio de corte temprano", "0.92"),
             ("batch_size", "Tamaño de lote (batch_size)", "256"),
             ("low_height_pct", "Percentil bajo altura (low_height_pct)", "25.0"),

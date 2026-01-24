@@ -35,17 +35,16 @@ _runtime: Dict[str, Any] = {
     "last_ransac_ms": None,
     "groundParams": {
         "dist_thresh": 0.03,
-        "max_iters": 400,
+        "max_iters": 300,
         "min_inliers": 400,
-        "subsample_stride": 1,
-        "time_budget_ms": 120,
+        "subsample_stride": 2,
         "up_axis": (0.0, -1.0, 0.0),
         "max_angle_deg": 60.0,
         "seed": 42,
-        "score_subset": 4096,
+        "score_subset": 2048,
         "orientation": "ground",
-        "early_stop_ratio": 0.92,
-        "batch_size": 128,
+        "early_stop_ratio": 0.90,
+        "batch_size": 1024,
         # Extra controls for quality vs velocidad
         "low_height_pct": 25.0,          # usar percentil inferior en altura
         "roi_bottom_fraction": 0.34,     # arranca con este porcentaje inferior
@@ -54,7 +53,6 @@ _runtime: Dict[str, Any] = {
         "refine_full_res": True,         # refinar plano con inliers full-res
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
-        "second_pass_mask": True,        # re-evaluar máscara tras refinar
     },
 }
 
