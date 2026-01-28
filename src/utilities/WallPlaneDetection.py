@@ -40,11 +40,30 @@ def _to_np_vec(vec) -> Optional[np.ndarray]:
         return None
 
 
+def _to_float(val) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        if isinstance(val, cp.ndarray):
+            arr = cp.asnumpy(val)
+            return float(arr.reshape(-1)[0])
+        return float(val)
+    except Exception:
+        return None
+
+
 def _normalize_np(vec: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(vec))
     if norm < 1e-9:
         return vec
     return vec / norm
+
+
+def _normalize_plane(n: np.ndarray, d: float) -> Tuple[np.ndarray, float]:
+    norm = float(np.linalg.norm(n))
+    if norm < 1e-9:
+        return n, d
+    return n / norm, d / norm
 
 
 def _abs_dot_unit(a: np.ndarray, b: np.ndarray) -> float:
@@ -67,6 +86,17 @@ def _is_parallel(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
     return _abs_dot_unit(a, b) >= min_dot
 
 
+def _parallel_plane_distance(a: Dict[str, Any], b: Dict[str, Any]) -> float:
+    n1 = a["n"]
+    d1 = float(a["d"])
+    n2 = b["n"]
+    d2 = float(b["d"])
+    if float(np.dot(n1, n2)) < 0.0:
+        n2 = -n2
+        d2 = -d2
+    return float(abs(d1 - d2))
+
+
 def _select_wall_planes(
     planes: List[Dict[str, Any]],
     ground_normal: Optional[np.ndarray],
@@ -78,12 +108,15 @@ def _select_wall_planes(
     entries: List[Dict[str, Any]] = []
     for idx, plane in enumerate(planes):
         n_np = _to_np_vec(plane.get("n"))
-        if n_np is None:
+        d_val = _to_float(plane.get("d"))
+        if n_np is None or d_val is None:
             continue
+        n_unit, d_unit = _normalize_plane(n_np, d_val)
         entries.append(
             {
                 "idx": idx,
-                "n": _normalize_np(n_np),
+                "n": n_unit,
+                "d": d_unit,
                 "num_inliers": int(plane.get("num_inliers", 0)),
             }
         )
@@ -94,6 +127,7 @@ def _select_wall_planes(
     ground_perp_deg = float(params.get("ground_perp_deg", 20.0) or 20.0)
     wall_ortho_deg = float(params.get("wall_ortho_deg", 20.0) or 20.0)
     wall_parallel_deg = float(params.get("wall_parallel_deg", 10.0) or 10.0)
+    parallel_min_m = float(params.get("wall_parallel_distance_m", 0.6) or 0.6)
 
     candidates = entries
     use_ground_filter = bool(params.get("use_ground_filter", False))
@@ -135,18 +169,34 @@ def _select_wall_planes(
             return [planes[e["idx"]] for e in best_triplet]
 
     best_pair: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    best_pair_farther: Optional[Dict[str, Any]] = None
     best_score = -1
+    best_pair_match: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    best_match_score = -1
     for i in range(len(candidates) - 1):
         for j in range(i + 1, len(candidates)):
             if not _is_parallel(candidates[i]["n"], candidates[j]["n"], wall_parallel_deg):
                 continue
+            dist_m = _parallel_plane_distance(candidates[i], candidates[j])
             score = candidates[i]["num_inliers"] + candidates[j]["num_inliers"]
             if score > best_score:
                 best_score = score
                 best_pair = (candidates[i], candidates[j])
+                best_pair_farther = (
+                    candidates[i]
+                    if abs(candidates[i]["d"]) >= abs(candidates[j]["d"])
+                    else candidates[j]
+                )
+            if dist_m > parallel_min_m:
+                if score > best_match_score:
+                    best_match_score = score
+                    best_pair_match = (candidates[i], candidates[j])
 
-    if best_pair is not None:
-        return [planes[e["idx"]] for e in best_pair]
+    if best_pair_match is not None:
+        return [planes[e["idx"]] for e in best_pair_match]
+
+    if best_pair_farther is not None:
+        return [planes[best_pair_farther["idx"]]]
 
     best_pair = None
     best_score = -1
@@ -185,8 +235,11 @@ def get_wall_planes(
 
     Selection rules (linear algebra on plane equations):
         - (Optional) filter by ~perpendicular to ground (use_ground_filter).
-        - Prefer triplets where a central wall is ~90° to two others.
-        - If no triplet matches, prefer a parallel pair; if none, a ~90° pair.
+        - Prefer triplets where a central wall is ~90? to two others.
+        - If no triplet matches, prefer a parallel pair with distance > 0.60m
+          (wall_parallel_distance_m). If parallel planes are found but not at
+          that distance, keep the farther plane.
+        - If no valid parallel pair exists, prefer a ~90? pair.
         - Otherwise, return the best single plane.
     """
     if (mapaProfundidad is None and depth_cp is None) or rays_cp is None or H is None or W is None:

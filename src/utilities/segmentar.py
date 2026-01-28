@@ -68,6 +68,7 @@ WALL_PARAMS_OVERRIDES: Dict[str, Any] = {
     "ground_perp_deg": 20.0,
     "wall_ortho_deg": 20.0,
     "wall_parallel_deg": 10.0,
+    "wall_parallel_distance_m": 0.60,
 }
 
 # Protect shared runtime parameters updated from the GUI while the worker runs.

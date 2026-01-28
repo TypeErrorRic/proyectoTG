@@ -337,7 +337,6 @@ def get_ground(
         subsample_stride = max(1, int(groundParams.get("subsample_stride") or 1))
     except Exception:
         subsample_stride = 1
-    print(subsample_stride)
     min_inliers = int(groundParams.get("min_inliers", 400) or 400)
     dist_thresh = float(groundParams.get("dist_thresh", 0.03) or 0.03)
     max_iters = int(groundParams.get("max_iters", 500) or 500)
