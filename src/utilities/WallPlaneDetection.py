@@ -4,13 +4,15 @@ Fast wall-plane extraction using GPU RANSAC (no ML model).
 Uses the existing RANSAC implementation with a vertical orientation constraint
 and builds a wall mask from the fitted plane(s).
 """
+import math
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 import cupy as cp
 import numpy as np
 
 from utilities.GroundDetection import ransac_plane_gpu, _refine_plane
+import utilities.GroundDetection as ground_utils
 
 # Variable para activar la impresion de tiempos de cada etapa en get_wall_planes
 DEBUG_TIMING = True
@@ -27,6 +29,124 @@ def _norm_up(up_axis) -> cp.ndarray:
     return up / (cp.linalg.norm(up) + 1e-9)
 
 
+def _to_np_vec(vec) -> Optional[np.ndarray]:
+    if vec is None:
+        return None
+    try:
+        if isinstance(vec, cp.ndarray):
+            return cp.asnumpy(vec)
+        return np.asarray(vec, dtype=np.float32)
+    except Exception:
+        return None
+
+
+def _normalize_np(vec: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(vec))
+    if norm < 1e-9:
+        return vec
+    return vec / norm
+
+
+def _abs_dot_unit(a: np.ndarray, b: np.ndarray) -> float:
+    a_u = _normalize_np(a)
+    b_u = _normalize_np(b)
+    return float(abs(np.dot(a_u, b_u)))
+
+
+def _is_perpendicular(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
+    if a is None or b is None:
+        return False
+    max_dot = math.sin(math.radians(float(tol_deg)))
+    return _abs_dot_unit(a, b) <= max_dot
+
+
+def _is_parallel(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
+    if a is None or b is None:
+        return False
+    min_dot = math.cos(math.radians(float(tol_deg)))
+    return _abs_dot_unit(a, b) >= min_dot
+
+
+def _select_wall_planes(
+    planes: List[Dict[str, Any]],
+    ground_normal: Optional[np.ndarray],
+    params: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    if not planes:
+        return []
+
+    entries: List[Dict[str, Any]] = []
+    for idx, plane in enumerate(planes):
+        n_np = _to_np_vec(plane.get("n"))
+        if n_np is None:
+            continue
+        entries.append(
+            {
+                "idx": idx,
+                "n": _normalize_np(n_np),
+                "num_inliers": int(plane.get("num_inliers", 0)),
+            }
+        )
+
+    if not entries:
+        return []
+
+    ground_perp_deg = float(params.get("ground_perp_deg", 20.0) or 20.0)
+    wall_ortho_deg = float(params.get("wall_ortho_deg", 20.0) or 20.0)
+    wall_parallel_deg = float(params.get("wall_parallel_deg", 10.0) or 10.0)
+
+    candidates = entries
+    if ground_normal is not None:
+        ground_unit = _normalize_np(ground_normal)
+        candidates = [
+            e for e in entries if _is_perpendicular(e["n"], ground_unit, ground_perp_deg)
+        ]
+        if not candidates:
+            candidates = entries
+
+    candidates = sorted(candidates, key=lambda e: e["num_inliers"], reverse=True)
+
+    best_triplet: Optional[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = None
+    best_score = -1
+    if len(candidates) >= 3:
+        for i in range(len(candidates) - 2):
+            for j in range(i + 1, len(candidates) - 1):
+                if not _is_perpendicular(candidates[i]["n"], candidates[j]["n"], wall_ortho_deg):
+                    continue
+                for k in range(j + 1, len(candidates)):
+                    if not _is_perpendicular(candidates[i]["n"], candidates[k]["n"], wall_ortho_deg):
+                        continue
+                    if not _is_perpendicular(candidates[j]["n"], candidates[k]["n"], wall_ortho_deg):
+                        continue
+                    score = (
+                        candidates[i]["num_inliers"]
+                        + candidates[j]["num_inliers"]
+                        + candidates[k]["num_inliers"]
+                    )
+                    if score > best_score:
+                        best_score = score
+                        best_triplet = (candidates[i], candidates[j], candidates[k])
+
+        if best_triplet is not None:
+            return [planes[e["idx"]] for e in best_triplet]
+
+    best_pair: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    best_score = -1
+    for i in range(len(candidates) - 1):
+        for j in range(i + 1, len(candidates)):
+            if not _is_parallel(candidates[i]["n"], candidates[j]["n"], wall_parallel_deg):
+                continue
+            score = candidates[i]["num_inliers"] + candidates[j]["num_inliers"]
+            if score > best_score:
+                best_score = score
+                best_pair = (candidates[i], candidates[j])
+
+    if best_pair is not None:
+        return [planes[e["idx"]] for e in best_pair]
+
+    return [planes[candidates[0]["idx"]]]
+
+
 def get_wall_planes(
     mapaProfundidad: np.ndarray,
     rays_cp: cp.ndarray,
@@ -40,10 +160,16 @@ def get_wall_planes(
     Extract wall plane(s) from depth using GPU RANSAC.
 
     Returns a dict with:
-        - planes: list of { "n": <cp.ndarray>, "d": <cp.ndarray>, "num_inliers": int }
+        - planes: list of selected planes { "n": <cp.ndarray>, "d": <cp.ndarray>, "num_inliers": int }
         - wall_mask: wall mask used (CPU, uint8) or None
     depth_cp:
         Optional depth map already on GPU to avoid an extra host->device copy.
+
+    Selection rules (linear algebra on plane equations):
+        - Planes must be ~perpendicular to the detected ground plane.
+        - Prefer triplets with pairwise ~90° angles between normals.
+        - If no triplet matches, prefer a parallel pair.
+        - Otherwise, return the best single plane.
     """
     if (mapaProfundidad is None and depth_cp is None) or rays_cp is None or H is None or W is None:
         return {"planes": [], "wall_mask": None}
@@ -69,11 +195,12 @@ def get_wall_planes(
     early_stop_ratio = float(wallParams.get("early_stop_ratio", 0.90) or 0.90)
     refine = bool(wallParams.get("refine", True))
     refine_dist_mult = float(wallParams.get("refine_dist_mult", 1.6) or 1.6)
-    max_planes = max(1, int(wallParams.get("max_planes", 1) or 1))
+    max_planes = max(1, int(wallParams.get("max_planes", 3) or 3))
     enforce_vertical = bool(wallParams.get("enforce_vertical", True))
     max_up_dot = float(wallParams.get("max_up_dot", 0.35) or 0.35)
     up_axis = wallParams.get("up_axis", (0.0, -1.0, 0.0))
     return_cpu = bool(wallParams.get("return_cpu", False))
+    ground_normal = wallParams.get("ground_normal")
 
     if timing_on:
         _t_params_end = time.perf_counter()
@@ -229,6 +356,18 @@ def get_wall_planes(
 
     if timing_on:
         _t_mask_start = time.perf_counter()
+
+    if planes:
+        ground_n = _to_np_vec(ground_normal)
+        if ground_n is None:
+            try:
+                ground_n = _to_np_vec(ground_utils.last_n_cp)
+            except Exception:
+                ground_n = None
+        if ground_n is None:
+            ground_n = _to_np_vec(up_axis)
+
+        planes = _select_wall_planes(planes, ground_n, wallParams)
 
     if planes:
         mask_cp = cp.zeros((H, W), dtype=cp.bool_)

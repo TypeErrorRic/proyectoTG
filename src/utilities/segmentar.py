@@ -8,6 +8,7 @@ and shares its result with the main thread through a small queue.
 # Project libraries
 import src.utilities.viewCamera as viewCamera
 from utilities.GroundDetection import get_ground, get_last_ransac_ms
+import utilities.GroundDetection as ground_utils
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
 from utilities.WallPlaneDetection import get_wall_planes
 
@@ -60,10 +61,13 @@ _runtime: Dict[str, Any] = {
 # Wall-plane overrides applied on top of ground parameters.
 WALL_PARAMS_OVERRIDES: Dict[str, Any] = {
     "max_angle_deg": 20.0,
-    "max_planes": 1,
+    "max_planes": 3,
     "enforce_vertical": True,
     "max_up_dot": 0.35,
     "refine": True,
+    "ground_perp_deg": 20.0,
+    "wall_ortho_deg": 20.0,
+    "wall_parallel_deg": 10.0,
 }
 
 # Protect shared runtime parameters updated from the GUI while the worker runs.
@@ -180,6 +184,11 @@ def segmentar() -> Any:
         "max_up_dot",
         WALL_PARAMS_OVERRIDES.get("max_up_dot", 0.35),
     )
+    try:
+        if ground_utils.last_n_cp is not None:
+            wall_params["ground_normal"] = ground_utils.last_n_cp
+    except Exception:
+        pass
 
     # Get wall planes using the fast plane fitter (no TensorRT)
     wall_mask = None
