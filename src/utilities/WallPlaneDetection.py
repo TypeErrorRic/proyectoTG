@@ -96,7 +96,8 @@ def _select_wall_planes(
     wall_parallel_deg = float(params.get("wall_parallel_deg", 10.0) or 10.0)
 
     candidates = entries
-    if ground_normal is not None:
+    use_ground_filter = bool(params.get("use_ground_filter", False))
+    if use_ground_filter and ground_normal is not None:
         ground_unit = _normalize_np(ground_normal)
         candidates = [
             e for e in entries if _is_perpendicular(e["n"], ground_unit, ground_perp_deg)
@@ -109,14 +110,17 @@ def _select_wall_planes(
     best_triplet: Optional[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = None
     best_score = -1
     if len(candidates) >= 3:
-        for i in range(len(candidates) - 2):
-            for j in range(i + 1, len(candidates) - 1):
+        # Tripleta tipo "L": un plano central perpendicular a otros dos.
+        for j in range(len(candidates)):
+            for i in range(len(candidates)):
+                if i == j:
+                    continue
                 if not _is_perpendicular(candidates[i]["n"], candidates[j]["n"], wall_ortho_deg):
                     continue
-                for k in range(j + 1, len(candidates)):
-                    if not _is_perpendicular(candidates[i]["n"], candidates[k]["n"], wall_ortho_deg):
+                for k in range(i + 1, len(candidates)):
+                    if k == j:
                         continue
-                    if not _is_perpendicular(candidates[j]["n"], candidates[k]["n"], wall_ortho_deg):
+                    if not _is_perpendicular(candidates[k]["n"], candidates[j]["n"], wall_ortho_deg):
                         continue
                     score = (
                         candidates[i]["num_inliers"]
@@ -135,6 +139,20 @@ def _select_wall_planes(
     for i in range(len(candidates) - 1):
         for j in range(i + 1, len(candidates)):
             if not _is_parallel(candidates[i]["n"], candidates[j]["n"], wall_parallel_deg):
+                continue
+            score = candidates[i]["num_inliers"] + candidates[j]["num_inliers"]
+            if score > best_score:
+                best_score = score
+                best_pair = (candidates[i], candidates[j])
+
+    if best_pair is not None:
+        return [planes[e["idx"]] for e in best_pair]
+
+    best_pair = None
+    best_score = -1
+    for i in range(len(candidates) - 1):
+        for j in range(i + 1, len(candidates)):
+            if not _is_perpendicular(candidates[i]["n"], candidates[j]["n"], wall_ortho_deg):
                 continue
             score = candidates[i]["num_inliers"] + candidates[j]["num_inliers"]
             if score > best_score:
@@ -166,9 +184,9 @@ def get_wall_planes(
         Optional depth map already on GPU to avoid an extra host->device copy.
 
     Selection rules (linear algebra on plane equations):
-        - Planes must be ~perpendicular to the detected ground plane.
-        - Prefer triplets with pairwise ~90° angles between normals.
-        - If no triplet matches, prefer a parallel pair.
+        - (Optional) filter by ~perpendicular to ground (use_ground_filter).
+        - Prefer triplets where a central wall is ~90° to two others.
+        - If no triplet matches, prefer a parallel pair; if none, a ~90° pair.
         - Otherwise, return the best single plane.
     """
     if (mapaProfundidad is None and depth_cp is None) or rays_cp is None or H is None or W is None:
