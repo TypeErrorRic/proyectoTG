@@ -32,6 +32,10 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "refine_full_res": "1",
     "refine_max_points": "200000",
     "refine_dist_mult": "1.6",
+    "ground_perp_deg": "20.0",
+    "wall_ortho_deg": "20.0",
+    "wall_parallel_deg": "10.0",
+    "wall_parallel_distance_m": "0.60",
 }
 
 
@@ -160,6 +164,10 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("roi_bottom_fraction", "ROI inferior"),
         ("refine_full_res", "Refino full-res"),
         ("refine_dist_mult", "Tol. refino"),
+        ("ground_perp_deg", "Perp. suelo (deg)"),
+        ("wall_ortho_deg", "Orto paredes (deg)"),
+        ("wall_parallel_deg", "Paralelo paredes (deg)"),
+        ("wall_parallel_distance_m", "Dist. paredes (m)"),
     ]
 
 
@@ -196,6 +204,10 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "max_agg_points": (int, -0.1),
         "refine_max_points": (int, -0.1),
         "refine_dist_mult": (float, 0.99),
+        "ground_perp_deg": (float, 0.0),
+        "wall_ortho_deg": (float, 0.0),
+        "wall_parallel_deg": (float, 0.0),
+        "wall_parallel_distance_m": (float, 0.0),
     }
     parsed: Dict[str, Any] = {}
     errors = []

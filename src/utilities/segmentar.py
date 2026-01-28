@@ -185,6 +185,14 @@ def segmentar() -> Any:
         "max_up_dot",
         WALL_PARAMS_OVERRIDES.get("max_up_dot", 0.35),
     )
+    for key in (
+        "ground_perp_deg",
+        "wall_ortho_deg",
+        "wall_parallel_deg",
+        "wall_parallel_distance_m",
+    ):
+        if key in ground_params:
+            wall_params[key] = ground_params[key]
     try:
         if ground_utils.last_n_cp is not None:
             wall_params["ground_normal"] = ground_utils.last_n_cp
