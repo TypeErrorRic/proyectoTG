@@ -38,7 +38,7 @@ _runtime: Dict[str, Any] = {
         "dist_thresh": 0.03,
         "max_iters": 300,
         "min_inliers": 400,
-        "subsample_stride": 3,
+        "subsample_stride": 2,
         "up_axis": (0.0, -1.0, 0.0),
         "max_angle_deg": 60.0,
         "seed": 42,

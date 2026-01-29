@@ -14,22 +14,25 @@ import numpy as np
 from utilities.GroundDetection import ransac_plane_gpu, _refine_plane
 import utilities.GroundDetection as ground_utils
 
-# Variable para activar la impresion de tiempos de cada etapa en get_wall_planes
+# Toggle timing prints for each stage in get_wall_planes
 DEBUG_TIMING = True
 
 
 def _to_cp(a, dtype=cp.float32):
+    """Convert to cupy.ndarray with optional dtype; return None if input is None."""
     if a is None:
         return None
     return cp.asarray(a, dtype=dtype)
 
 
 def _norm_up(up_axis) -> cp.ndarray:
+    """Normalize the 'up' vector (vertical axis)."""
     up = cp.asarray(up_axis, dtype=cp.float32)
     return up / (cp.linalg.norm(up) + 1e-9)
 
 
 def _to_np_vec(vec) -> Optional[np.ndarray]:
+    """Convert a vector (CPU/GPU) to numpy.ndarray; return None on failure."""
     if vec is None:
         return None
     try:
@@ -41,6 +44,7 @@ def _to_np_vec(vec) -> Optional[np.ndarray]:
 
 
 def _to_float(val) -> Optional[float]:
+    """Convert a value (CPU/GPU) to float; return None on failure."""
     if val is None:
         return None
     try:
@@ -53,6 +57,7 @@ def _to_float(val) -> Optional[float]:
 
 
 def _normalize_np(vec: np.ndarray) -> np.ndarray:
+    """Normalize a numpy vector; if the norm is near 0, return the original vector."""
     norm = float(np.linalg.norm(vec))
     if norm < 1e-9:
         return vec
@@ -60,6 +65,7 @@ def _normalize_np(vec: np.ndarray) -> np.ndarray:
 
 
 def _normalize_plane(n: np.ndarray, d: float) -> Tuple[np.ndarray, float]:
+    """Normalize plane equation (n, d) so ||n|| = 1."""
     norm = float(np.linalg.norm(n))
     if norm < 1e-9:
         return n, d
@@ -67,12 +73,14 @@ def _normalize_plane(n: np.ndarray, d: float) -> Tuple[np.ndarray, float]:
 
 
 def _abs_dot_unit(a: np.ndarray, b: np.ndarray) -> float:
+    """Absolute dot product between normalized vectors."""
     a_u = _normalize_np(a)
     b_u = _normalize_np(b)
     return float(abs(np.dot(a_u, b_u)))
 
 
 def _is_perpendicular(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
+    """True if vectors are approximately perpendicular within tol_deg."""
     if a is None or b is None:
         return False
     max_dot = math.sin(math.radians(float(tol_deg)))
@@ -80,6 +88,7 @@ def _is_perpendicular(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
 
 
 def _is_parallel(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
+    """True if vectors are approximately parallel within tol_deg."""
     if a is None or b is None:
         return False
     min_dot = math.cos(math.radians(float(tol_deg)))
@@ -87,6 +96,7 @@ def _is_parallel(a: np.ndarray, b: np.ndarray, tol_deg: float) -> bool:
 
 
 def _parallel_plane_distance(a: Dict[str, Any], b: Dict[str, Any]) -> float:
+    """Distance between parallel planes (aligning normal orientation)."""
     n1 = a["n"]
     d1 = float(a["d"])
     n2 = b["n"]
@@ -102,6 +112,7 @@ def _select_wall_planes(
     ground_normal: Optional[np.ndarray],
     params: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
+    """Select the most relevant wall planes based on geometry and inlier count."""
     if not planes:
         return []
 
@@ -144,7 +155,7 @@ def _select_wall_planes(
     best_triplet: Optional[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = None
     best_score = -1
     if len(candidates) >= 3:
-        # Tripleta tipo "L": un plano central perpendicular a otros dos.
+        # "L" triplet: one central plane perpendicular to two others.
         for j in range(len(candidates)):
             for i in range(len(candidates)):
                 if i == j:
@@ -225,21 +236,21 @@ def get_wall_planes(
     depth_cp: Optional[cp.ndarray] = None,
 ) -> Dict[str, Any]:
     """
-    Extract wall plane(s) from depth using GPU RANSAC.
+    Extract wall planes from a depth map using GPU RANSAC.
 
     Returns a dict with:
-        - planes: list of selected planes { "n": <cp.ndarray>, "d": <cp.ndarray>, "num_inliers": int }
-        - wall_mask: wall mask used (CPU, uint8) or None
-    depth_cp:
-        Optional depth map already on GPU to avoid an extra host->device copy.
+        - planes: list of planes { "n": normal, "d": distance, "num_inliers": int }
+        - wall_mask: wall mask (CPU, uint8) or None
 
-    Selection rules (linear algebra on plane equations):
-        - (Optional) filter by ~perpendicular to ground (use_ground_filter).
-        - Prefer triplets where a central wall is ~90? to two others.
-        - If no triplet matches, prefer a parallel pair with distance > 0.60m
-          (wall_parallel_distance_m). If parallel planes are found but not at
-          that distance, keep the farther plane.
-        - If no valid parallel pair exists, prefer a ~90? pair.
+    depth_cp:
+        Depth map already on GPU to avoid CPU->GPU copies.
+
+    Selection rules (plane equations):
+        - Optionally filter by ~perpendicular to ground (use_ground_filter).
+        - Prefer triplets where one plane is ~90 deg to two others.
+        - If no triplet, prefer a parallel pair with distance > 0.60 m
+          (wall_parallel_distance_m). If not, keep the farther plane.
+        - If no valid parallel pair exists, prefer a ~90 deg pair.
         - Otherwise, return the best single plane.
     """
     if (mapaProfundidad is None and depth_cp is None) or rays_cp is None or H is None or W is None:
@@ -306,6 +317,7 @@ def get_wall_planes(
     if timing_on:
         _t_subsample_start = time.perf_counter()
 
+    # Subsample to reduce compute.
     depth_cp = depth_full
     rays_cp = rays_full
     if subsample_stride > 1:
@@ -319,6 +331,7 @@ def get_wall_planes(
         _t_subsample_ms = (_t_subsample_end - _t_subsample_start) * 1000.0
         _t_pointcloud_start = time.perf_counter()
 
+    # Build a valid point cloud.
     mask = depth_cp > 0
     if ground_mask_cp is not None:
         mask = cp.logical_and(mask, ground_mask_cp == 0)
@@ -338,6 +351,7 @@ def get_wall_planes(
         except Exception:
             idx = idx[:max_points]
 
+    # 3D points in camera coordinates.
     pts = rays_flat[idx] * depth_flat[idx, None]
     up_vec = _norm_up(up_axis)
 
@@ -351,6 +365,7 @@ def get_wall_planes(
     active = cp.ones((int(pts.shape[0]),), dtype=cp.bool_)
 
     for _ in range(max_planes):
+        # Iterative fitting: extract a plane, mark inliers inactive, repeat.
         pts_active = pts[active]
         if int(pts_active.shape[0]) < min_points:
             break
@@ -384,6 +399,7 @@ def get_wall_planes(
             if float(dot_up.get()) > max_up_dot:
                 break
 
+        # Optional plane refinement with looser inliers.
         if refine:
             if timing_on:
                 _t_refine_start = time.perf_counter()
@@ -429,6 +445,7 @@ def get_wall_planes(
         _t_mask_start = time.perf_counter()
 
     if planes:
+        # Geometric selection of the best detected planes.
         ground_n = _to_np_vec(ground_normal)
         if ground_n is None:
             try:
@@ -441,6 +458,7 @@ def get_wall_planes(
         planes = _select_wall_planes(planes, ground_n, wallParams)
 
     if planes:
+        # Build wall mask at the original resolution.
         mask_cp = cp.zeros((H, W), dtype=cp.bool_)
         gm_full = None
         if ground_mask is not None:
