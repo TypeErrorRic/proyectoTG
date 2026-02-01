@@ -321,7 +321,7 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
             mapa_profundidad = depth_raw.astype(np.float32) / 1000.0
         elif depth_raw.dtype == np.uint8:
             # NYU dataset format: normalized depth [0, 255] → keep as-is
-            # wallDetection will handle the normalization
+            # doorDetection will handle the normalization
             mapa_profundidad = depth_raw.astype(np.float32)
         else:
             # Already float32, assume in meters

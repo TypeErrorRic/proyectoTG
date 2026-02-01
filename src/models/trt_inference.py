@@ -93,10 +93,10 @@ class TRTInference:
         Run inference
 
         Args:
-            input_data: numpy array of shape (1, 5, 160, 192)
+            input_data: numpy array of shape (1, 3, 256, 256)
 
         Returns:
-            numpy array of shape (1, 2, 160, 192)
+            numpy array of shape (1, 256, 256)
         """
         # Copy input data to host buffer
         np.copyto(self.inputs[0]['host'], input_data.ravel())
@@ -157,7 +157,7 @@ if __name__ == "__main__":
 
     # Paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    engine_file = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.engine")
+    engine_file = os.path.join(script_dir, "doors", "bisenetv2.engine")
 
     # Check if engine file exists
     if not os.path.exists(engine_file):
@@ -169,12 +169,12 @@ if __name__ == "__main__":
     print("Initializing TensorRT inference...")
     trt_infer = TRTInference(engine_file)
 
-    # Create dummy input (same as original unet.py)
-    x = np.random.randn(1, 5, 160, 192).astype(np.float32)
+    # Create dummy input
+    x = np.random.randn(1, 3, 256, 256).astype(np.float32)
 
     print("Running inference...")
     y = trt_infer.infer(x)
 
-    print(f"Output shape: {y.shape}")  # (1, 2, 160, 192)
+    print(f"Output shape: {y.shape}")  # (1, 256, 256)
     print(f"Output min/max: {y.min():.4f} / {y.max():.4f}")
     print("✓ TensorRT inference successful!")

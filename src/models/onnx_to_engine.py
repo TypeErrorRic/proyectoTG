@@ -69,17 +69,16 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
         config.max_workspace_size = 512 * (1 << 20)
 
         # Handle dynamic shapes - create optimization profile
-        # Input shape is (-1, 5, 160, 192) where -1 is dynamic batch
+        # Input shape is (1, 3, 256, 256)
         profile = builder.create_optimization_profile()
         input_name = network.get_input(0).name
-        # Set min, opt, max shapes for dynamic batch dimension
-        # Using batch size = 1 for all (typical for Jetson Nano inference)
+        # Set min, opt, max shapes (static batch=1)
         profile.set_shape(input_name,
-                         min=(1, 5, 160, 192),   # minimum shape
-                         opt=(1, 5, 160, 192),   # optimal shape
-                         max=(1, 5, 160, 192))   # maximum shape
+                         min=(1, 3, 256, 256),   # minimum shape
+                         opt=(1, 3, 256, 256),   # optimal shape
+                         max=(1, 3, 256, 256))   # maximum shape
         config.add_optimization_profile(profile)
-        print("Added optimization profile for dynamic batch (batch=1)")
+        print("Added optimization profile for static batch=1")
 
         # Enable FP16 mode if supported and requested
         if fp16_mode and builder.platform_has_fast_fp16:
@@ -114,8 +113,8 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
 if __name__ == "__main__":
     # Paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    onnx_file = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.onnx")
-    engine_file = os.path.join(script_dir, "walls", "mobilenetv2_unet_jetson_160x192.engine")
+    onnx_file = os.path.join(script_dir, "doors", "bisenetv2.onnx")
+    engine_file = os.path.join(script_dir, "doors", "bisenetv2.engine")
 
     # Check if ONNX file exists
     if not os.path.exists(onnx_file):

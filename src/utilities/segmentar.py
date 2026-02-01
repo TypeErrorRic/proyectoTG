@@ -11,6 +11,7 @@ from utilities.GroundDetection import get_ground, get_last_ransac_ms
 import utilities.GroundDetection as ground_utils
 from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
 from utilities.WallPlaneDetection import get_wall_planes
+from src.models.doorDetection import doorDetection
 
 # Runtime libraries
 import numpy as np
@@ -213,11 +214,16 @@ def segmentar() -> Any:
             depth_cp=depth_cp,
         )
         wall_mask = wall_res.get("wall_mask")
-        door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
     except Exception as e:
         print(f"[segmentar] Wall plane extraction failed: {e}")
         # Continue with only ground mask if wall extraction fails
         wall_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
+
+    # Door detection using TensorRT model (bisenetv2)
+    try:
+        door_mask = doorDetection(imagenRGB)
+    except Exception as e:
+        print(f"[segmentar] Door detection failed: {e}")
         door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
 
     return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
