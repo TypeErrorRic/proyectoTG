@@ -13,6 +13,7 @@ from .trt_inference import TRTInference
 
 IMG_MEAN = (0.485, 0.456, 0.406)
 IMG_STD = (0.229, 0.224, 0.225)
+_COLOR_QUANT_SHIFT = 4  # 16 levels per channel for fast dominant color
 
 
 # Centralized state for lazy initialization
@@ -151,35 +152,71 @@ def _filter_small_components(mask: np.ndarray, min_area: int) -> np.ndarray:
     return (keep * 255).astype(np.uint8)
 
 
-def _mask_to_rois(mask: np.ndarray, min_area: int) -> np.ndarray:
+def _largest_component(mask: np.ndarray, min_area: int):
     """
-    Convert a binary mask to filled ROI rectangles per connected component.
+    Return labels, largest component label, and its bounding box.
     """
     if mask.size == 0:
-        return mask
+        return None, None, None
 
     binary = (mask > 0).astype(np.uint8)
     if not np.any(binary):
-        return mask
+        return None, None, None
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         binary, connectivity=8
     )
     if num_labels <= 1:
-        return mask
+        return None, None, None
 
-    rois = np.zeros_like(mask, dtype=np.uint8)
-    for label in range(1, num_labels):
-        area = int(stats[label, cv2.CC_STAT_AREA])
-        if area < min_area:
-            continue
-        x = int(stats[label, cv2.CC_STAT_LEFT])
-        y = int(stats[label, cv2.CC_STAT_TOP])
-        w = int(stats[label, cv2.CC_STAT_WIDTH])
-        h = int(stats[label, cv2.CC_STAT_HEIGHT])
-        rois[y : y + h, x : x + w] = 255
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    if min_area > 0:
+        valid = np.where(areas >= min_area)[0]
+        if valid.size == 0:
+            return None, None, None
+        largest_idx = int(valid[np.argmax(areas[valid])])
+    else:
+        largest_idx = int(np.argmax(areas))
 
-    return rois
+    label = largest_idx + 1
+    x = int(stats[label, cv2.CC_STAT_LEFT])
+    y = int(stats[label, cv2.CC_STAT_TOP])
+    w = int(stats[label, cv2.CC_STAT_WIDTH])
+    h = int(stats[label, cv2.CC_STAT_HEIGHT])
+    return labels, label, (x, y, w, h)
+
+
+def _dominant_color_mask(
+    bgr_image: np.ndarray,
+    labels: np.ndarray,
+    label: int,
+    bbox,
+) -> np.ndarray:
+    """
+    Build a mask of ROI pixels that match the dominant color within the component.
+    """
+    x, y, w, h = bbox
+    if w <= 0 or h <= 0:
+        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+
+    roi_img = bgr_image[y : y + h, x : x + w]
+    roi_labels = labels[y : y + h, x : x + w]
+    roi_component = roi_labels == label
+    if not np.any(roi_component):
+        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+
+    q = (roi_img >> _COLOR_QUANT_SHIFT).astype(np.uint8)
+    bin_idx = q[:, :, 0] | (q[:, :, 1] << 4) | (q[:, :, 2] << 8)
+    idx = bin_idx[roi_component]
+    if idx.size == 0:
+        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+
+    dominant = int(np.bincount(idx, minlength=4096).argmax())
+    match = bin_idx == dominant
+
+    out = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+    out[y : y + h, x : x + w] = (match * 255).astype(np.uint8)
+    return out
 
 
 def doorDetection(
@@ -194,7 +231,9 @@ def doorDetection(
         rgb_image: BGR image (H, W, 3), values 0-255.
         min_area: Minimum area (pixels) to keep in the output mask.
             Use 0 to disable filtering. If None, uses runtime default.
-        use_roi: If True, replace the mask with a filled ROI rectangle.
+        use_roi: If True, use the largest ROI to compute the dominant color
+            inside the segmented component and return a mask of ROI pixels
+            that match that color.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -210,10 +249,13 @@ def doorDetection(
         min_area = int(_runtime.get("min_area", 0))
     else:
         min_area = int(min_area)
-    door_mask = _filter_small_components(door_mask, min_area)
     if use_roi:
-        door_mask = _mask_to_rois(door_mask, min_area)
-    return door_mask
+        labels, label, bbox = _largest_component(door_mask, min_area)
+        if bbox is None:
+            return _filter_small_components(door_mask, min_area)
+        return _dominant_color_mask(rgb_image, labels, label, bbox)
+
+    return _filter_small_components(door_mask, min_area)
 
 
 # Backwards-compatible alias (if any old code still references wallDetection)
