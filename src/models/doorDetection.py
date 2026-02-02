@@ -191,6 +191,30 @@ def _largest_component(mask: np.ndarray, min_area: int):
     return labels, label, (x, y, w, h)
 
 
+def _roi_mask_from_bbox(shape, bbox) -> np.ndarray:
+    """
+    Build a rectangular ROI mask from a bbox.
+    """
+    x, y, w, h = bbox
+    roi = np.zeros(shape, dtype=np.uint8)
+    if w <= 0 or h <= 0:
+        return roi
+    roi[y : y + h, x : x + w] = 255
+    return roi
+
+
+def _fill_holes(mask: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+    """
+    Fill small holes in a binary mask using morphological closing.
+    """
+    if kernel_size <= 1:
+        return mask
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT, (kernel_size, kernel_size)
+    )
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+
 def _dominant_hsv_mask(
     bgr_image: np.ndarray,
     labels: np.ndarray,
@@ -282,10 +306,13 @@ def doorDetection(
     if use_roi:
         labels, label, bbox = _largest_component(door_mask, min_area)
         if bbox is None:
-            return _filter_small_components(door_mask, min_area)
-        return _dominant_hsv_mask(rgb_image, labels, label, bbox, reduce_glare)
+            return _fill_holes(_filter_small_components(door_mask, min_area))
+        roi_mask = _roi_mask_from_bbox(door_mask.shape, bbox)
+        door_mask = _dominant_hsv_mask(rgb_image, labels, label, bbox, reduce_glare)
+        door_mask = _fill_holes(door_mask, 5)
+        return cv2.bitwise_and(door_mask, roi_mask)
 
-    return _filter_small_components(door_mask, min_area)
+    return _fill_holes(_filter_small_components(door_mask, min_area), 5)
 
 
 # Backwards-compatible alias (if any old code still references wallDetection)
