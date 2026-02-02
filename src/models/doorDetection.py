@@ -13,7 +13,9 @@ from .trt_inference import TRTInference
 
 IMG_MEAN = (0.485, 0.456, 0.406)
 IMG_STD = (0.229, 0.224, 0.225)
-_COLOR_QUANT_SHIFT = 4  # 16 levels per channel for fast dominant color
+_HUE_TOL = 10  # Hue tolerance (0-179)
+_MIN_S = 40  # Minimum saturation for color selection
+_MIN_V = 40  # Minimum value for color selection
 
 
 # Centralized state for lazy initialization
@@ -186,14 +188,14 @@ def _largest_component(mask: np.ndarray, min_area: int):
     return labels, label, (x, y, w, h)
 
 
-def _dominant_color_mask(
+def _dominant_hsv_mask(
     bgr_image: np.ndarray,
     labels: np.ndarray,
     label: int,
     bbox,
 ) -> np.ndarray:
     """
-    Build a mask of ROI pixels that match the dominant color within the component.
+    Build a mask of ROI pixels that match the dominant HSV color within the component.
     """
     x, y, w, h = bbox
     if w <= 0 or h <= 0:
@@ -205,15 +207,30 @@ def _dominant_color_mask(
     if not np.any(roi_component):
         return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
 
-    q = (roi_img >> _COLOR_QUANT_SHIFT).astype(np.uint8)
-    bin_idx = q[:, :, 0] | (q[:, :, 1] << 4) | (q[:, :, 2] << 8)
-    idx = bin_idx[roi_component]
-    if idx.size == 0:
+    hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
+    h_channel = hsv[:, :, 0]
+    s_channel = hsv[:, :, 1]
+    v_channel = hsv[:, :, 2]
+    valid = roi_component & (s_channel >= _MIN_S) & (v_channel >= _MIN_V)
+    if not np.any(valid):
+        valid = roi_component
+    h_vals = h_channel[valid]
+    if h_vals.size == 0:
         return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
 
-    dominant = int(np.bincount(idx, minlength=4096).argmax())
-    match = bin_idx == dominant
+    hist = np.bincount(h_vals, minlength=180)
+    dominant_h = int(hist.argmax())
 
+    lower = dominant_h - _HUE_TOL
+    upper = dominant_h + _HUE_TOL
+    if lower < 0:
+        hue_mask = (h_channel >= lower + 180) | (h_channel <= upper)
+    elif upper >= 180:
+        hue_mask = (h_channel >= lower) | (h_channel <= upper - 180)
+    else:
+        hue_mask = (h_channel >= lower) & (h_channel <= upper)
+
+    match = hue_mask & (s_channel >= _MIN_S) & (v_channel >= _MIN_V)
     out = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
     out[y : y + h, x : x + w] = (match * 255).astype(np.uint8)
     return out
@@ -232,8 +249,8 @@ def doorDetection(
         min_area: Minimum area (pixels) to keep in the output mask.
             Use 0 to disable filtering. If None, uses runtime default.
         use_roi: If True, use the largest ROI to compute the dominant color
-            inside the segmented component and return a mask of ROI pixels
-            that match that color.
+            inside the segmented component (HSV) and return a mask of ROI
+            pixels that match that color.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -253,7 +270,7 @@ def doorDetection(
         labels, label, bbox = _largest_component(door_mask, min_area)
         if bbox is None:
             return _filter_small_components(door_mask, min_area)
-        return _dominant_color_mask(rgb_image, labels, label, bbox)
+        return _dominant_hsv_mask(rgb_image, labels, label, bbox)
 
     return _filter_small_components(door_mask, min_area)
 
