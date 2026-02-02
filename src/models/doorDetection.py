@@ -151,7 +151,33 @@ def _filter_small_components(mask: np.ndarray, min_area: int) -> np.ndarray:
     return (keep * 255).astype(np.uint8)
 
 
-def doorDetection(rgb_image: np.ndarray, min_area: Optional[int] = None) -> np.ndarray:
+def _mask_to_roi(mask: np.ndarray) -> np.ndarray:
+    """
+    Convert a binary mask to a filled ROI rectangle.
+    """
+    if mask.size == 0:
+        return mask
+
+    binary = mask > 0
+    if not np.any(binary):
+        return mask
+
+    ys, xs = np.where(binary)
+    y_min = int(ys.min())
+    y_max = int(ys.max())
+    x_min = int(xs.min())
+    x_max = int(xs.max())
+
+    roi = np.zeros_like(mask, dtype=np.uint8)
+    roi[y_min : y_max + 1, x_min : x_max + 1] = 255
+    return roi
+
+
+def doorDetection(
+    rgb_image: np.ndarray,
+    min_area: Optional[int] = None,
+    use_roi: bool = True,
+) -> np.ndarray:
     """
     Detect doors from an RGB image using TensorRT.
 
@@ -159,6 +185,7 @@ def doorDetection(rgb_image: np.ndarray, min_area: Optional[int] = None) -> np.n
         rgb_image: BGR image (H, W, 3), values 0-255.
         min_area: Minimum area (pixels) to keep in the output mask.
             Use 0 to disable filtering. If None, uses runtime default.
+        use_roi: If True, replace the mask with a filled ROI rectangle.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -174,7 +201,10 @@ def doorDetection(rgb_image: np.ndarray, min_area: Optional[int] = None) -> np.n
         min_area = int(_runtime.get("min_area", 0))
     else:
         min_area = int(min_area)
-    return _filter_small_components(door_mask, min_area)
+    door_mask = _filter_small_components(door_mask, min_area)
+    if use_roi:
+        door_mask = _mask_to_roi(door_mask)
+    return door_mask
 
 
 # Backwards-compatible alias (if any old code still references wallDetection)
