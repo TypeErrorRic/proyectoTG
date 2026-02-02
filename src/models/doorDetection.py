@@ -151,26 +151,35 @@ def _filter_small_components(mask: np.ndarray, min_area: int) -> np.ndarray:
     return (keep * 255).astype(np.uint8)
 
 
-def _mask_to_roi(mask: np.ndarray) -> np.ndarray:
+def _mask_to_rois(mask: np.ndarray, min_area: int) -> np.ndarray:
     """
-    Convert a binary mask to a filled ROI rectangle.
+    Convert a binary mask to filled ROI rectangles per connected component.
     """
     if mask.size == 0:
         return mask
 
-    binary = mask > 0
+    binary = (mask > 0).astype(np.uint8)
     if not np.any(binary):
         return mask
 
-    ys, xs = np.where(binary)
-    y_min = int(ys.min())
-    y_max = int(ys.max())
-    x_min = int(xs.min())
-    x_max = int(xs.max())
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        binary, connectivity=8
+    )
+    if num_labels <= 1:
+        return mask
 
-    roi = np.zeros_like(mask, dtype=np.uint8)
-    roi[y_min : y_max + 1, x_min : x_max + 1] = 255
-    return roi
+    rois = np.zeros_like(mask, dtype=np.uint8)
+    for label in range(1, num_labels):
+        area = int(stats[label, cv2.CC_STAT_AREA])
+        if area < min_area:
+            continue
+        x = int(stats[label, cv2.CC_STAT_LEFT])
+        y = int(stats[label, cv2.CC_STAT_TOP])
+        w = int(stats[label, cv2.CC_STAT_WIDTH])
+        h = int(stats[label, cv2.CC_STAT_HEIGHT])
+        rois[y : y + h, x : x + w] = 255
+
+    return rois
 
 
 def doorDetection(
@@ -203,7 +212,7 @@ def doorDetection(
         min_area = int(min_area)
     door_mask = _filter_small_components(door_mask, min_area)
     if use_roi:
-        door_mask = _mask_to_roi(door_mask)
+        door_mask = _mask_to_rois(door_mask, min_area)
     return door_mask
 
 
