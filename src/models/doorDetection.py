@@ -11,6 +11,10 @@ import numpy as np
 from .trt_inference import TRTInference
 
 
+IMG_MEAN = (0.485, 0.456, 0.406)
+IMG_STD = (0.229, 0.224, 0.225)
+
+
 # Centralized state for lazy initialization
 _runtime: Dict[str, Any] = {
     "model": None,
@@ -67,8 +71,13 @@ def _preprocess_inputs(rgb_image: np.ndarray) -> np.ndarray:
     elif rgb_image.ndim == 3 and rgb_image.shape[2] > 3:
         rgb_image = rgb_image[:, :, :3]
 
+    # Match training pipeline: PIL loads RGB, so convert BGR -> RGB here.
+    rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
     resized = cv2.resize(rgb_image, input_size, interpolation=cv2.INTER_LINEAR)
     normalized = resized.astype(np.float32) / 255.0
+    normalized = (normalized - np.array(IMG_MEAN, dtype=np.float32)) / np.array(
+        IMG_STD, dtype=np.float32
+    )
 
     # HWC -> CHW and add batch dimension
     input_tensor = normalized.transpose(2, 0, 1)[None, ...]
