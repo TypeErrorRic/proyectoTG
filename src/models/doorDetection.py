@@ -20,6 +20,7 @@ _runtime: Dict[str, Any] = {
     "model": None,
     "engine_path": None,
     "input_size": (256, 256),  # (width, height) - must match TensorRT engine
+    "min_area": 300,  # Minimum connected-component area (pixels) to keep
 }
 
 
@@ -127,12 +128,37 @@ def _postprocess_outputs(output: np.ndarray, original_size) -> np.ndarray:
     return door_mask
 
 
-def doorDetection(rgb_image: np.ndarray) -> np.ndarray:
+def _filter_small_components(mask: np.ndarray, min_area: int) -> np.ndarray:
+    """
+    Remove connected components smaller than min_area from a binary mask.
+    """
+    if min_area <= 0:
+        return mask
+
+    binary = (mask > 0).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        binary, connectivity=8
+    )
+    if num_labels <= 1:
+        return mask
+
+    keep = np.zeros_like(binary)
+    for label in range(1, num_labels):
+        area = int(stats[label, cv2.CC_STAT_AREA])
+        if area >= min_area:
+            keep[labels == label] = 1
+
+    return (keep * 255).astype(np.uint8)
+
+
+def doorDetection(rgb_image: np.ndarray, min_area: Optional[int] = None) -> np.ndarray:
     """
     Detect doors from an RGB image using TensorRT.
 
     Args:
         rgb_image: BGR image (H, W, 3), values 0-255.
+        min_area: Minimum area (pixels) to keep in the output mask.
+            Use 0 to disable filtering. If None, uses runtime default.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -143,7 +169,12 @@ def doorDetection(rgb_image: np.ndarray) -> np.ndarray:
     original_size = rgb_image.shape[:2]
     input_tensor = _preprocess_inputs(rgb_image)
     output = _runtime["model"].infer(input_tensor)
-    return _postprocess_outputs(output, original_size)
+    door_mask = _postprocess_outputs(output, original_size)
+    if min_area is None:
+        min_area = int(_runtime.get("min_area", 0))
+    else:
+        min_area = int(min_area)
+    return _filter_small_components(door_mask, min_area)
 
 
 # Backwards-compatible alias (if any old code still references wallDetection)
