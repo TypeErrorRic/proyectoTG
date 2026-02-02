@@ -113,7 +113,7 @@ def build_engine(onnx_path, engine_path, fp16_mode=True, max_batch_size=1):
 if __name__ == "__main__":
     # Paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    onnx_file = os.path.join(script_dir, "doors", "bisenetv2_fused.onnx")
+    onnx_file = os.path.join(script_dir, "doors", "bisenetv2_opset10.onnx")
     engine_file = os.path.join(script_dir, "doors", "bisenetv2.engine")
 
     if not os.path.exists(onnx_file):
