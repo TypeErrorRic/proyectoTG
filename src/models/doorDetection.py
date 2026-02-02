@@ -16,6 +16,9 @@ IMG_STD = (0.229, 0.224, 0.225)
 _HUE_TOL = 10  # Hue tolerance (0-179)
 _MIN_S = 40  # Minimum saturation for color selection
 _MIN_V = 40  # Minimum value for color selection
+_GLARE_S_MAX = 35  # Max saturation to consider as glare
+_GLARE_V_MIN = 210  # Min value to consider as glare
+_GLARE_V_CLIP = 200  # Clip glare value to this level
 
 
 # Centralized state for lazy initialization
@@ -193,6 +196,7 @@ def _dominant_hsv_mask(
     labels: np.ndarray,
     label: int,
     bbox,
+    reduce_glare: bool,
 ) -> np.ndarray:
     """
     Build a mask of ROI pixels that match the dominant HSV color within the component.
@@ -208,6 +212,12 @@ def _dominant_hsv_mask(
         return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
 
     hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
+    if reduce_glare:
+        s_channel = hsv[:, :, 1]
+        v_channel = hsv[:, :, 2]
+        glare = (s_channel <= _GLARE_S_MAX) & (v_channel >= _GLARE_V_MIN)
+        if np.any(glare):
+            hsv[:, :, 2] = np.where(glare, _GLARE_V_CLIP, v_channel)
     h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
     v_channel = hsv[:, :, 2]
@@ -240,6 +250,7 @@ def doorDetection(
     rgb_image: np.ndarray,
     min_area: Optional[int] = None,
     use_roi: bool = True,
+    reduce_glare: bool = True,
 ) -> np.ndarray:
     """
     Detect doors from an RGB image using TensorRT.
@@ -251,6 +262,8 @@ def doorDetection(
         use_roi: If True, use the largest ROI to compute the dominant color
             inside the segmented component (HSV) and return a mask of ROI
             pixels that match that color.
+        reduce_glare: If True, clip very bright low-saturation pixels before
+            HSV-based color selection.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -270,7 +283,7 @@ def doorDetection(
         labels, label, bbox = _largest_component(door_mask, min_area)
         if bbox is None:
             return _filter_small_components(door_mask, min_area)
-        return _dominant_hsv_mask(rgb_image, labels, label, bbox)
+        return _dominant_hsv_mask(rgb_image, labels, label, bbox, reduce_glare)
 
     return _filter_small_components(door_mask, min_area)
 
