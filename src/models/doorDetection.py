@@ -203,16 +203,54 @@ def _roi_mask_from_bbox(shape, bbox) -> np.ndarray:
     return roi
 
 
-def _fill_holes(mask: np.ndarray, kernel_size: int = 5) -> np.ndarray:
+def _fill_holes(
+    mask: np.ndarray,
+    kernel_size: int = 5,
+    bbox=None,
+) -> np.ndarray:
     """
-    Fill small holes in a binary mask using morphological closing.
+    Fill holes in a binary mask using closing + flood fill.
     """
-    if kernel_size <= 1:
+    if mask.size == 0:
         return mask
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_RECT, (kernel_size, kernel_size)
+
+    if kernel_size > 1:
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_RECT, (kernel_size, kernel_size)
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    if bbox is None:
+        y0, x0 = 0, 0
+        region = mask
+    else:
+        x, y, w, h = bbox
+        if w <= 0 or h <= 0:
+            return mask
+        y0, x0 = y, x
+        region = mask[y : y + h, x : x + w]
+
+    if region.size == 0:
+        return mask
+
+    region_bin = (region > 0).astype(np.uint8) * 255
+    padded = cv2.copyMakeBorder(
+        region_bin, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0
     )
-    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    inv = cv2.bitwise_not(padded)
+    flood = inv.copy()
+    h, w = inv.shape
+    ffmask = np.zeros((h + 2, w + 2), np.uint8)
+    cv2.floodFill(flood, ffmask, (0, 0), 0)
+    filled = cv2.bitwise_or(padded, flood)
+    filled = filled[1:-1, 1:-1]
+
+    if bbox is None:
+        return filled
+
+    out = mask.copy()
+    out[y0 : y0 + filled.shape[0], x0 : x0 + filled.shape[1]] = filled
+    return out
 
 
 def _dominant_hsv_mask(
@@ -309,7 +347,7 @@ def doorDetection(
             return _fill_holes(_filter_small_components(door_mask, min_area))
         roi_mask = _roi_mask_from_bbox(door_mask.shape, bbox)
         door_mask = _dominant_hsv_mask(rgb_image, labels, label, bbox, reduce_glare)
-        door_mask = _fill_holes(door_mask, 5)
+        door_mask = _fill_holes(door_mask, 5, bbox)
         return cv2.bitwise_and(door_mask, roi_mask)
 
     return _fill_holes(_filter_small_components(door_mask, min_area), 5)
