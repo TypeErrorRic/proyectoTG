@@ -204,6 +204,7 @@ def mejorar_mascara_pared(
     edge_sigma: float = 0.33,
     edge_dilate: int = 1,
     max_iters: int = 64,
+    min_island_pixels: int = 300,
 ) -> Optional[np.ndarray]:
     """
     Refine wall mask using plane-distance hysteresis + RGB edge-guided growth.
@@ -326,11 +327,17 @@ def mejorar_mascara_pared(
 
     out = np.zeros((H, W), dtype=np.uint8)
     out[current] = 255
-    # Morphology: erode 9x9 then dilate 9x9 to smooth boundaries.
-    kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    out = cv2.erode(out, kernel_erode, iterations=1)
-    out = cv2.dilate(out, kernel_dilate, iterations=1)
+    if min_island_pixels and min_island_pixels > 0:
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            out, connectivity=8
+        )
+        if num_labels > 1:
+            keep = np.zeros_like(out)
+            for label in range(1, num_labels):
+                area = stats[label, cv2.CC_STAT_AREA]
+                if area >= min_island_pixels:
+                    keep[labels == label] = 255
+            out = keep
     return out
 
 def mejorar_mascara_suelo(
@@ -459,7 +466,7 @@ def mejorar_mascara_suelo(
     out = np.zeros((H, W), dtype=np.uint8)
     out[current] = 255
     # Dilate to soften boundaries and remove small delimitations.
-    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     out = cv2.dilate(out, kernel_dilate, iterations=1)
     return out
 
