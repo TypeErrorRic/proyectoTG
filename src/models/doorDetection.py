@@ -157,38 +157,43 @@ def _filter_small_components(mask: np.ndarray, min_area: int) -> np.ndarray:
     return (keep * 255).astype(np.uint8)
 
 
-def _largest_component(mask: np.ndarray, min_area: int):
+def _component_stats(mask: np.ndarray):
     """
-    Return labels, largest component label, and its bounding box.
+    Return labels and stats for connected components.
     """
     if mask.size == 0:
-        return None, None, None
+        return None, None
 
     binary = (mask > 0).astype(np.uint8)
     if not np.any(binary):
-        return None, None, None
+        return None, None
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         binary, connectivity=8
     )
     if num_labels <= 1:
-        return None, None, None
+        return None, None
+
+    return labels, stats
+
+
+def _largest_component_label(stats: np.ndarray, min_area: int) -> Optional[int]:
+    """
+    Return the label index of the largest component that meets min_area.
+    """
+    if stats is None or stats.shape[0] <= 1:
+        return None
 
     areas = stats[1:, cv2.CC_STAT_AREA]
     if min_area > 0:
         valid = np.where(areas >= min_area)[0]
         if valid.size == 0:
-            return None, None, None
+            return None
         largest_idx = int(valid[np.argmax(areas[valid])])
     else:
         largest_idx = int(np.argmax(areas))
 
-    label = largest_idx + 1
-    x = int(stats[label, cv2.CC_STAT_LEFT])
-    y = int(stats[label, cv2.CC_STAT_TOP])
-    w = int(stats[label, cv2.CC_STAT_WIDTH])
-    h = int(stats[label, cv2.CC_STAT_HEIGHT])
-    return labels, label, (x, y, w, h)
+    return largest_idx + 1
 
 
 def _roi_mask_from_bbox(shape, bbox) -> np.ndarray:
@@ -253,25 +258,25 @@ def _fill_holes(
     return out
 
 
-def _dominant_hsv_mask(
+def _dominant_hue_in_component(
     bgr_image: np.ndarray,
     labels: np.ndarray,
     label: int,
     bbox,
     reduce_glare: bool,
-) -> np.ndarray:
+) -> Optional[int]:
     """
-    Build a mask of ROI pixels that match the dominant HSV color within the component.
+    Compute dominant hue inside a component ROI.
     """
     x, y, w, h = bbox
     if w <= 0 or h <= 0:
-        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+        return None
 
     roi_img = bgr_image[y : y + h, x : x + w]
     roi_labels = labels[y : y + h, x : x + w]
     roi_component = roi_labels == label
     if not np.any(roi_component):
-        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+        return None
 
     hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
     if reduce_glare:
@@ -280,6 +285,7 @@ def _dominant_hsv_mask(
         glare = (s_channel <= _GLARE_S_MAX) & (v_channel >= _GLARE_V_MIN)
         if np.any(glare):
             hsv[:, :, 2] = np.where(glare, _GLARE_V_CLIP, v_channel)
+
     h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
     v_channel = hsv[:, :, 2]
@@ -288,10 +294,37 @@ def _dominant_hsv_mask(
         valid = roi_component
     h_vals = h_channel[valid]
     if h_vals.size == 0:
-        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+        return None
 
     hist = np.bincount(h_vals, minlength=180)
-    dominant_h = int(hist.argmax())
+    return int(hist.argmax())
+
+
+def _hsv_mask_for_hue(
+    bgr_image: np.ndarray,
+    bbox,
+    dominant_h: int,
+    reduce_glare: bool,
+) -> np.ndarray:
+    """
+    Build a mask of ROI pixels that match a target hue.
+    """
+    x, y, w, h = bbox
+    if w <= 0 or h <= 0:
+        return np.zeros(bgr_image.shape[:2], dtype=np.uint8)
+
+    roi_img = bgr_image[y : y + h, x : x + w]
+    hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
+    if reduce_glare:
+        s_channel = hsv[:, :, 1]
+        v_channel = hsv[:, :, 2]
+        glare = (s_channel <= _GLARE_S_MAX) & (v_channel >= _GLARE_V_MIN)
+        if np.any(glare):
+            hsv[:, :, 2] = np.where(glare, _GLARE_V_CLIP, v_channel)
+
+    h_channel = hsv[:, :, 0]
+    s_channel = hsv[:, :, 1]
+    v_channel = hsv[:, :, 2]
 
     lower = dominant_h - _HUE_TOL
     upper = dominant_h + _HUE_TOL
@@ -342,13 +375,44 @@ def doorDetection(
     else:
         min_area = int(min_area)
     if use_roi:
-        labels, label, bbox = _largest_component(door_mask, min_area)
-        if bbox is None:
+        labels, stats = _component_stats(door_mask)
+        if labels is None or stats is None:
             return _fill_holes(_filter_small_components(door_mask, min_area))
-        roi_mask = _roi_mask_from_bbox(door_mask.shape, bbox)
-        door_mask = _dominant_hsv_mask(rgb_image, labels, label, bbox, reduce_glare)
-        door_mask = _fill_holes(door_mask, 5, bbox)
-        return cv2.bitwise_and(door_mask, roi_mask)
+
+        largest_label = _largest_component_label(stats, min_area)
+        if largest_label is None:
+            return _fill_holes(_filter_small_components(door_mask, min_area))
+
+        x = int(stats[largest_label, cv2.CC_STAT_LEFT])
+        y = int(stats[largest_label, cv2.CC_STAT_TOP])
+        w = int(stats[largest_label, cv2.CC_STAT_WIDTH])
+        h = int(stats[largest_label, cv2.CC_STAT_HEIGHT])
+        largest_bbox = (x, y, w, h)
+        dominant_h = _dominant_hue_in_component(
+            rgb_image, labels, largest_label, largest_bbox, reduce_glare
+        )
+        if dominant_h is None:
+            return _fill_holes(_filter_small_components(door_mask, min_area))
+
+        final_mask = np.zeros_like(door_mask, dtype=np.uint8)
+        for label in range(1, stats.shape[0]):
+            area = int(stats[label, cv2.CC_STAT_AREA])
+            if min_area > 0 and area < min_area:
+                continue
+            x = int(stats[label, cv2.CC_STAT_LEFT])
+            y = int(stats[label, cv2.CC_STAT_TOP])
+            w = int(stats[label, cv2.CC_STAT_WIDTH])
+            h = int(stats[label, cv2.CC_STAT_HEIGHT])
+            bbox = (x, y, w, h)
+            roi_mask = _roi_mask_from_bbox(door_mask.shape, bbox)
+            roi_color = _hsv_mask_for_hue(
+                rgb_image, bbox, dominant_h, reduce_glare
+            )
+            roi_color = _fill_holes(roi_color, 5, bbox)
+            roi_color = cv2.bitwise_and(roi_color, roi_mask)
+            final_mask = cv2.bitwise_or(final_mask, roi_color)
+
+        return final_mask
 
     return _fill_holes(_filter_small_components(door_mask, min_area), 5)
 
