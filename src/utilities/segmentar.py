@@ -320,7 +320,7 @@ def segmentar() -> Any:
         door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
 
     # Optional: refine/improve masks (after door segmentation)
-    if ground_params.get("ground_mask_refine"):
+    if ground_params.get("ground_mask_refine") and ground_mask is not None and np.any(ground_mask):
         try:
             ground_mask = mejorar_mascara_suelo(
                 ground_mask,
@@ -334,7 +334,7 @@ def segmentar() -> Any:
         except Exception as e:
             print(f"[segmentar] Ground mask refinement failed: {e}")
 
-    if wall_cfg.get("wall_mask_refine"):
+    if wall_cfg.get("wall_mask_refine") and wall_mask is not None and np.any(wall_mask):
         try:
             wall_mask = mejorar_mascara_pared(
                 wall_mask,
