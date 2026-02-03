@@ -471,7 +471,7 @@ def mejorar_mascara_suelo(
     out = np.zeros((H, W), dtype=np.uint8)
     out[current] = 255
     # Dilate to soften boundaries and remove small delimitations.
-    k = 7 if use_realsense else 5
+    k = 9 if use_realsense else 5
     kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     out = cv2.dilate(out, kernel_dilate, iterations=1)
     return out
