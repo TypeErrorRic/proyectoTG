@@ -338,6 +338,8 @@ def mejorar_mascara_pared(
                 if area >= min_island_pixels:
                     keep[labels == label] = 255
             out = keep
+    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    out = cv2.dilate(out, kernel_dilate, iterations=1)
     return out
 
 def mejorar_mascara_suelo(
