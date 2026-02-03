@@ -21,6 +21,40 @@ _GLARE_V_MIN = 210  # Min value to consider as glare
 _GLARE_V_CLIP = 200  # Clip glare value to this level
 
 
+def _clamp_int(value: Optional[int], default: int, low: int, high: int) -> int:
+    """
+    Safely parse and clamp integer HSV parameters.
+    """
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+    return max(low, min(high, parsed))
+
+
+def _resolve_hsv_params(
+    hue_tol: Optional[int],
+    min_s: Optional[int],
+    min_v: Optional[int],
+    glare_s_max: Optional[int],
+    glare_v_min: Optional[int],
+    glare_v_clip: Optional[int],
+) -> Dict[str, int]:
+    """
+    Resolve HSV parameters with defaults and bounds.
+    """
+    return {
+        "hue_tol": _clamp_int(hue_tol, _HUE_TOL, 0, 179),
+        "min_s": _clamp_int(min_s, _MIN_S, 0, 255),
+        "min_v": _clamp_int(min_v, _MIN_V, 0, 255),
+        "glare_s_max": _clamp_int(glare_s_max, _GLARE_S_MAX, 0, 255),
+        "glare_v_min": _clamp_int(glare_v_min, _GLARE_V_MIN, 0, 255),
+        "glare_v_clip": _clamp_int(glare_v_clip, _GLARE_V_CLIP, 0, 255),
+    }
+
+
 # Centralized state for lazy initialization
 _runtime: Dict[str, Any] = {
     "model": None,
@@ -264,6 +298,7 @@ def _dominant_hue_in_component(
     label: int,
     bbox,
     reduce_glare: bool,
+    hsv_params: Dict[str, int],
 ) -> Optional[int]:
     """
     Compute dominant hue inside a component ROI.
@@ -282,14 +317,14 @@ def _dominant_hue_in_component(
     if reduce_glare:
         s_channel = hsv[:, :, 1]
         v_channel = hsv[:, :, 2]
-        glare = (s_channel <= _GLARE_S_MAX) & (v_channel >= _GLARE_V_MIN)
+        glare = (s_channel <= hsv_params["glare_s_max"]) & (v_channel >= hsv_params["glare_v_min"])
         if np.any(glare):
-            hsv[:, :, 2] = np.where(glare, _GLARE_V_CLIP, v_channel)
+            hsv[:, :, 2] = np.where(glare, hsv_params["glare_v_clip"], v_channel)
 
     h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
     v_channel = hsv[:, :, 2]
-    valid = roi_component & (s_channel >= _MIN_S) & (v_channel >= _MIN_V)
+    valid = roi_component & (s_channel >= hsv_params["min_s"]) & (v_channel >= hsv_params["min_v"])
     if not np.any(valid):
         valid = roi_component
     h_vals = h_channel[valid]
@@ -305,6 +340,7 @@ def _hsv_mask_for_hue(
     bbox,
     dominant_h: int,
     reduce_glare: bool,
+    hsv_params: Dict[str, int],
 ) -> np.ndarray:
     """
     Build a mask of ROI pixels that match a target hue.
@@ -318,16 +354,16 @@ def _hsv_mask_for_hue(
     if reduce_glare:
         s_channel = hsv[:, :, 1]
         v_channel = hsv[:, :, 2]
-        glare = (s_channel <= _GLARE_S_MAX) & (v_channel >= _GLARE_V_MIN)
+        glare = (s_channel <= hsv_params["glare_s_max"]) & (v_channel >= hsv_params["glare_v_min"])
         if np.any(glare):
-            hsv[:, :, 2] = np.where(glare, _GLARE_V_CLIP, v_channel)
+            hsv[:, :, 2] = np.where(glare, hsv_params["glare_v_clip"], v_channel)
 
     h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
     v_channel = hsv[:, :, 2]
 
-    lower = dominant_h - _HUE_TOL
-    upper = dominant_h + _HUE_TOL
+    lower = dominant_h - hsv_params["hue_tol"]
+    upper = dominant_h + hsv_params["hue_tol"]
     if lower < 0:
         hue_mask = (h_channel >= lower + 180) | (h_channel <= upper)
     elif upper >= 180:
@@ -335,7 +371,7 @@ def _hsv_mask_for_hue(
     else:
         hue_mask = (h_channel >= lower) & (h_channel <= upper)
 
-    match = hue_mask & (s_channel >= _MIN_S) & (v_channel >= _MIN_V)
+    match = hue_mask & (s_channel >= hsv_params["min_s"]) & (v_channel >= hsv_params["min_v"])
     out = np.zeros(bgr_image.shape[:2], dtype=np.uint8)
     out[y : y + h, x : x + w] = (match * 255).astype(np.uint8)
     return out
@@ -346,6 +382,12 @@ def doorDetection(
     min_area: Optional[int] = None,
     use_roi: bool = True,
     reduce_glare: bool = True,
+    hue_tol: Optional[int] = None,
+    min_s: Optional[int] = None,
+    min_v: Optional[int] = None,
+    glare_s_max: Optional[int] = None,
+    glare_v_min: Optional[int] = None,
+    glare_v_clip: Optional[int] = None,
 ) -> np.ndarray:
     """
     Detect doors from an RGB image using TensorRT.
@@ -359,6 +401,12 @@ def doorDetection(
             pixels that match that color.
         reduce_glare: If True, clip very bright low-saturation pixels before
             HSV-based color selection.
+        hue_tol: Hue tolerance around the dominant hue (0-179).
+        min_s: Minimum saturation threshold for HSV selection (0-255).
+        min_v: Minimum value threshold for HSV selection (0-255).
+        glare_s_max: Maximum saturation to classify glare (0-255).
+        glare_v_min: Minimum value to classify glare (0-255).
+        glare_v_clip: Value used to clip glare pixels (0-255).
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -374,6 +422,14 @@ def doorDetection(
         min_area = int(_runtime.get("min_area", 0))
     else:
         min_area = int(min_area)
+    hsv_params = _resolve_hsv_params(
+        hue_tol,
+        min_s,
+        min_v,
+        glare_s_max,
+        glare_v_min,
+        glare_v_clip,
+    )
     if use_roi:
         labels, stats = _component_stats(door_mask)
         if labels is None or stats is None:
@@ -389,7 +445,7 @@ def doorDetection(
         h = int(stats[largest_label, cv2.CC_STAT_HEIGHT])
         largest_bbox = (x, y, w, h)
         dominant_h = _dominant_hue_in_component(
-            rgb_image, labels, largest_label, largest_bbox, reduce_glare
+            rgb_image, labels, largest_label, largest_bbox, reduce_glare, hsv_params
         )
         if dominant_h is None:
             return _fill_holes(_filter_small_components(door_mask, min_area))
@@ -406,7 +462,7 @@ def doorDetection(
             bbox = (x, y, w, h)
             roi_mask = _roi_mask_from_bbox(door_mask.shape, bbox)
             roi_color = _hsv_mask_for_hue(
-                rgb_image, bbox, dominant_h, reduce_glare
+                rgb_image, bbox, dominant_h, reduce_glare, hsv_params
             )
             roi_color = _fill_holes(roi_color, 5, bbox)
             roi_color = cv2.bitwise_and(roi_color, roi_mask)

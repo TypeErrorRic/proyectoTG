@@ -762,6 +762,7 @@ class SegmentacionApp:
         )
         params_body.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
         params_body.columnconfigure(0, weight=1)
+        params_body.rowconfigure(1, weight=1)
 
         title_lbl = tk.Label(
             params_body,
@@ -775,8 +776,38 @@ class SegmentacionApp:
         )
         title_lbl.grid(row=0, column=0, sticky="w", pady=(4, 2))
 
-        summary_frame = tk.Frame(params_body, bg=params_body.cget("bg"))
-        summary_frame.grid(row=1, column=0, sticky="nsew")
+        summary_container = tk.Frame(params_body, bg=params_body.cget("bg"))
+        summary_container.grid(row=1, column=0, sticky="nsew")
+        summary_container.columnconfigure(0, weight=1)
+        summary_container.rowconfigure(0, weight=1)
+
+        summary_canvas = tk.Canvas(
+            summary_container,
+            bg=params_body.cget("bg"),
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        summary_scroll = tk.Scrollbar(
+            summary_container,
+            orient="vertical",
+            command=summary_canvas.yview,
+        )
+        summary_canvas.configure(yscrollcommand=summary_scroll.set)
+
+        summary_canvas.grid(row=0, column=0, sticky="nsew")
+        summary_scroll.grid(row=0, column=1, sticky="ns")
+
+        summary_frame = tk.Frame(summary_canvas, bg=params_body.cget("bg"))
+        summary_window = summary_canvas.create_window((0, 0), window=summary_frame, anchor="nw")
+        summary_frame.bind(
+            "<Configure>",
+            lambda _event: summary_canvas.configure(scrollregion=summary_canvas.bbox("all")),
+        )
+        summary_canvas.bind(
+            "<Configure>",
+            lambda event: summary_canvas.itemconfigure(summary_window, width=event.width),
+        )
         summary_frame.columnconfigure(1, weight=1)
 
         self.params_summary_labels = {}
@@ -1158,6 +1189,12 @@ class SegmentacionApp:
             ("roi_bottom_fraction", "Fracción inferior ROI", "0.34"),
             ("refine_full_res", "Refinar full-res (0/1)", "1"),
             ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
+            ("door_hue_tol", "HSV: tolerancia H (0-179)", "18"),
+            ("door_min_s", "HSV: min S (0-255)", "30"),
+            ("door_min_v", "HSV: min V (0-255)", "20"),
+            ("door_glare_s_max", "HSV: glare S max (0-255)", "35"),
+            ("door_glare_v_min", "HSV: glare V min (0-255)", "210"),
+            ("door_glare_v_clip", "HSV: glare V clip (0-255)", "200"),
         ]
 
         numeric_validator = (self.root.register(validate_numeric_entry), "%P")

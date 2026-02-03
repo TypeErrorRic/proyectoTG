@@ -45,6 +45,12 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "wall_ortho_deg": "20.0",
     "wall_parallel_deg": "10.0",
     "wall_parallel_distance_m": "0.60",
+    "door_hue_tol": "18",
+    "door_min_s": "30",
+    "door_min_v": "20",
+    "door_glare_s_max": "35",
+    "door_glare_v_min": "210",
+    "door_glare_v_clip": "200",
 }
 
 
@@ -177,6 +183,12 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("wall_ortho_deg", "Orto paredes (deg)"),
         ("wall_parallel_deg", "Paralelo paredes (deg)"),
         ("wall_parallel_distance_m", "Dist. paredes (m)"),
+        ("door_hue_tol", "Puerta HSV: tol H"),
+        ("door_min_s", "Puerta HSV: min S"),
+        ("door_min_v", "Puerta HSV: min V"),
+        ("door_glare_s_max", "Puerta HSV: glare S max"),
+        ("door_glare_v_min", "Puerta HSV: glare V min"),
+        ("door_glare_v_clip", "Puerta HSV: glare V clip"),
     ]
 
 
@@ -217,6 +229,12 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "wall_ortho_deg": (float, 0.0),
         "wall_parallel_deg": (float, 0.0),
         "wall_parallel_distance_m": (float, 0.0),
+        "door_hue_tol": (int, -0.1),
+        "door_min_s": (int, -0.1),
+        "door_min_v": (int, -0.1),
+        "door_glare_s_max": (int, -0.1),
+        "door_glare_v_min": (int, -0.1),
+        "door_glare_v_clip": (int, -0.1),
     }
     parsed: Dict[str, Any] = {}
     errors = []
@@ -257,6 +275,20 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if not (0.0 < float(val) <= 1.0):
                 errors.append(key)
                 continue
+        elif key == "door_hue_tol":
+            if not (0 <= int(val) <= 179):
+                errors.append(key)
+                continue
+        elif key in (
+            "door_min_s",
+            "door_min_v",
+            "door_glare_s_max",
+            "door_glare_v_min",
+            "door_glare_v_clip",
+        ):
+            if not (0 <= int(val) <= 255):
+                errors.append(key)
+                continue
         elif float(val) <= min_value:
             errors.append(key)
             continue
@@ -281,6 +313,17 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     for key in ("max_agg_points", "refine_max_points"):
         if key in parsed:
             parsed[key] = max(0, int(parsed[key]))
+    if "door_hue_tol" in parsed:
+        parsed["door_hue_tol"] = max(0, min(179, int(parsed["door_hue_tol"])))
+    for key in (
+        "door_min_s",
+        "door_min_v",
+        "door_glare_s_max",
+        "door_glare_v_min",
+        "door_glare_v_clip",
+    ):
+        if key in parsed:
+            parsed[key] = max(0, min(255, int(parsed[key])))
     return parsed
 
 

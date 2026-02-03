@@ -56,6 +56,12 @@ _runtime: Dict[str, Any] = {
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
         "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
+        "door_hue_tol": 18,              # tolerancia HSV (H) para puerta
+        "door_min_s": 30,                # saturacion minima HSV
+        "door_min_v": 20,                # valor minimo HSV
+        "door_glare_s_max": 35,          # max S para considerar glare
+        "door_glare_v_min": 210,         # min V para considerar glare
+        "door_glare_v_clip": 200,        # V usado al recortar glare
     },
 }
 
@@ -221,7 +227,15 @@ def segmentar() -> Any:
 
     # Door detection using TensorRT model (bisenetv2)
     try:
-        door_mask = doorDetection(imagenRGB)
+        door_mask = doorDetection(
+            imagenRGB,
+            hue_tol=ground_params.get("door_hue_tol"),
+            min_s=ground_params.get("door_min_s"),
+            min_v=ground_params.get("door_min_v"),
+            glare_s_max=ground_params.get("door_glare_s_max"),
+            glare_v_min=ground_params.get("door_glare_v_min"),
+            glare_v_clip=ground_params.get("door_glare_v_clip"),
+        )
     except Exception as e:
         print(f"[segmentar] Door detection failed: {e}")
         door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)

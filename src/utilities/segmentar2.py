@@ -22,6 +22,12 @@ _ground_params: Dict[str, Any] = {
     "time_budget_ms": 100,
     "early_stop_ratio": 0.92,
     "batch_size": 256,
+    "door_hue_tol": 18,
+    "door_min_s": 30,
+    "door_min_v": 20,
+    "door_glare_s_max": 35,
+    "door_glare_v_min": 210,
+    "door_glare_v_clip": 200,
 }
 
 _metrics: Dict[str, Any] = {"last_ransac_ms": None}
