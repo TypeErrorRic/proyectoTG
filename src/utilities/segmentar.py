@@ -280,6 +280,7 @@ def segmentar() -> Any:
     # Get wall planes using the fast plane fitter (no TensorRT)
     wall_mask = None
     door_mask = None
+    wall_res = {}
     try:
         wall_res = get_wall_planes(
             mapaProfundidad,
@@ -299,7 +300,14 @@ def segmentar() -> Any:
     # Optional: refine/improve wall mask
     if wall_cfg.get("wall_mask_refine"):
         try:
-            wall_mask = mejorar_mascara_pared(wall_mask)
+            wall_mask = mejorar_mascara_pared(
+                wall_mask,
+                imagen_rgb=imagenRGB,
+                depth_m=mapaProfundidad,
+                rays=rays_cp,
+                planes=wall_res.get("planes"),
+                dist_thresh=wall_params.get("dist_thresh"),
+            )
         except Exception as e:
             print(f"[segmentar] Wall mask refinement failed: {e}")
 

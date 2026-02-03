@@ -180,13 +180,153 @@ def toggle_mask_visibility(name: str) -> bool:
 
 # No additional helpers at the moment
 
-def mejorar_mascara_pared(wall_mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+def mejorar_mascara_pared(
+    wall_mask: Optional[np.ndarray],
+    imagen_rgb: Optional[np.ndarray] = None,
+    depth_m: Optional[np.ndarray] = None,
+    rays: Optional[np.ndarray] = None,
+    planes: Optional[list] = None,
+    dist_thresh: Optional[float] = None,
+    eps_strict: Optional[float] = None,
+    eps_loose: Optional[float] = None,
+    edge_sigma: float = 0.33,
+    edge_dilate: int = 1,
+    max_iters: int = 64,
+) -> Optional[np.ndarray]:
     """
-    Placeholder to improve the wall mask quality.
+    Refine wall mask using plane-distance hysteresis + RGB edge-guided growth.
 
-    TODO: Implement enhancement logic. For now, return the input mask unchanged.
+    The RGB image is used only to block crossings over strong edges, not to
+    decide what is a wall.
     """
-    return wall_mask
+    if wall_mask is None:
+        return None
+    if imagen_rgb is None or depth_m is None or rays is None or not planes:
+        return wall_mask
+
+    def _to_numpy(arr):
+        if arr is None:
+            return None
+        try:
+            import cupy as cp  # local import to avoid hard dependency at import time
+
+            if isinstance(arr, cp.ndarray):
+                return cp.asnumpy(arr)
+        except Exception:
+            pass
+        return np.asarray(arr)
+
+    depth_np = _to_numpy(depth_m)
+    rays_np = _to_numpy(rays)
+    if depth_np is None or rays_np is None:
+        return wall_mask
+
+    H, W = depth_np.shape[:2]
+    if rays_np.shape[:2] != (H, W):
+        return wall_mask
+
+    # Normalize wall mask to match depth resolution if needed
+    wall_mask_np = np.asarray(wall_mask)
+    if wall_mask_np.ndim == 3:
+        wall_mask_np = wall_mask_np[:, :, 0]
+    if wall_mask_np.shape[:2] != (H, W):
+        wall_mask_np = cv2.resize(
+            wall_mask_np, (W, H), interpolation=cv2.INTER_NEAREST
+        )
+
+    # Default hysteresis thresholds derived from dist_thresh when available
+    if dist_thresh is not None and (eps_strict is None or eps_loose is None):
+        base = float(dist_thresh)
+        if eps_strict is None:
+            eps_strict = max(0.5 * base, 1e-4)
+        if eps_loose is None:
+            eps_loose = max(2.0 * base, eps_strict * 1.5)
+
+    if eps_strict is None:
+        eps_strict = 0.02
+    if eps_loose is None:
+        eps_loose = 0.06
+
+    # Compute minimum distance to any wall plane
+    dist_min = None
+    for plane in planes:
+        if not isinstance(plane, dict):
+            continue
+        n = _to_numpy(plane.get("n"))
+        d = plane.get("d")
+        if n is None or d is None:
+            continue
+        n = np.asarray(n, dtype=np.float32).reshape(-1)
+        if n.size != 3:
+            continue
+        try:
+            d_val = float(_to_numpy(d))
+        except Exception:
+            try:
+                d_val = float(d)
+            except Exception:
+                continue
+        dotnr = np.tensordot(rays_np, n, axes=([2], [0]))
+        dist = np.abs(depth_np * dotnr + d_val)
+        if dist_min is None:
+            dist_min = dist
+        else:
+            dist_min = np.minimum(dist_min, dist)
+
+    if dist_min is None:
+        return wall_mask_np
+
+    valid = depth_np > 0
+    seed = (dist_min < eps_strict) & valid
+    cand = (dist_min < eps_loose) & valid
+
+    # Add existing wall mask as extra seeds (only if within loose band)
+    if wall_mask_np is not None:
+        seed = seed | ((wall_mask_np > 0) & cand)
+
+    if not np.any(seed):
+        return wall_mask_np
+
+    # Compute strong RGB edges to block growth
+    rgb_np = np.asarray(imagen_rgb)
+    if rgb_np.shape[:2] != (H, W):
+        rgb_np = cv2.resize(rgb_np, (W, H), interpolation=cv2.INTER_AREA)
+
+    gray = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    med = float(np.median(gray))
+    lower = int(max(0, (1.0 - edge_sigma) * med))
+    upper = int(min(255, (1.0 + edge_sigma) * med))
+    if lower == upper:
+        lower = max(0, int(med * 0.5))
+        upper = min(255, int(med * 1.5))
+        if lower == upper:
+            lower, upper = 50, 150
+
+    edges = cv2.Canny(gray, lower, upper)
+    if edge_dilate and edge_dilate > 0:
+        k = 2 * int(edge_dilate) + 1
+        kernel_edge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        edges = cv2.dilate(edges, kernel_edge, iterations=1)
+    barrier = edges > 0
+
+    allowed = cand & (~barrier)
+    current = seed & allowed
+    if not np.any(current):
+        return wall_mask_np
+
+    # Geodesic growth (morphological reconstruction) within allowed region
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    for _ in range(max_iters):
+        dil = cv2.dilate(current.astype(np.uint8), kernel, iterations=1) > 0
+        nxt = dil & allowed
+        if np.array_equal(nxt, current):
+            break
+        current = nxt
+
+    out = np.zeros((H, W), dtype=np.uint8)
+    out[current] = 255
+    return out
 
 def apply_mask_to_rgb(
     rgb_image: np.ndarray,
