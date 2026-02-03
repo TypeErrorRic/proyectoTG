@@ -808,7 +808,8 @@ class SegmentacionApp:
             "<Configure>",
             lambda event: summary_canvas.itemconfigure(summary_window, width=event.width),
         )
-        summary_frame.columnconfigure(1, weight=1)
+        summary_frame.columnconfigure(0, weight=1)
+        summary_frame.columnconfigure(1, weight=0, minsize=70)
 
         self.params_summary_labels = {}
         for idx, (key, label_text) in enumerate(param_summary_fields()):
