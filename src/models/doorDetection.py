@@ -13,9 +13,9 @@ from .trt_inference import TRTInference
 
 IMG_MEAN = (0.485, 0.456, 0.406)
 IMG_STD = (0.229, 0.224, 0.225)
-_HUE_TOL = 10  # Hue tolerance (0-179)
-_MIN_S = 40  # Minimum saturation for color selection
-_MIN_V = 40  # Minimum value for color selection
+_HUE_TOL = 18  # Hue tolerance (0-179)
+_MIN_S = 30  # Minimum saturation for color selection
+_MIN_V = 20  # Minimum value for color selection
 _GLARE_S_MAX = 35  # Max saturation to consider as glare
 _GLARE_V_MIN = 210  # Min value to consider as glare
 _GLARE_V_CLIP = 200  # Clip glare value to this level
