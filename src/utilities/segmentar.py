@@ -60,7 +60,7 @@ _runtime: Dict[str, Any] = {
         "refine_full_res": True,         # refinar plano con inliers full-res
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
-        "ground_mask_refine": False,     # mejora opcional mascara de suelo
+        "ground_mask_refine": True,     # mejora opcional mascara de suelo
     },
     "wallParams": {
         "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
@@ -68,7 +68,7 @@ _runtime: Dict[str, Any] = {
         "wall_ortho_deg": 20.0,
         "wall_parallel_deg": 10.0,
         "wall_parallel_distance_m": 0.60,
-        "wall_mask_refine": False,       # mejora opcional mascara de pared
+        "wall_mask_refine": True,       # mejora opcional mascara de pared
     },
     "doorParams": {
         "door_hue_tol": 18,              # tolerancia HSV (H) para puerta
@@ -252,21 +252,6 @@ def segmentar() -> Any:
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
 
-    # Optional: refine/improve ground mask
-    if ground_params.get("ground_mask_refine"):
-        try:
-            ground_mask = mejorar_mascara_suelo(
-                ground_mask,
-                imagen_rgb=imagenRGB,
-                depth_m=mapaProfundidad,
-                rays=rays_cp,
-                plane_n=ground_utils.last_n_cp,
-                plane_d=ground_utils.last_d_cp,
-                dist_thresh=ground_params.get("dist_thresh"),
-            )
-        except Exception as e:
-            print(f"[segmentar] Ground mask refinement failed: {e}")
-
     # Reuse common ground params for wall RANSAC, then override wall-specific values
     wall_params = {
         "subsample_stride": ground_params.get("subsample_stride"),
@@ -319,20 +304,6 @@ def segmentar() -> Any:
         # Continue with only ground mask if wall extraction fails
         wall_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
 
-    # Optional: refine/improve wall mask
-    if wall_cfg.get("wall_mask_refine"):
-        try:
-            wall_mask = mejorar_mascara_pared(
-                wall_mask,
-                imagen_rgb=imagenRGB,
-                depth_m=mapaProfundidad,
-                rays=rays_cp,
-                planes=wall_res.get("planes"),
-                dist_thresh=wall_params.get("dist_thresh"),
-            )
-        except Exception as e:
-            print(f"[segmentar] Wall mask refinement failed: {e}")
-
     # Door detection using TensorRT model (bisenetv2)
     try:
         door_mask = doorDetection(
@@ -347,6 +318,34 @@ def segmentar() -> Any:
     except Exception as e:
         print(f"[segmentar] Door detection failed: {e}")
         door_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
+
+    # Optional: refine/improve masks (after door segmentation)
+    if ground_params.get("ground_mask_refine"):
+        try:
+            ground_mask = mejorar_mascara_suelo(
+                ground_mask,
+                imagen_rgb=imagenRGB,
+                depth_m=mapaProfundidad,
+                rays=rays_cp,
+                plane_n=ground_utils.last_n_cp,
+                plane_d=ground_utils.last_d_cp,
+                dist_thresh=ground_params.get("dist_thresh"),
+            )
+        except Exception as e:
+            print(f"[segmentar] Ground mask refinement failed: {e}")
+
+    if wall_cfg.get("wall_mask_refine"):
+        try:
+            wall_mask = mejorar_mascara_pared(
+                wall_mask,
+                imagen_rgb=imagenRGB,
+                depth_m=mapaProfundidad,
+                rays=rays_cp,
+                planes=wall_res.get("planes"),
+                dist_thresh=wall_params.get("dist_thresh"),
+            )
+        except Exception as e:
+            print(f"[segmentar] Wall mask refinement failed: {e}")
 
     return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
 

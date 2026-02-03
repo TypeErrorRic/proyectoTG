@@ -546,7 +546,7 @@ def apply_mask_to_rgb(
     # Start with the original RGB
     result_gpu = rgb_gpu.clone()
 
-    # Apply masks in order: ground -> wall -> door (door has priority)
+    # Apply masks in order: wall -> ground -> door (door has priority)
     def _apply_overlay(base_gpu, overlay_gpu, mask_gpu):
         """Apply colored overlay using mask"""
         if mask_gpu is None:
@@ -562,12 +562,12 @@ def apply_mask_to_rgb(
         bg_gpu = cv2.cuda.bitwise_and(base_gpu, mask_inv3_gpu)
         return cv2.cuda.bitwise_or(bg_gpu, fg_gpu)
 
-    # Apply ground (green)
-    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu)
-
     # Apply wall (blue)
     if wall_gpu is not None:
         result_gpu = _apply_overlay(result_gpu, blue_gpu, wall_gpu)
+
+    # Apply ground (green)
+    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu)
 
     # Apply door (red) - has highest priority
     if door_overlay_gpu is not None:
