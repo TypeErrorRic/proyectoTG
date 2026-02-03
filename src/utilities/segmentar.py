@@ -9,7 +9,12 @@ and shares its result with the main thread through a small queue.
 import src.utilities.viewCamera as viewCamera
 from utilities.GroundDetection import get_ground, get_last_ransac_ms
 import utilities.GroundDetection as ground_utils
-from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame, mejorar_mascara_pared
+from src.utilities.helpers import (
+    apply_mask_to_rgb,
+    load_dataset_frame,
+    mejorar_mascara_pared,
+    mejorar_mascara_suelo,
+)
 from utilities.WallPlaneDetection import get_wall_planes
 from src.models.doorDetection import doorDetection
 
@@ -55,6 +60,7 @@ _runtime: Dict[str, Any] = {
         "refine_full_res": True,         # refinar plano con inliers full-res
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
+        "ground_mask_refine": False,     # mejora opcional mascara de suelo
     },
     "wallParams": {
         "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
@@ -93,6 +99,7 @@ GROUND_PARAM_KEYS = {
     "refine_full_res",
     "refine_max_points",
     "refine_dist_mult",
+    "ground_mask_refine",
 }
 
 WALL_PARAM_KEYS = {
@@ -244,6 +251,21 @@ def segmentar() -> Any:
     )
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
+
+    # Optional: refine/improve ground mask
+    if ground_params.get("ground_mask_refine"):
+        try:
+            ground_mask = mejorar_mascara_suelo(
+                ground_mask,
+                imagen_rgb=imagenRGB,
+                depth_m=mapaProfundidad,
+                rays=rays_cp,
+                plane_n=ground_utils.last_n_cp,
+                plane_d=ground_utils.last_d_cp,
+                dist_thresh=ground_params.get("dist_thresh"),
+            )
+        except Exception as e:
+            print(f"[segmentar] Ground mask refinement failed: {e}")
 
     # Reuse common ground params for wall RANSAC, then override wall-specific values
     wall_params = {

@@ -180,6 +180,18 @@ def toggle_mask_visibility(name: str) -> bool:
 
 # No additional helpers at the moment
 
+def _to_numpy(arr):
+    if arr is None:
+        return None
+    try:
+        import cupy as cp  # local import to avoid hard dependency at import time
+
+        if isinstance(arr, cp.ndarray):
+            return cp.asnumpy(arr)
+    except Exception:
+        pass
+    return np.asarray(arr)
+
 def mejorar_mascara_pared(
     wall_mask: Optional[np.ndarray],
     imagen_rgb: Optional[np.ndarray] = None,
@@ -203,18 +215,6 @@ def mejorar_mascara_pared(
         return None
     if imagen_rgb is None or depth_m is None or rays is None or not planes:
         return wall_mask
-
-    def _to_numpy(arr):
-        if arr is None:
-            return None
-        try:
-            import cupy as cp  # local import to avoid hard dependency at import time
-
-            if isinstance(arr, cp.ndarray):
-                return cp.asnumpy(arr)
-        except Exception:
-            pass
-        return np.asarray(arr)
 
     depth_np = _to_numpy(depth_m)
     rays_np = _to_numpy(rays)
@@ -316,6 +316,133 @@ def mejorar_mascara_pared(
         return wall_mask_np
 
     # Geodesic growth (morphological reconstruction) within allowed region
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    for _ in range(max_iters):
+        dil = cv2.dilate(current.astype(np.uint8), kernel, iterations=1) > 0
+        nxt = dil & allowed
+        if np.array_equal(nxt, current):
+            break
+        current = nxt
+
+    out = np.zeros((H, W), dtype=np.uint8)
+    out[current] = 255
+    return out
+
+def mejorar_mascara_suelo(
+    ground_mask: Optional[np.ndarray],
+    imagen_rgb: Optional[np.ndarray] = None,
+    depth_m: Optional[np.ndarray] = None,
+    rays: Optional[np.ndarray] = None,
+    plane_n: Optional[np.ndarray] = None,
+    plane_d: Optional[float] = None,
+    dist_thresh: Optional[float] = None,
+    eps_strict: Optional[float] = None,
+    eps_loose: Optional[float] = None,
+    edge_sigma: float = 0.33,
+    edge_dilate: int = 1,
+    max_iters: int = 64,
+) -> Optional[np.ndarray]:
+    """
+    Refine ground mask using plane-distance hysteresis + RGB edge-guided growth.
+
+    The RGB image is used only to block crossings over strong edges, not to
+    decide what is ground.
+    """
+    if ground_mask is None:
+        return None
+    if imagen_rgb is None or depth_m is None or rays is None:
+        return ground_mask
+
+    if plane_n is None or plane_d is None:
+        if isinstance(plane_n, dict) and plane_d is None:
+            plane_d = plane_n.get("d")
+            plane_n = plane_n.get("n")
+        if plane_n is None or plane_d is None:
+            return ground_mask
+
+    depth_np = _to_numpy(depth_m)
+    rays_np = _to_numpy(rays)
+    if depth_np is None or rays_np is None:
+        return ground_mask
+
+    H, W = depth_np.shape[:2]
+    if rays_np.shape[:2] != (H, W):
+        return ground_mask
+
+    ground_mask_np = np.asarray(ground_mask)
+    if ground_mask_np.ndim == 3:
+        ground_mask_np = ground_mask_np[:, :, 0]
+    if ground_mask_np.shape[:2] != (H, W):
+        ground_mask_np = cv2.resize(
+            ground_mask_np, (W, H), interpolation=cv2.INTER_NEAREST
+        )
+
+    if dist_thresh is not None and (eps_strict is None or eps_loose is None):
+        base = float(dist_thresh)
+        if eps_strict is None:
+            eps_strict = max(0.5 * base, 1e-4)
+        if eps_loose is None:
+            eps_loose = max(2.0 * base, eps_strict * 1.5)
+
+    if eps_strict is None:
+        eps_strict = 0.02
+    if eps_loose is None:
+        eps_loose = 0.06
+
+    n = _to_numpy(plane_n)
+    if n is None:
+        return ground_mask_np
+    n = np.asarray(n, dtype=np.float32).reshape(-1)
+    if n.size != 3:
+        return ground_mask_np
+    try:
+        d_val = float(_to_numpy(plane_d))
+    except Exception:
+        try:
+            d_val = float(plane_d)
+        except Exception:
+            return ground_mask_np
+
+    dotnr = np.tensordot(rays_np, n, axes=([2], [0]))
+    dist = np.abs(depth_np * dotnr + d_val)
+
+    valid = depth_np > 0
+    seed = (dist < eps_strict) & valid
+    cand = (dist < eps_loose) & valid
+
+    if ground_mask_np is not None:
+        seed = seed | ((ground_mask_np > 0) & cand)
+
+    if not np.any(seed):
+        return ground_mask_np
+
+    rgb_np = np.asarray(imagen_rgb)
+    if rgb_np.shape[:2] != (H, W):
+        rgb_np = cv2.resize(rgb_np, (W, H), interpolation=cv2.INTER_AREA)
+
+    gray = cv2.cvtColor(rgb_np, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    med = float(np.median(gray))
+    lower = int(max(0, (1.0 - edge_sigma) * med))
+    upper = int(min(255, (1.0 + edge_sigma) * med))
+    if lower == upper:
+        lower = max(0, int(med * 0.5))
+        upper = min(255, int(med * 1.5))
+        if lower == upper:
+            lower, upper = 50, 150
+
+    edges = cv2.Canny(gray, lower, upper)
+    if edge_dilate and edge_dilate > 0:
+        k = 2 * int(edge_dilate) + 1
+        kernel_edge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        edges = cv2.dilate(edges, kernel_edge, iterations=1)
+    barrier = edges > 0
+
+    allowed = cand & (~barrier)
+    current = seed & allowed
+    if not np.any(current):
+        return ground_mask_np
+
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     for _ in range(max_iters):
         dil = cv2.dilate(current.astype(np.uint8), kernel, iterations=1) > 0

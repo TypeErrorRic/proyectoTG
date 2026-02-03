@@ -41,6 +41,7 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "refine_full_res": "1",
     "refine_max_points": "200000",
     "refine_dist_mult": "1.6",
+    "ground_mask_refine": "0",
     "wall_mask_refine": "0",
     "ground_perp_deg": "20.0",
     "wall_ortho_deg": "20.0",
@@ -180,6 +181,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("roi_bottom_fraction", "ROI inferior"),
         ("refine_full_res", "Refino full-res"),
         ("refine_dist_mult", "Tol. refino"),
+        ("ground_mask_refine", "Mejorar mascara suelo"),
         ("wall_mask_refine", "Mejorar mascara pared"),
         ("ground_perp_deg", "Perp. suelo (deg)"),
         ("wall_ortho_deg", "Orto paredes (deg)"),
@@ -242,7 +244,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     errors = []
 
     # Campo especial: permitir texto en campos booleanos.
-    for key in ("refine_full_res", "wall_mask_refine"):
+    for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine"):
         if key not in values:
             continue
         raw_value = str(values.get(key, "")).strip().lower()
@@ -303,7 +305,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     # Normalize boolean fields and practical limits
-    for key in ("refine_full_res", "wall_mask_refine"):
+    for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine"):
         if key in parsed:
             parsed[key] = bool(int(parsed[key]))
     if "roi_expand_step" in parsed:
