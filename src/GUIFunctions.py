@@ -183,12 +183,12 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("wall_ortho_deg", "Orto paredes (deg)"),
         ("wall_parallel_deg", "Paralelo paredes (deg)"),
         ("wall_parallel_distance_m", "Dist. paredes (m)"),
-        ("door_hue_tol", "Puerta HSV: tol H"),
-        ("door_min_s", "Puerta HSV: min S"),
-        ("door_min_v", "Puerta HSV: min V"),
-        ("door_glare_s_max", "Puerta HSV: glare S max"),
-        ("door_glare_v_min", "Puerta HSV: glare V min"),
-        ("door_glare_v_clip", "Puerta HSV: glare V clip"),
+        ("door_hue_tol", "HSV: tol H"),
+        ("door_min_s", "HSV: min S"),
+        ("door_min_v", "HSV: min V"),
+        ("door_glare_s_max", "HSV: glare S max"),
+        ("door_glare_v_min", "HSV: glare V min"),
+        ("door_glare_v_clip", "HSV: glare V clip"),
     ]
 
 
