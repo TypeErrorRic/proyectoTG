@@ -226,6 +226,7 @@ def segmentar() -> Any:
     rays_cp = _runtime.get("rays_cp")
     H = _runtime.get("H")
     W = _runtime.get("W")
+    use_realsense = _runtime.get("mode", "camera") == "camera"
 
     # Bail out gracefully if data is missing (e.g., right after mode switch)
     if imagenRGB is None or mapaProfundidad is None or rays_cp is None or H is None or W is None:
@@ -330,6 +331,7 @@ def segmentar() -> Any:
                 plane_n=ground_utils.last_n_cp,
                 plane_d=ground_utils.last_d_cp,
                 dist_thresh=ground_params.get("dist_thresh"),
+                use_realsense=use_realsense,
             )
         except Exception as e:
             print(f"[segmentar] Ground mask refinement failed: {e}")
@@ -343,6 +345,7 @@ def segmentar() -> Any:
                 rays=rays_cp,
                 planes=wall_res.get("planes"),
                 dist_thresh=wall_params.get("dist_thresh"),
+                use_realsense=use_realsense,
             )
         except Exception as e:
             print(f"[segmentar] Wall mask refinement failed: {e}")
