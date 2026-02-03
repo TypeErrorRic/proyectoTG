@@ -41,6 +41,7 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "refine_full_res": "1",
     "refine_max_points": "200000",
     "refine_dist_mult": "1.6",
+    "wall_mask_refine": "0",
     "ground_perp_deg": "20.0",
     "wall_ortho_deg": "20.0",
     "wall_parallel_deg": "10.0",
@@ -179,6 +180,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("roi_bottom_fraction", "ROI inferior"),
         ("refine_full_res", "Refino full-res"),
         ("refine_dist_mult", "Tol. refino"),
+        ("wall_mask_refine", "Mejorar mascara pared"),
         ("ground_perp_deg", "Perp. suelo (deg)"),
         ("wall_ortho_deg", "Orto paredes (deg)"),
         ("wall_parallel_deg", "Paralelo paredes (deg)"),
@@ -239,15 +241,17 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     parsed: Dict[str, Any] = {}
     errors = []
 
-    # Campo especial: permitir texto en refine_full_res
-    if "refine_full_res" in values:
-        raw_refine = str(values.get("refine_full_res", "")).strip().lower()
-        if raw_refine in ("true", "t", "si", "yes", "on", "1"):
-            parsed["refine_full_res"] = True
-        elif raw_refine in ("false", "f", "no", "off", "0"):
-            parsed["refine_full_res"] = False
+    # Campo especial: permitir texto en campos booleanos.
+    for key in ("refine_full_res", "wall_mask_refine"):
+        if key not in values:
+            continue
+        raw_value = str(values.get(key, "")).strip().lower()
+        if raw_value in ("true", "t", "si", "yes", "on", "1"):
+            parsed[key] = True
+        elif raw_value in ("false", "f", "no", "off", "0"):
+            parsed[key] = False
         else:
-            errors.append("refine_full_res")
+            errors.append(key)
 
     for key, (caster, min_value) in specs.items():
         if key not in values:
@@ -299,7 +303,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     # Normalize boolean fields and practical limits
-    for key in ("refine_full_res",):
+    for key in ("refine_full_res", "wall_mask_refine"):
         if key in parsed:
             parsed[key] = bool(int(parsed[key]))
     if "roi_expand_step" in parsed:

@@ -9,7 +9,7 @@ and shares its result with the main thread through a small queue.
 import src.utilities.viewCamera as viewCamera
 from utilities.GroundDetection import get_ground, get_last_ransac_ms
 import utilities.GroundDetection as ground_utils
-from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame
+from src.utilities.helpers import apply_mask_to_rgb, load_dataset_frame, mejorar_mascara_pared
 from utilities.WallPlaneDetection import get_wall_planes
 from src.models.doorDetection import doorDetection
 
@@ -36,7 +36,7 @@ _runtime: Dict[str, Any] = {
     "mapaProfundidad": None,
     "last_ransac_ms": None,
     "groundParams": {
-        "dist_thresh": 0.03,
+        "dist_thresh": 0.04,
         "max_iters": 300,
         "min_inliers": 400,
         "subsample_stride": 2,
@@ -55,7 +55,16 @@ _runtime: Dict[str, Any] = {
         "refine_full_res": True,         # refinar plano con inliers full-res
         "refine_max_points": 200000,     # límite puntos en refinamiento
         "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
+    },
+    "wallParams": {
         "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
+        "ground_perp_deg": 20.0,
+        "wall_ortho_deg": 20.0,
+        "wall_parallel_deg": 10.0,
+        "wall_parallel_distance_m": 0.60,
+        "wall_mask_refine": False,       # mejora opcional mascara de pared
+    },
+    "doorParams": {
         "door_hue_tol": 18,              # tolerancia HSV (H) para puerta
         "door_min_s": 30,                # saturacion minima HSV
         "door_min_v": 20,                # valor minimo HSV
@@ -63,6 +72,45 @@ _runtime: Dict[str, Any] = {
         "door_glare_v_min": 210,         # min V para considerar glare
         "door_glare_v_clip": 200,        # V usado al recortar glare
     },
+}
+
+GROUND_PARAM_KEYS = {
+    "dist_thresh",
+    "max_iters",
+    "min_inliers",
+    "subsample_stride",
+    "up_axis",
+    "max_angle_deg",
+    "seed",
+    "score_subset",
+    "orientation",
+    "early_stop_ratio",
+    "batch_size",
+    "low_height_pct",
+    "roi_bottom_fraction",
+    "roi_expand_step",
+    "max_agg_points",
+    "refine_full_res",
+    "refine_max_points",
+    "refine_dist_mult",
+}
+
+WALL_PARAM_KEYS = {
+    "max_up_dot",
+    "ground_perp_deg",
+    "wall_ortho_deg",
+    "wall_parallel_deg",
+    "wall_parallel_distance_m",
+    "wall_mask_refine",
+}
+
+DOOR_PARAM_KEYS = {
+    "door_hue_tol",
+    "door_min_s",
+    "door_min_v",
+    "door_glare_s_max",
+    "door_glare_v_min",
+    "door_glare_v_clip",
 }
 
 # Wall-plane overrides applied on top of ground parameters.
@@ -97,13 +145,24 @@ _tarea_args: Tuple[Any, ...] = ()
 _tarea_kwargs: Dict[str, Any] = {}
 
 
-def obtener_parametros_ground(copy: bool = True) -> Dict[str, Any]:
+def _snapshot_param_groups() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """
-    Snapshot of the current ground-segmentation parameters.
+    Return copies of ground, wall, and door parameters.
     """
     with _runtime_lock:
-        params = _runtime.get("groundParams", {}) or {}
-        return params.copy() if copy else params
+        ground_params = dict(_runtime.get("groundParams", {}) or {})
+        wall_params = dict(_runtime.get("wallParams", {}) or {})
+        door_params = dict(_runtime.get("doorParams", {}) or {})
+    return ground_params, wall_params, door_params
+
+
+def obtener_parametros_ground(copy: bool = True) -> Dict[str, Any]:
+    """
+    Snapshot of the current segmentation parameters (ground + wall + door).
+    """
+    ground_params, wall_params, door_params = _snapshot_param_groups()
+    merged = {**ground_params, **wall_params, **door_params}
+    return merged.copy() if copy else merged
 
 
 def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any]:
@@ -116,12 +175,24 @@ def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any
         return obtener_parametros_ground()
 
     with _runtime_lock:
-        merged = dict(_runtime.get("groundParams", {}))
+        ground_params = dict(_runtime.get("groundParams", {}) or {})
+        wall_params = dict(_runtime.get("wallParams", {}) or {})
+        door_params = dict(_runtime.get("doorParams", {}) or {})
         for key, value in nuevos_params.items():
             if value is None:
                 continue
-            merged[key] = value
-        _runtime["groundParams"] = merged
+            if key in DOOR_PARAM_KEYS:
+                door_params[key] = value
+            elif key in WALL_PARAM_KEYS:
+                wall_params[key] = value
+            elif key in GROUND_PARAM_KEYS:
+                ground_params[key] = value
+            else:
+                ground_params[key] = value
+        _runtime["groundParams"] = ground_params
+        _runtime["wallParams"] = wall_params
+        _runtime["doorParams"] = door_params
+        merged = {**ground_params, **wall_params, **door_params}
         return merged.copy()
 
 
@@ -162,7 +233,7 @@ def segmentar() -> Any:
         depth_cp = None
 
     # Get ground mask
-    ground_params = obtener_parametros_ground()
+    ground_params, wall_cfg, door_params = _snapshot_param_groups()
     ground_mask = get_ground(
         mapaProfundidad,
         rays_cp,
@@ -188,7 +259,7 @@ def segmentar() -> Any:
         "refine_dist_mult": ground_params.get("refine_dist_mult"),
     }
     wall_params.update(WALL_PARAMS_OVERRIDES)
-    wall_params["max_up_dot"] = ground_params.get(
+    wall_params["max_up_dot"] = wall_cfg.get(
         "max_up_dot",
         WALL_PARAMS_OVERRIDES.get("max_up_dot", 0.35),
     )
@@ -198,8 +269,8 @@ def segmentar() -> Any:
         "wall_parallel_deg",
         "wall_parallel_distance_m",
     ):
-        if key in ground_params:
-            wall_params[key] = ground_params[key]
+        if key in wall_cfg:
+            wall_params[key] = wall_cfg[key]
     try:
         if ground_utils.last_n_cp is not None:
             wall_params["ground_normal"] = ground_utils.last_n_cp
@@ -225,16 +296,23 @@ def segmentar() -> Any:
         # Continue with only ground mask if wall extraction fails
         wall_mask = np.zeros(ground_mask.shape, dtype=np.uint8)
 
+    # Optional: refine/improve wall mask
+    if wall_cfg.get("wall_mask_refine"):
+        try:
+            wall_mask = mejorar_mascara_pared(wall_mask)
+        except Exception as e:
+            print(f"[segmentar] Wall mask refinement failed: {e}")
+
     # Door detection using TensorRT model (bisenetv2)
     try:
         door_mask = doorDetection(
             imagenRGB,
-            hue_tol=ground_params.get("door_hue_tol"),
-            min_s=ground_params.get("door_min_s"),
-            min_v=ground_params.get("door_min_v"),
-            glare_s_max=ground_params.get("door_glare_s_max"),
-            glare_v_min=ground_params.get("door_glare_v_min"),
-            glare_v_clip=ground_params.get("door_glare_v_clip"),
+            hue_tol=door_params.get("door_hue_tol"),
+            min_s=door_params.get("door_min_s"),
+            min_v=door_params.get("door_min_v"),
+            glare_s_max=door_params.get("door_glare_s_max"),
+            glare_v_min=door_params.get("door_glare_v_min"),
+            glare_v_clip=door_params.get("door_glare_v_clip"),
         )
     except Exception as e:
         print(f"[segmentar] Door detection failed: {e}")

@@ -180,6 +180,14 @@ def toggle_mask_visibility(name: str) -> bool:
 
 # No additional helpers at the moment
 
+def mejorar_mascara_pared(wall_mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """
+    Placeholder to improve the wall mask quality.
+
+    TODO: Implement enhancement logic. For now, return the input mask unchanged.
+    """
+    return wall_mask
+
 def apply_mask_to_rgb(
     rgb_image: np.ndarray,
     ground_mask: np.ndarray,

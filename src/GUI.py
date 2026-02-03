@@ -1189,6 +1189,7 @@ class SegmentacionApp:
             ("low_height_pct", "Percentil bajo altura (low_height_pct)", "25.0"),
             ("roi_bottom_fraction", "Fracción inferior ROI", "0.34"),
             ("refine_full_res", "Refinar full-res (0/1)", "1"),
+            ("wall_mask_refine", "Mejorar máscara pared (0/1)", "0"),
             ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
             ("door_hue_tol", "HSV: tolerancia H (0-179)", "18"),
             ("door_min_s", "HSV: min S (0-255)", "30"),
@@ -1217,7 +1218,7 @@ class SegmentacionApp:
             var = tk.StringVar(value=default)
             self.config_vars[key] = var
             self.config_defaults.setdefault(key, default)
-            if key == "refine_full_res":
+            if key in ("refine_full_res", "wall_mask_refine"):
                 # Permitir letras/booleanos en este campo
                 entry = tk.Entry(
                     form,
