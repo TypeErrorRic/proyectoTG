@@ -15,7 +15,7 @@ from utilities.GroundDetection import ransac_plane_gpu, _refine_plane
 import utilities.GroundDetection as ground_utils
 
 # Toggle timing prints for each stage in get_wall_planes
-DEBUG_TIMING = True
+DEBUG_TIMING = False
 
 
 def _to_cp(a, dtype=cp.float32):

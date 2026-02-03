@@ -136,6 +136,48 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
             cv2.circle(img, (int(u[i]), int(v[i])), point_size, c, -1, lineType=cv2.LINE_AA)
     return img
 
+# Mask overlay toggles (shared with GUI controls)
+MASK_SHOW_GROUND = True
+MASK_SHOW_WALL = True
+MASK_SHOW_DOOR = True
+
+
+def set_mask_visibility(
+    ground: Optional[bool] = None,
+    wall: Optional[bool] = None,
+    door: Optional[bool] = None,
+) -> Tuple[bool, bool, bool]:
+    """
+    Update mask overlay visibility flags and return the current states.
+    """
+    global MASK_SHOW_GROUND, MASK_SHOW_WALL, MASK_SHOW_DOOR
+    if ground is not None:
+        MASK_SHOW_GROUND = bool(ground)
+    if wall is not None:
+        MASK_SHOW_WALL = bool(wall)
+    if door is not None:
+        MASK_SHOW_DOOR = bool(door)
+    return MASK_SHOW_GROUND, MASK_SHOW_WALL, MASK_SHOW_DOOR
+
+
+def toggle_mask_visibility(name: str) -> bool:
+    """
+    Toggle one mask overlay flag by name and return the new state.
+    """
+    global MASK_SHOW_GROUND, MASK_SHOW_WALL, MASK_SHOW_DOOR
+    key = name.strip().lower()
+    if key in ("ground", "suelo"):
+        MASK_SHOW_GROUND = not MASK_SHOW_GROUND
+        return MASK_SHOW_GROUND
+    if key in ("wall", "muro"):
+        MASK_SHOW_WALL = not MASK_SHOW_WALL
+        return MASK_SHOW_WALL
+    if key in ("door", "puerta"):
+        MASK_SHOW_DOOR = not MASK_SHOW_DOOR
+        return MASK_SHOW_DOOR
+    raise ValueError(f"Nombre de mascara desconocido: {name}")
+
+
 # No additional helpers at the moment
 
 def apply_mask_to_rgb(
@@ -194,6 +236,14 @@ def apply_mask_to_rgb(
     ground_gpu = _prepare_mask(ground_mask, target_shape)
     wall_gpu = _prepare_mask(wall_mask, target_shape) if wall_mask is not None else None
     door_gpu = _prepare_mask(door_mask, target_shape) if door_mask is not None else None
+
+    # Respect visibility toggles from GUI.
+    if not MASK_SHOW_GROUND:
+        ground_gpu = None
+    if not MASK_SHOW_WALL:
+        wall_gpu = None
+    if not MASK_SHOW_DOOR:
+        door_gpu = None
 
     # Upload RGB to GPU
     rgb_gpu = cv2.cuda_GpuMat()

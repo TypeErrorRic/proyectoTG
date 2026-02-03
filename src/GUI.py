@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, Callable, List
 
 import cv2
 import tkinter as tk
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 
 try:
     # Preferred import when running as a package/module.
@@ -23,6 +23,9 @@ try:
         init_config_defaults,
         load_sidebar_icons,
         load_upload_images,
+        on_indicator_door,
+        on_indicator_floor,
+        on_indicator_wall,
         param_summary_fields,
         parse_config_params,
         validate_numeric_entry,
@@ -36,6 +39,9 @@ except ModuleNotFoundError:
         init_config_defaults,
         load_sidebar_icons,
         load_upload_images,
+        on_indicator_door,
+        on_indicator_floor,
+        on_indicator_wall,
         param_summary_fields,
         parse_config_params,
         validate_numeric_entry,
@@ -92,6 +98,7 @@ class SegmentacionApp:
         self.logo_image: Optional[ImageTk.PhotoImage] = None
         self.sidebar_icons_raw: Dict[str, Image.Image] = {}
         self.sidebar_icons: Dict[str, ImageTk.PhotoImage] = {}
+        self._indicator_images: List[ImageTk.PhotoImage] = []
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
         self._config_apply_btn: Optional[tk.Button] = None
@@ -475,14 +482,44 @@ class SegmentacionApp:
 
         indicators = tk.Frame(mode_content, bg="#7f7f7f")
         indicators.pack(side="top", pady=(0, 6), anchor="w")
-        for color, text in (("#00b86b", "Suelo"), ("#1e88e5", "Muro"), ("#e53935", "Puerta")):
+        for color, text, handler in (
+            ("#00b86b", "Suelo", on_indicator_floor),
+            ("#1e88e5", "Muro", on_indicator_wall),
+            ("#e53935", "Puerta", on_indicator_door),
+        ):
             item = tk.Frame(indicators, bg="#7f7f7f")
             item.pack(side="left", padx=8)
-            dot = tk.Canvas(item, width=32, height=32, highlightthickness=0, bg="#7f7f7f", bd=0)
-            dot.create_oval(4, 4, 28, 28, fill=color, outline=color)
-            dot.pack(side="left")
+            circle_img = self._create_indicator_image(color)
+            self._indicator_images.append(circle_img)
+            dot_btn = tk.Button(
+                item,
+                image=circle_img,
+                bg="#7f7f7f",
+                activebackground="#7f7f7f",
+                bd=0,
+                relief=tk.FLAT,
+                overrelief=tk.FLAT,
+                highlightthickness=0,
+                takefocus=0,
+                cursor="hand2",
+            )
+            dot_btn.pack(side="left")
             lbl = tk.Label(item, text=text, bg="#7f7f7f", fg="white", font=("Segoe UI", 11, "bold"))
             lbl.pack(side="left", padx=6)
+            dot_btn.configure(command=lambda h=handler, l=lbl: h(self, l))
+
+    def _create_indicator_image(self, color: str, size: int = 32, padding: int = 4) -> ImageTk.PhotoImage:
+        """
+        Create a circular image for indicator buttons.
+        """
+        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse(
+            (padding, padding, size - padding - 1, size - padding - 1),
+            fill=color,
+            outline=color,
+        )
+        return ImageTk.PhotoImage(image)
 
     def _show_gallery_panel(self) -> None:
         """

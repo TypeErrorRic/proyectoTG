@@ -14,6 +14,15 @@ except ModuleNotFoundError:
     except ModuleNotFoundError:  # pragma: no cover - fallback when segmentar is unavailable
         obtener_parametros_ground = None  # type: ignore
 
+# Optional import to toggle mask overlays from the GUI.
+try:
+    from src.utilities import helpers as helpers_mod
+except ModuleNotFoundError:
+    try:
+        from utilities import helpers as helpers_mod  # type: ignore
+    except ModuleNotFoundError:  # pragma: no cover - fallback when helpers is unavailable
+        helpers_mod = None  # type: ignore
+
 # Default parameter fallback used when runtime parameters are unavailable.
 DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "subsample_stride": "1",
@@ -313,3 +322,86 @@ def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Opt
     except Exception as exc:
         print(f"[GUI] no se pudo guardar captura: {exc}")
         return None
+
+
+def toggle_indicator_label(
+    label: Optional[tk.Label],
+    on_color: str = "#ffffff",
+    off_color: str = "#000000",
+) -> None:
+    """
+    Alternate the label foreground between two colors.
+    """
+    if label is None:
+        return
+    current = str(label.cget("fg")).lower()
+    if current == off_color.lower():
+        label.configure(fg=on_color)
+    else:
+        label.configure(fg=off_color)
+
+
+def set_indicator_label_state(
+    label: Optional[tk.Label],
+    enabled: Optional[bool],
+    on_color: str = "#ffffff",
+    off_color: str = "#000000",
+) -> None:
+    """
+    Set the label color based on a boolean state.
+    """
+    if label is None or enabled is None:
+        return
+    label.configure(fg=on_color if enabled else off_color)
+
+
+def toggle_mask_flag(name: str) -> Optional[bool]:
+    """
+    Toggle a mask visibility flag in helpers and return the new state.
+    """
+    if helpers_mod is None:
+        print("[GUI] helpers no disponible para alternar mascaras.")
+        return None
+    try:
+        return helpers_mod.toggle_mask_visibility(name)
+    except Exception as exc:
+        print(f"[GUI] no se pudo alternar mascara {name}: {exc}")
+        return None
+
+
+def on_indicator_floor(app: Any, label: Optional[tk.Label] = None) -> None:
+    """
+    Handler for the "Suelo" indicator button.
+    """
+    state = toggle_mask_flag("ground")
+    if state is None:
+        toggle_indicator_label(label)
+    else:
+        set_indicator_label_state(label, state)
+    print("[GUI] indicador Suelo presionado.")
+
+
+def on_indicator_wall(app: Any, label: Optional[tk.Label] = None) -> None:
+    """
+    Handler for the "Muro" indicator button.
+    """
+    state = toggle_mask_flag("wall")
+    if state is None:
+        toggle_indicator_label(label)
+    else:
+        set_indicator_label_state(label, state)
+    print("[GUI] indicador Muro presionado.")
+
+
+def on_indicator_door(app: Any, label: Optional[tk.Label] = None) -> None:
+    """
+    Handler for the "Puerta" indicator button.
+    """
+    if app is None:
+        return
+    state = toggle_mask_flag("door")
+    if state is None:
+        toggle_indicator_label(label)
+    else:
+        set_indicator_label_state(label, state)
+    print("[GUI] indicador Puerta presionado.")
