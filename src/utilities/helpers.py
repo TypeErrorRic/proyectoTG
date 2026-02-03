@@ -242,8 +242,7 @@ def apply_mask_to_rgb(
         ground_gpu = None
     if not MASK_SHOW_WALL:
         wall_gpu = None
-    if not MASK_SHOW_DOOR:
-        door_gpu = None
+    door_overlay_gpu = door_gpu if MASK_SHOW_DOOR else None
 
     # Remove door region from wall mask to avoid overlap in visualization.
     if wall_gpu is not None and door_gpu is not None:
@@ -296,8 +295,8 @@ def apply_mask_to_rgb(
         result_gpu = _apply_overlay(result_gpu, blue_gpu, wall_gpu)
 
     # Apply door (red) - has highest priority
-    if door_gpu is not None:
-        result_gpu = _apply_overlay(result_gpu, red_gpu, door_gpu)
+    if door_overlay_gpu is not None:
+        result_gpu = _apply_overlay(result_gpu, red_gpu, door_overlay_gpu)
 
     return result_gpu.download()
 
