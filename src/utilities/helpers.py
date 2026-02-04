@@ -530,6 +530,7 @@ def apply_mask_to_rgb(
     # Prepare all masks
     target_shape = (rgb_image.shape[0], rgb_image.shape[1])
     ground_gpu = _prepare_mask(ground_mask, target_shape)
+    ground_gpu_for_cut = ground_gpu
     wall_gpu = _prepare_mask(wall_mask, target_shape) if wall_mask is not None else None
     door_gpu = _prepare_mask(door_mask, target_shape) if door_mask is not None else None
 
@@ -544,8 +545,8 @@ def apply_mask_to_rgb(
     if wall_gpu is not None and door_gpu is not None:
         wall_gpu = cv2.cuda.bitwise_and(wall_gpu, cv2.cuda.bitwise_not(door_gpu))
     # Remove ground region from wall mask to avoid overlap in visualization.
-    if wall_gpu is not None and ground_gpu is not None:
-        wall_gpu = cv2.cuda.bitwise_and(wall_gpu, cv2.cuda.bitwise_not(ground_gpu))
+    if wall_gpu is not None and ground_gpu_for_cut is not None:
+        wall_gpu = cv2.cuda.bitwise_and(wall_gpu, cv2.cuda.bitwise_not(ground_gpu_for_cut))
 
     # Upload RGB to GPU
     rgb_gpu = cv2.cuda_GpuMat()
