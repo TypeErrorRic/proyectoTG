@@ -567,7 +567,7 @@ def apply_mask_to_rgb(
     # Start with the original RGB
     result_gpu = rgb_gpu.clone()
 
-    # Apply masks in order: wall -> ground -> door (door has priority)
+    # Apply masks in order: wall -> door -> ground (ground has priority)
     def _apply_overlay(base_gpu, overlay_gpu, mask_gpu):
         """Apply colored overlay using mask"""
         if mask_gpu is None:
@@ -587,12 +587,12 @@ def apply_mask_to_rgb(
     if wall_gpu is not None:
         result_gpu = _apply_overlay(result_gpu, blue_gpu, wall_gpu)
 
-    # Apply ground (green)
-    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu)
-
-    # Apply door (red) - has highest priority
+    # Apply door (red)
     if door_overlay_gpu is not None:
         result_gpu = _apply_overlay(result_gpu, red_gpu, door_overlay_gpu)
+
+    # Apply ground (green) - has highest priority
+    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu)
 
     return result_gpu.download()
 
