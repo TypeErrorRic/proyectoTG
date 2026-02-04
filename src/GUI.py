@@ -107,6 +107,7 @@ class SegmentacionApp:
         self._apply_btn_default_activebg: str = "#21d087"
         self._apply_status_after_id: Optional[str] = None
         self.params_summary_labels: Dict[str, tk.Label] = {}
+        self.params_summary_name_labels: List[tk.Label] = []
         self.sample_controls: Dict[str, Any] = {}
         self.dataset_index: int = 0
         self.dataset_index_var: Optional[tk.IntVar] = None
@@ -804,14 +805,20 @@ class SegmentacionApp:
             "<Configure>",
             lambda _event: summary_canvas.configure(scrollregion=summary_canvas.bbox("all")),
         )
-        summary_canvas.bind(
-            "<Configure>",
-            lambda event: summary_canvas.itemconfigure(summary_window, width=event.width),
-        )
+        def _on_summary_canvas_configure(event: tk.Event) -> None:
+            summary_canvas.itemconfigure(summary_window, width=event.width)
+            value_bbox = summary_frame.grid_bbox(1, 0)
+            value_width = value_bbox[2] if value_bbox else 70
+            wrap = max(int(event.width - value_width - 16), 80)
+            for lbl in self.params_summary_name_labels:
+                lbl.configure(wraplength=wrap)
+
+        summary_canvas.bind("<Configure>", _on_summary_canvas_configure)
         summary_frame.columnconfigure(0, weight=1)
         summary_frame.columnconfigure(1, weight=0, minsize=70)
 
         self.params_summary_labels = {}
+        self.params_summary_name_labels = []
         for idx, (key, label_text) in enumerate(param_summary_fields()):
             name_lbl = tk.Label(
                 summary_frame,
@@ -819,10 +826,13 @@ class SegmentacionApp:
                 bg=summary_frame.cget("bg"),
                 fg="#333333",
                 font=("Segoe UI", 10, "bold"),
-                anchor="w",
+                anchor="e",
+                justify="right",
+                wraplength=180,
                 padx=4,
             )
-            name_lbl.grid(row=idx, column=0, sticky="w", pady=1)
+            name_lbl.grid(row=idx, column=0, sticky="ew", pady=1)
+            self.params_summary_name_labels.append(name_lbl)
 
             val_lbl = tk.Label(
                 summary_frame,
@@ -1192,12 +1202,12 @@ class SegmentacionApp:
             ("ground_mask_refine", "Mejorar mascara suelo (0/1)", "0"),
             ("wall_mask_refine", "Mejorar máscara pared (0/1)", "0"),
             ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
-            ("door_hue_tol", "HSV: tolerancia H (0-179)", "18"),
-            ("door_min_s", "HSV: min S (0-255)", "30"),
-            ("door_min_v", "HSV: min V (0-255)", "20"),
-            ("door_glare_s_max", "HSV: glare S max (0-255)", "35"),
-            ("door_glare_v_min", "HSV: glare V min (0-255)", "210"),
-            ("door_glare_v_clip", "HSV: glare V clip (0-255)", "200"),
+            ("door_hue_tol", "Puerta HSV: tolerancia H (0-179)", "18"),
+            ("door_min_s", "Puerta HSV: min S (0-255)", "30"),
+            ("door_min_v", "Puerta HSV: min V (0-255)", "20"),
+            ("door_glare_s_max", "Puerta HSV: glare S max (0-255)", "35"),
+            ("door_glare_v_min", "Puerta HSV: glare V min (0-255)", "210"),
+            ("door_glare_v_clip", "Puerta HSV: glare V clip (0-255)", "200"),
         ]
 
         numeric_validator = (self.root.register(validate_numeric_entry), "%P")
@@ -1212,6 +1222,8 @@ class SegmentacionApp:
                 fg="#1f1f1f",
                 font=("Segoe UI", 10, "bold"),
                 anchor="w",
+                justify="left",
+                wraplength=220,
                 pady=4,
             )
             lbl.grid(row=row, column=col_offset, sticky="w", padx=(2, 8))
