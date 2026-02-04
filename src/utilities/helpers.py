@@ -543,6 +543,9 @@ def apply_mask_to_rgb(
     # Remove door region from wall mask to avoid overlap in visualization.
     if wall_gpu is not None and door_gpu is not None:
         wall_gpu = cv2.cuda.bitwise_and(wall_gpu, cv2.cuda.bitwise_not(door_gpu))
+    # Remove ground region from wall mask to avoid overlap in visualization.
+    if wall_gpu is not None and ground_gpu is not None:
+        wall_gpu = cv2.cuda.bitwise_and(wall_gpu, cv2.cuda.bitwise_not(ground_gpu))
 
     # Upload RGB to GPU
     rgb_gpu = cv2.cuda_GpuMat()
