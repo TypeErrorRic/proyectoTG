@@ -55,7 +55,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import (
+from src.utilities.segmentar2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -1177,10 +1177,36 @@ class SegmentacionApp:
         body.grid_columnconfigure(1, weight=1, uniform="cfg_cols")
         body.grid_rowconfigure(0, weight=1)
 
-        form = tk.Frame(body, bg="#f2f2f2", bd=1, relief=tk.SOLID, padx=10, pady=10)
+        form = tk.Frame(body, bg="#f2f2f2", bd=1, relief=tk.SOLID)
         form.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        form.grid_columnconfigure(1, weight=1)
-        form.grid_columnconfigure(3, weight=1)
+        form.grid_rowconfigure(0, weight=1)
+        form.grid_columnconfigure(0, weight=1)
+
+        form_canvas = tk.Canvas(
+            form,
+            bg=form.cget("bg"),
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        form_scroll = tk.Scrollbar(form, orient="vertical", command=form_canvas.yview)
+        form_canvas.configure(yscrollcommand=form_scroll.set)
+
+        form_canvas.grid(row=0, column=0, sticky="nsew")
+        form_scroll.grid(row=0, column=1, sticky="ns")
+
+        form_fields = tk.Frame(form_canvas, bg=form.cget("bg"), padx=10, pady=10)
+        form_window = form_canvas.create_window((0, 0), window=form_fields, anchor="nw")
+        form_fields.bind(
+            "<Configure>",
+            lambda _event: form_canvas.configure(scrollregion=form_canvas.bbox("all")),
+        )
+        form_canvas.bind(
+            "<Configure>",
+            lambda event: form_canvas.itemconfigure(form_window, width=event.width),
+        )
+        form_fields.grid_columnconfigure(1, weight=1)
+        form_fields.grid_columnconfigure(3, weight=1)
 
         fields = [
             ("subsample_stride", "Submuestreo (subsample_stride)", "2"),
@@ -1216,9 +1242,9 @@ class SegmentacionApp:
             row = idx // 2
             col_offset = 2 * (idx % 2)
             lbl = tk.Label(
-                form,
+                form_fields,
                 text=label_text,
-                bg=form.cget("bg"),
+                bg=form_fields.cget("bg"),
                 fg="#1f1f1f",
                 font=("Segoe UI", 10, "bold"),
                 anchor="w",
@@ -1234,13 +1260,13 @@ class SegmentacionApp:
             if key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine"):
                 # Permitir letras/booleanos en este campo
                 entry = tk.Entry(
-                    form,
+                    form_fields,
                     textvariable=var,
                     font=("Segoe UI", 10),
                 )
             else:
                 entry = tk.Entry(
-                    form,
+                    form_fields,
                     textvariable=var,
                     font=("Segoe UI", 10),
                     validate="key",
@@ -1253,12 +1279,9 @@ class SegmentacionApp:
             if key in self.config_vars:
                 self.config_vars[key].set(str(value))
 
-        # Push buttons to the bottom of the form
-        spacer_row = (len(fields) + 1) // 2
-        form.grid_rowconfigure(spacer_row, weight=1)
-        actions_row = spacer_row + 1
+        # Action buttons always visible under the scrollable field list.
         actions = tk.Frame(form, bg=form.cget("bg"))
-        actions.grid(row=actions_row, column=0, columnspan=4, sticky="se", pady=(6, 0), padx=(0, 2))
+        actions.grid(row=1, column=0, columnspan=2, sticky="se", pady=(6, 8), padx=(0, 8))
         btn_cancel = tk.Button(
             actions,
             text="Cancelar",
