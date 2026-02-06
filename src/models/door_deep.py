@@ -27,20 +27,6 @@ def _to_numpy(arr):
     return np.asarray(arr)
 
 
-def infer_door_mask_raw(bgr_image: np.ndarray) -> np.ndarray:
-    """
-    Run the TensorRT door model and return the raw (pre-HSV) binary mask.
-    """
-    from . import doorDetection as door_det  # local import to avoid circular deps
-
-    if not door_det._lazy_init():  # type: ignore[attr-defined]
-        raise RuntimeError("Model not initialized. Cannot run door_deep.")
-
-    input_tensor = door_det._preprocess_inputs(bgr_image)  # type: ignore[attr-defined]
-    output = door_det._runtime["model"].infer(input_tensor)  # type: ignore[attr-defined]
-    return door_det._postprocess_outputs(output, bgr_image.shape[:2])  # type: ignore[attr-defined]
-
-
 def _component_stats(mask: np.ndarray):
     """
     Return labels and stats for connected components.
@@ -147,23 +133,6 @@ def _fit_plane_trimmed_pca(
     return normal, d, pts
 
 
-def _is_parallel(normal: np.ndarray, ground_normal: np.ndarray, max_angle_deg: float) -> bool:
-    """
-    Check if normals are parallel within max_angle_deg.
-    """
-    if normal is None or ground_normal is None:
-        return False
-    n1 = np.asarray(normal, dtype=np.float32).reshape(-1)
-    n2 = np.asarray(ground_normal, dtype=np.float32).reshape(-1)
-    if n1.size != 3 or n2.size != 3:
-        return False
-    n1 /= max(1e-9, float(np.linalg.norm(n1)))
-    n2 /= max(1e-9, float(np.linalg.norm(n2)))
-    dot = float(abs(np.dot(n1, n2)))
-    dot = max(-1.0, min(1.0, dot))
-    angle = float(np.degrees(np.arccos(dot)))
-    return angle <= float(max_angle_deg)
-
 def _angle_between_normals_deg(
     normal: np.ndarray, ref_normal: np.ndarray
 ) -> Optional[float]:
@@ -191,11 +160,99 @@ def _merge_close_regions(mask: np.ndarray, merge_gap_px: int) -> np.ndarray:
     return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
 
+def _refine_mask_edges(
+    seed_mask: np.ndarray,
+    allowed_mask: np.ndarray,
+    bgr_image: np.ndarray,
+    edge_sigma: float = 0.33,
+    edge_dilate: int = 1,
+    max_iters: int = 64,
+    min_island_pixels: int = 300,
+    use_realsense: bool = True,
+) -> np.ndarray:
+    """
+    Refine a mask using RGB edges as barriers and geodesic growth.
+    """
+    if seed_mask is None or seed_mask.size == 0:
+        return seed_mask
+    if bgr_image is None or bgr_image.size == 0:
+        return seed_mask
+
+    seed = np.asarray(seed_mask)
+    if seed.ndim == 3:
+        seed = seed[:, :, 0]
+
+    allowed = np.asarray(allowed_mask) if allowed_mask is not None else seed
+    if allowed.ndim == 3:
+        allowed = allowed[:, :, 0]
+
+    H, W = seed.shape[:2]
+    if allowed.shape[:2] != (H, W):
+        allowed = cv2.resize(allowed, (W, H), interpolation=cv2.INTER_NEAREST)
+
+    img = np.asarray(bgr_image)
+    if img.shape[:2] != (H, W):
+        img = cv2.resize(img, (W, H), interpolation=cv2.INTER_AREA)
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    med = float(np.median(gray))
+    lower = int(max(0, (1.0 - edge_sigma) * med))
+    upper = int(min(255, (1.0 + edge_sigma) * med))
+    if lower == upper:
+        lower = max(0, int(med * 0.5))
+        upper = min(255, int(med * 1.5))
+        if lower == upper:
+            lower, upper = 50, 150
+
+    edges = cv2.Canny(gray, lower, upper)
+    if edge_dilate and edge_dilate > 0:
+        k = 2 * int(edge_dilate) + 1
+        kernel_edge = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        edges = cv2.dilate(edges, kernel_edge, iterations=1)
+    barrier = edges > 0
+
+    allowed_region = (allowed > 0) & (~barrier)
+    current = (seed > 0) & allowed_region
+    if not np.any(current):
+        return seed
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    for _ in range(max_iters):
+        dil = cv2.dilate(current.astype(np.uint8), kernel, iterations=1) > 0
+        nxt = dil & allowed_region
+        if np.array_equal(nxt, current):
+            break
+        current = nxt
+
+    out = np.zeros((H, W), dtype=np.uint8)
+    out[current] = 255
+
+    if min_island_pixels and min_island_pixels > 0:
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            out, connectivity=8
+        )
+        if num_labels > 1:
+            keep = np.zeros_like(out)
+            for label in range(1, num_labels):
+                area = stats[label, cv2.CC_STAT_AREA]
+                if area >= min_island_pixels:
+                    keep[labels == label] = 255
+            out = keep
+
+    if use_realsense:
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        out = cv2.dilate(out, kernel_dilate, iterations=1)
+
+    return out
+
+
 def door_roi_pointclouds(
     door_mask_raw: np.ndarray,
     hsv_mask: np.ndarray,
     depth_m: np.ndarray,
     rays,
+    imagen_rgb: Optional[np.ndarray] = None,
     stride: int = 4,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
@@ -208,6 +265,11 @@ def door_roi_pointclouds(
     plane_inlier_ratio: float = 0.30,
     trim_keep_ratio: float = 0.70,
     trim_iters: int = 2,
+    edge_sigma: float = 0.33,
+    edge_dilate: int = 1,
+    max_iters: int = 64,
+    min_island_pixels: int = 300,
+    use_realsense: bool = True,
     debug_print: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -382,6 +444,17 @@ def door_roi_pointclouds(
         )
 
     combined_mask_filtered = cv2.bitwise_and(door_mask, hsv_mask_filtered)
+    if imagen_rgb is not None:
+        combined_mask_filtered = _refine_mask_edges(
+            combined_mask_filtered,
+            hsv_mask_filtered,
+            imagen_rgb,
+            edge_sigma=edge_sigma,
+            edge_dilate=edge_dilate,
+            max_iters=max_iters,
+            min_island_pixels=min_island_pixels,
+            use_realsense=use_realsense,
+        )
 
     if debug_print:
         print(f"[door_deep] ROIs validos (filtrados): {len(rois)}")
@@ -399,6 +472,7 @@ def door_points_from_masks(
     hsv_mask: np.ndarray,
     depth_m: np.ndarray,
     rays,
+    imagen_rgb: Optional[np.ndarray] = None,
     stride: int = 4,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
@@ -411,6 +485,11 @@ def door_points_from_masks(
     plane_inlier_ratio: float = 0.30,
     trim_keep_ratio: float = 0.70,
     trim_iters: int = 2,
+    edge_sigma: float = 0.33,
+    edge_dilate: int = 1,
+    max_iters: int = 64,
+    min_island_pixels: int = 300,
+    use_realsense: bool = True,
 ) -> Dict[str, Any]:
     """
     Aggregate points from all ROIs using the overlap of raw NN mask and HSV mask.
@@ -420,6 +499,7 @@ def door_points_from_masks(
         hsv_mask,
         depth_m,
         rays,
+        imagen_rgb=imagen_rgb,
         stride=stride,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
@@ -432,6 +512,11 @@ def door_points_from_masks(
         plane_inlier_ratio=plane_inlier_ratio,
         trim_keep_ratio=trim_keep_ratio,
         trim_iters=trim_iters,
+        edge_sigma=edge_sigma,
+        edge_dilate=edge_dilate,
+        max_iters=max_iters,
+        min_island_pixels=min_island_pixels,
+        use_realsense=use_realsense,
     )
     points_all = []
     for roi in res.get("rois") or []:
@@ -446,54 +531,3 @@ def door_points_from_masks(
     return res
 
 
-def door_roi_pointcloud(
-    door_mask_raw: np.ndarray,
-    hsv_mask: np.ndarray,
-    depth_m: np.ndarray,
-    rays,
-    stride: int = 4,
-    ground_normal=None,
-    ground_parallel_deg: float = 15.0,
-    merge_gap_px: int = 20,
-    density_voxel: float = 0.05,
-    seed_radius_ratio: float = 0.12,
-    min_plane_points: int = 50,
-    max_density_points: int = 20000,
-    plane_inlier_dist: float = 0.02,
-    plane_inlier_ratio: float = 0.30,
-    trim_keep_ratio: float = 0.70,
-    trim_iters: int = 2,
-) -> Dict[str, Any]:
-    """
-    Backwards-compatible wrapper that returns the first ROI (if any).
-    """
-    res = door_roi_pointclouds(
-        door_mask_raw,
-        hsv_mask,
-        depth_m,
-        rays,
-        stride=stride,
-        ground_normal=ground_normal,
-        ground_parallel_deg=ground_parallel_deg,
-        merge_gap_px=merge_gap_px,
-        density_voxel=density_voxel,
-        seed_radius_ratio=seed_radius_ratio,
-        min_plane_points=min_plane_points,
-        max_density_points=max_density_points,
-        plane_inlier_dist=plane_inlier_dist,
-        plane_inlier_ratio=plane_inlier_ratio,
-        trim_keep_ratio=trim_keep_ratio,
-        trim_iters=trim_iters,
-    )
-    rois = res.get("rois") or []
-    first = rois[0] if rois else {}
-    return {
-        "door_mask_raw": res.get("door_mask_raw"),
-        "hsv_mask": res.get("hsv_mask"),
-        "combined_mask": res.get("combined_mask"),
-        "roi_bbox": first.get("bbox"),
-        "roi_mask": first.get("roi_mask"),
-        "roi_combined_mask": first.get("roi_combined_mask"),
-        "points_xyz": first.get("points_xyz", np.empty((0, 3), dtype=np.float32)),
-        "rois": rois,
-    }
