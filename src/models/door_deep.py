@@ -100,29 +100,6 @@ def _roi_mask_from_bbox(
     return roi
 
 
-def _densest_seed(points: np.ndarray, voxel_size: float) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """
-    Find the densest voxel and return its centroid as seed plus a mask of points in that voxel.
-    """
-    if points is None or points.size == 0:
-        return None, None
-    if voxel_size <= 0:
-        return None, None
-
-    pmin = points.min(axis=0)
-    idx = np.floor((points - pmin) / float(voxel_size)).astype(np.int32)
-    voxels, counts = np.unique(idx, axis=0, return_counts=True)
-    if voxels.size == 0:
-        return None, None
-
-    densest = voxels[int(np.argmax(counts))]
-    mask = np.all(idx == densest, axis=1)
-    if not np.any(mask):
-        return None, None
-    seed = points[mask].mean(axis=0)
-    return seed, mask
-
-
 def _fit_plane_pca(points: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[float], Optional[np.ndarray]]:
     """
     Fit a plane to points via PCA. Returns (normal, d, centroid).
@@ -140,6 +117,34 @@ def _fit_plane_pca(points: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[f
     normal = normal / n_norm
     d = -float(np.dot(normal, centroid))
     return normal, d, centroid
+
+
+def _fit_plane_trimmed_pca(
+    points: np.ndarray, keep_ratio: float = 0.7, iters: int = 2
+) -> Tuple[Optional[np.ndarray], Optional[float], Optional[np.ndarray]]:
+    """
+    Fast robust plane fit: PCA + trimming repeated a few iterations.
+    Returns (normal, d, trimmed_points).
+    """
+    if points is None or points.shape[0] < 3:
+        return None, None, None
+    keep_ratio = float(keep_ratio)
+    if keep_ratio <= 0.0:
+        keep_ratio = 0.7
+    if keep_ratio > 1.0:
+        keep_ratio = 1.0
+    iters = max(1, int(iters))
+
+    pts = points
+    for _ in range(iters):
+        normal, d, _ = _fit_plane_pca(pts)
+        if normal is None or d is None:
+            return None, None, None
+        dist = np.abs(pts @ normal + d)
+        k = max(3, int(dist.size * keep_ratio))
+        idx = np.argpartition(dist, k - 1)[:k]
+        pts = pts[idx]
+    return normal, d, pts
 
 
 def _is_parallel(normal: np.ndarray, ground_normal: np.ndarray, max_angle_deg: float) -> bool:
@@ -201,6 +206,8 @@ def door_roi_pointclouds(
     max_density_points: int = 20000,
     plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
+    trim_keep_ratio: float = 0.70,
+    trim_iters: int = 2,
     debug_print: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -212,6 +219,9 @@ def door_roi_pointclouds(
     If merge_gap_px > 0, nearby regions are merged before extracting ROIs.
     ROIs are discarded if the fitted plane is not parallel to ground or if
     fewer than plane_inlier_ratio of points lie within plane_inlier_dist.
+    Uses a fast trimmed PCA (iterative inlier pruning) for robustness.
+    Note: density_voxel and seed_radius_ratio are kept for compatibility,
+    but are not used in the trimmed PCA path.
 
     Returns:
         dict with:
@@ -291,41 +301,23 @@ def door_roi_pointclouds(
         plane_d = None
         pts_all = None
         inlier_ratio = None
+        inlier_mask = None
         angle_deg = None
         angle_ref = None
         keep = True
         if isinstance(points_xyz, np.ndarray) and points_xyz.shape[0] >= min_plane_points:
             pts_all = points_xyz
-            pts_for_seed = pts_all
-            if max_density_points and pts_for_seed.shape[0] > max_density_points:
+            pts_for_fit = pts_all
+            if max_density_points and pts_for_fit.shape[0] > max_density_points:
                 idx = np.random.choice(
-                    pts_for_seed.shape[0], size=max_density_points, replace=False
+                    pts_for_fit.shape[0], size=max_density_points, replace=False
                 )
-                pts_for_seed = pts_for_seed[idx]
-            seed, _ = _densest_seed(pts_for_seed, density_voxel)
-            if seed is None:
+                pts_for_fit = pts_for_fit[idx]
+            plane_n, plane_d, _ = _fit_plane_trimmed_pca(
+                pts_for_fit, keep_ratio=trim_keep_ratio, iters=trim_iters
+            )
+            if plane_n is None or plane_d is None:
                 keep = False
-            else:
-                # Only keep points within a radius based on the ROI 3D diagonal.
-                pmin = pts_all.min(axis=0)
-                pmax = pts_all.max(axis=0)
-                diag = float(np.linalg.norm(pmax - pmin))
-                radius = diag * float(seed_radius_ratio)
-                if radius <= 0.0:
-                    keep = False
-                    near = np.empty((0, 3), dtype=np.float32)
-                else:
-                    diff = pts_all - seed
-                    dist2 = np.sum(diff * diff, axis=1)
-                    near_mask = dist2 <= radius ** 2
-                    near = pts_all[near_mask]
-                if near.shape[0] >= min_plane_points:
-                    plane_n, plane_d, _ = _fit_plane_pca(near)
-                    if plane_n is None:
-                        keep = False
-                    points_xyz = near
-                else:
-                    keep = False
         else:
             keep = False
 
@@ -336,7 +328,11 @@ def door_roi_pointclouds(
         if plane_n is not None and plane_d is not None and pts_all is not None:
             dist = np.abs(pts_all @ plane_n + plane_d)
             if dist.size > 0:
-                inlier_ratio = float(np.mean(dist <= float(plane_inlier_dist)))
+                inlier_mask = dist <= float(plane_inlier_dist)
+                inlier_ratio = float(np.mean(inlier_mask))
+                points_xyz = pts_all[inlier_mask]
+                if points_xyz.shape[0] < min_plane_points:
+                    keep = False
 
         if keep and angle_deg is not None:
             keep = angle_deg >= (90.0 - float(ground_parallel_deg))
@@ -413,6 +409,8 @@ def door_points_from_masks(
     max_density_points: int = 20000,
     plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
+    trim_keep_ratio: float = 0.70,
+    trim_iters: int = 2,
 ) -> Dict[str, Any]:
     """
     Aggregate points from all ROIs using the overlap of raw NN mask and HSV mask.
@@ -432,6 +430,8 @@ def door_points_from_masks(
         max_density_points=max_density_points,
         plane_inlier_dist=plane_inlier_dist,
         plane_inlier_ratio=plane_inlier_ratio,
+        trim_keep_ratio=trim_keep_ratio,
+        trim_iters=trim_iters,
     )
     points_all = []
     for roi in res.get("rois") or []:
@@ -461,6 +461,8 @@ def door_roi_pointcloud(
     max_density_points: int = 20000,
     plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
+    trim_keep_ratio: float = 0.70,
+    trim_iters: int = 2,
 ) -> Dict[str, Any]:
     """
     Backwards-compatible wrapper that returns the first ROI (if any).
@@ -480,6 +482,8 @@ def door_roi_pointcloud(
         max_density_points=max_density_points,
         plane_inlier_dist=plane_inlier_dist,
         plane_inlier_ratio=plane_inlier_ratio,
+        trim_keep_ratio=trim_keep_ratio,
+        trim_iters=trim_iters,
     )
     rois = res.get("rois") or []
     first = rois[0] if rois else {}
