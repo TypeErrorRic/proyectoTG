@@ -41,7 +41,7 @@ _runtime: Dict[str, Any] = {
     "mapaProfundidad": None,
     "last_ransac_ms": None,
     "groundParams": {
-        "dist_thresh": 0.04,
+        "dist_thresh": 0.03,
         "max_iters": 300,
         "min_inliers": 400,
         "subsample_stride": 2,
