@@ -315,9 +315,6 @@ def segmentar() -> Any:
             glare_s_max=door_params.get("door_glare_s_max"),
             glare_v_min=door_params.get("door_glare_v_min"),
             glare_v_clip=door_params.get("door_glare_v_clip"),
-            depth_m=mapaProfundidad,
-            rays=rays_cp,
-            visualize_points=True,
         )
     except Exception as e:
         print(f"[segmentar] Door detection failed: {e}")

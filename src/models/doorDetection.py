@@ -10,8 +10,6 @@ import numpy as np
 
 from .trt_inference import TRTInference
 from .door_hsv import refine_door_mask_hsv
-from .door_deep import door_points_from_masks
-from src.utilities.helpers import render_pointcloud_numpy
 
 
 IMG_MEAN = (0.485, 0.456, 0.406)
@@ -25,51 +23,6 @@ _runtime: Dict[str, Any] = {
     "input_size": (256, 256),  # (width, height) - must match TensorRT engine
     "min_area": 300,  # Minimum connected-component area (pixels) to keep
 }
-
-_pc_viz_state: Dict[str, Any] = {
-    "yaw": -45.0,
-    "pitch": 25.0,
-    "roll": 0.0,
-    "fov": 60.0,
-    "point_size": 2,
-    "enabled": True,
-}
-
-
-def _update_pc_viz_state(key: int) -> None:
-    """
-    Update point-cloud visualization controls from a key press.
-    """
-    if key < 0:
-        return
-
-    if key == ord("a"):
-        _pc_viz_state["yaw"] -= 5.0
-    elif key == ord("d"):
-        _pc_viz_state["yaw"] += 5.0
-    elif key == ord("w"):
-        _pc_viz_state["pitch"] += 5.0
-    elif key == ord("s"):
-        _pc_viz_state["pitch"] -= 5.0
-    elif key == ord("q"):
-        _pc_viz_state["roll"] -= 5.0
-    elif key == ord("e"):
-        _pc_viz_state["roll"] += 5.0
-    elif key == ord("z"):
-        _pc_viz_state["fov"] = max(20.0, _pc_viz_state["fov"] - 5.0)
-    elif key == ord("x"):
-        _pc_viz_state["fov"] = min(120.0, _pc_viz_state["fov"] + 5.0)
-    elif key in (ord("+"), ord("=")):
-        _pc_viz_state["point_size"] = min(6, _pc_viz_state["point_size"] + 1)
-    elif key in (ord("-"), ord("_")):
-        _pc_viz_state["point_size"] = max(1, _pc_viz_state["point_size"] - 1)
-    elif key == ord("r"):
-        _pc_viz_state.update(
-            {"yaw": -45.0, "pitch": 25.0, "roll": 0.0, "fov": 60.0, "point_size": 2}
-        )
-    elif key == ord("v"):
-        _pc_viz_state["enabled"] = not _pc_viz_state["enabled"]
-
 
 def _lazy_init(engine_path: Optional[str] = None) -> bool:
     """
@@ -186,10 +139,6 @@ def doorDetection(
     glare_s_max: Optional[int] = None,
     glare_v_min: Optional[int] = None,
     glare_v_clip: Optional[int] = None,
-    depth_m: Optional[np.ndarray] = None,
-    rays=None,
-    pc_stride: int = 4,
-    visualize_points: bool = False,
 ) -> np.ndarray:
     """
     Detect doors from an RGB image using TensorRT.
@@ -209,10 +158,6 @@ def doorDetection(
         glare_s_max: Maximum saturation to classify glare (0-255).
         glare_v_min: Minimum value to classify glare (0-255).
         glare_v_clip: Value used to clip glare pixels (0-255).
-        depth_m: Depth map aligned to rgb_image (H, W), in meters.
-        rays: Rays array (H, W, 3) aligned to rgb_image.
-        pc_stride: Subsampling stride for point cloud generation.
-        visualize_points: If True, render a point cloud of overlapping mask points.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -241,44 +186,6 @@ def doorDetection(
         glare_v_min=glare_v_min,
         glare_v_clip=glare_v_clip,
     )
-    if depth_m is not None and rays is not None:
-        try:
-            pc_res = door_points_from_masks(
-                door_mask,
-                hsv_mask,
-                depth_m,
-                rays,
-                stride=pc_stride,
-                min_area=min_area,
-            )
-            if visualize_points:
-                points_xyz = pc_res.get("points_xyz")
-                if isinstance(points_xyz, np.ndarray) and points_xyz.size > 0:
-                    pc_img = render_pointcloud_numpy(
-                        points_xyz,
-                        yaw_deg=_pc_viz_state["yaw"],
-                        pitch_deg=_pc_viz_state["pitch"],
-                        roll_deg=_pc_viz_state["roll"],
-                        fov_deg=_pc_viz_state["fov"],
-                        point_size=_pc_viz_state["point_size"],
-                    )
-                    if _pc_viz_state["enabled"]:
-                        cv2.putText(
-                            pc_img,
-                            "Controles: A/D yaw  W/S pitch  Q/E roll  Z/X FOV  +/- tam  R reset  V toggle",
-                            (10, 20),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            (230, 230, 230),
-                            1,
-                            cv2.LINE_AA,
-                        )
-                        cv2.imshow("DoorPoints", pc_img)
-                    key = cv2.waitKey(1) & 0xFF
-                    _update_pc_viz_state(key)
-        except Exception as exc:
-            print(f"[doorDetection] Point cloud visualization failed: {exc}")
-
     return hsv_mask
 
 
