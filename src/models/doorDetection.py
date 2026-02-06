@@ -143,7 +143,7 @@ def doorDetection(
     depth_m: Optional[np.ndarray] = None,
     rays=None,
     ground_normal=None,
-    plane_inlier_dist: float = 0.003,
+    plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
 ) -> np.ndarray:
     """
@@ -204,7 +204,6 @@ def doorDetection(
                 hsv_mask,
                 depth_m,
                 rays,
-                min_area=min_area,
                 ground_normal=ground_normal,
                 plane_inlier_dist=plane_inlier_dist,
                 plane_inlier_ratio=plane_inlier_ratio,

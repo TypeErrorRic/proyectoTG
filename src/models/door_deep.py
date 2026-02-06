@@ -2,7 +2,7 @@
 Door ROI + point cloud segmentation using precomputed masks.
 
 Uses:
-  - Raw NN mask for ROI extraction.
+  - Raw NN mask + HSV mask overlap for ROI extraction.
   - HSV mask (already computed elsewhere).
   - Depth map + rays to build point clouds inside ROI & mask overlap.
 """
@@ -61,11 +61,9 @@ def _component_stats(mask: np.ndarray):
     return labels, stats
 
 
-def _iter_component_bboxes(
-    mask: np.ndarray, min_area: int
-) -> Tuple[np.ndarray, np.ndarray, list]:
+def _iter_component_bboxes(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray, list]:
     """
-    Iterate component bboxes above min_area.
+    Iterate component bboxes.
     Returns (labels, stats, entries), entries is list of (label, bbox, area).
     """
     labels, stats = _component_stats(mask)
@@ -75,8 +73,6 @@ def _iter_component_bboxes(
     entries = []
     for label in range(1, stats.shape[0]):
         area = int(stats[label, cv2.CC_STAT_AREA])
-        if min_area > 0 and area < min_area:
-            continue
         x = int(stats[label, cv2.CC_STAT_LEFT])
         y = int(stats[label, cv2.CC_STAT_TOP])
         w = int(stats[label, cv2.CC_STAT_WIDTH])
@@ -185,19 +181,19 @@ def door_roi_pointclouds(
     depth_m: np.ndarray,
     rays,
     stride: int = 4,
-    min_area: Optional[int] = None,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
     max_density_points: int = 20000,
-    plane_inlier_dist: float = 0.003,
+    plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
     debug_print: bool = True,
 ) -> Dict[str, Any]:
     """
-    Compute door ROIs using the raw NN mask and return point clouds per ROI.
+    Compute door ROIs using the overlap of raw NN mask and HSV mask, and return
+    point clouds per ROI.
 
     HSV mask is provided by the caller. Points are taken from the overlap
     between raw NN mask and HSV mask, constrained by each ROI.
@@ -226,11 +222,6 @@ def door_roi_pointclouds(
         hsv_mask = cv2.resize(
             hsv_mask, (door_mask.shape[1], door_mask.shape[0]), interpolation=cv2.INTER_NEAREST
         )
-
-    if min_area is None:
-        min_area = 0
-    else:
-        min_area = int(min_area)
 
     combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
 
@@ -268,7 +259,7 @@ def door_roi_pointclouds(
         )
         combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
 
-    _, _, entries = _iter_component_bboxes(door_mask, min_area)
+    _, _, entries = _iter_component_bboxes(combined_mask_raw)
     ground_n = _to_numpy(ground_normal)
     rois = []
     hsv_mask_filtered = np.zeros_like(hsv_mask, dtype=np.uint8)
@@ -397,7 +388,6 @@ def door_points_from_masks(
     depth_m: np.ndarray,
     rays,
     stride: int = 4,
-    min_area: Optional[int] = None,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
     density_voxel: float = 0.05,
@@ -416,7 +406,6 @@ def door_points_from_masks(
         depth_m,
         rays,
         stride=stride,
-        min_area=min_area,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
         density_voxel=density_voxel,
@@ -445,7 +434,6 @@ def door_roi_pointcloud(
     depth_m: np.ndarray,
     rays,
     stride: int = 4,
-    min_area: Optional[int] = None,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
     density_voxel: float = 0.05,
@@ -464,7 +452,6 @@ def door_roi_pointcloud(
         depth_m,
         rays,
         stride=stride,
-        min_area=min_area,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
         density_voxel=density_voxel,
