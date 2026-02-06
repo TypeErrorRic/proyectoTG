@@ -63,6 +63,15 @@ _runtime: Dict[str, Any] = {
         "ground_mask_refine": True,     # mejora opcional mascara de suelo
     },
     "wallParams": {
+        "wall_subsample_stride": 2,
+        "wall_dist_thresh": 0.04,
+        "wall_max_iters": 300,
+        "wall_min_inliers": 400,
+        "wall_max_angle_deg": 20.0,
+        "wall_score_subset": 2048,
+        "wall_early_stop_ratio": 0.90,
+        "wall_batch_size": 512,
+        "wall_refine_dist_mult": 1.6,
         "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
         "ground_perp_deg": 20.0,
         "wall_ortho_deg": 20.0,
@@ -77,6 +86,8 @@ _runtime: Dict[str, Any] = {
         "door_glare_s_max": 35,          # max S para considerar glare
         "door_glare_v_min": 210,         # min V para considerar glare
         "door_glare_v_clip": 200,        # V usado al recortar glare
+        "door_ground_parallel_deg": 15.0, # tolerancia de inclinacion (grados)
+        "door_plane_inlier_ratio": 0.70,  # porcentaje minimo de inliers
     },
 }
 
@@ -103,6 +114,15 @@ GROUND_PARAM_KEYS = {
 }
 
 WALL_PARAM_KEYS = {
+    "wall_subsample_stride",
+    "wall_dist_thresh",
+    "wall_max_iters",
+    "wall_min_inliers",
+    "wall_max_angle_deg",
+    "wall_score_subset",
+    "wall_early_stop_ratio",
+    "wall_batch_size",
+    "wall_refine_dist_mult",
     "max_up_dot",
     "ground_perp_deg",
     "wall_ortho_deg",
@@ -118,6 +138,8 @@ DOOR_PARAM_KEYS = {
     "door_glare_s_max",
     "door_glare_v_min",
     "door_glare_v_clip",
+    "door_ground_parallel_deg",
+    "door_plane_inlier_ratio",
 }
 
 # Wall-plane overrides applied on top of ground parameters.
@@ -255,18 +277,22 @@ def segmentar() -> Any:
 
     # Reuse common ground params for wall RANSAC, then override wall-specific values
     wall_params = {
-        "subsample_stride": ground_params.get("subsample_stride"),
-        "min_points": ground_params.get("min_inliers"),
+        "subsample_stride": wall_cfg.get("wall_subsample_stride", ground_params.get("subsample_stride")),
+        "min_points": wall_cfg.get("wall_min_inliers", ground_params.get("min_inliers")),
         "max_points": ground_params.get("max_agg_points"),
-        "dist_thresh": ground_params.get("dist_thresh"),
-        "max_iters": ground_params.get("max_iters"),
-        "score_subset": ground_params.get("score_subset"),
-        "batch_size": ground_params.get("batch_size"),
-        "early_stop_ratio": ground_params.get("early_stop_ratio"),
+        "dist_thresh": wall_cfg.get("wall_dist_thresh", ground_params.get("dist_thresh")),
+        "max_iters": wall_cfg.get("wall_max_iters", ground_params.get("max_iters")),
+        "score_subset": wall_cfg.get("wall_score_subset", ground_params.get("score_subset")),
+        "batch_size": wall_cfg.get("wall_batch_size", ground_params.get("batch_size")),
+        "early_stop_ratio": wall_cfg.get("wall_early_stop_ratio", ground_params.get("early_stop_ratio")),
         "up_axis": ground_params.get("up_axis"),
-        "refine_dist_mult": ground_params.get("refine_dist_mult"),
+        "refine_dist_mult": wall_cfg.get("wall_refine_dist_mult", ground_params.get("refine_dist_mult")),
     }
     wall_params.update(WALL_PARAMS_OVERRIDES)
+    if "wall_max_angle_deg" in wall_cfg:
+        wall_params["max_angle_deg"] = wall_cfg["wall_max_angle_deg"]
+    if "wall_refine_dist_mult" in wall_cfg:
+        wall_params["refine_dist_mult"] = wall_cfg["wall_refine_dist_mult"]
     wall_params["max_up_dot"] = wall_cfg.get(
         "max_up_dot",
         WALL_PARAMS_OVERRIDES.get("max_up_dot", 0.35),
@@ -318,6 +344,8 @@ def segmentar() -> Any:
             depth_m=mapaProfundidad,
             rays=rays_cp,
             ground_normal=ground_utils.last_n_cp,
+            ground_parallel_deg=door_params.get("door_ground_parallel_deg"),
+            plane_inlier_ratio=door_params.get("door_plane_inlier_ratio", 0.70),
         )
     except Exception as e:
         print(f"[segmentar] Door detection failed: {e}")

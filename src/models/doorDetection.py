@@ -143,6 +143,7 @@ def doorDetection(
     depth_m: Optional[np.ndarray] = None,
     rays=None,
     ground_normal=None,
+    ground_parallel_deg: Optional[float] = None,
     plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
 ) -> np.ndarray:
@@ -167,6 +168,7 @@ def doorDetection(
         depth_m: Depth map aligned to rgb_image (H, W), in meters.
         rays: Rays array (H, W, 3) aligned to rgb_image.
         ground_normal: Ground plane normal for filtering ROIs.
+        ground_parallel_deg: Allowed deviation (deg) from perpendicular to ground.
         plane_inlier_dist: Max distance to consider point in-plane.
         plane_inlier_ratio: Min ratio of inliers to keep ROI.
 
@@ -199,12 +201,14 @@ def doorDetection(
     )
     if depth_m is not None and rays is not None:
         try:
+            gp_deg = 15.0 if ground_parallel_deg is None else float(ground_parallel_deg)
             deep_res = door_points_from_masks(
                 door_mask,
                 hsv_mask,
                 depth_m,
                 rays,
                 ground_normal=ground_normal,
+                ground_parallel_deg=gp_deg,
                 plane_inlier_dist=plane_inlier_dist,
                 plane_inlier_ratio=plane_inlier_ratio,
             )

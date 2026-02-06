@@ -55,7 +55,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import (
+from src.utilities.segmentar2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -765,8 +765,13 @@ class SegmentacionApp:
         params_body.columnconfigure(0, weight=1)
         params_body.rowconfigure(1, weight=1)
 
+        summary_header = tk.Frame(params_body, bg=params_body.cget("bg"))
+        summary_header.grid(row=0, column=0, sticky="ew", pady=(4, 2))
+        summary_header.columnconfigure(0, weight=1)
+        summary_header.columnconfigure(1, weight=0)
+
         title_lbl = tk.Label(
-            params_body,
+            summary_header,
             text="Parametros actuales",
             bg=params_body.cget("bg"),
             fg="#1f1f1f",
@@ -775,7 +780,29 @@ class SegmentacionApp:
             justify=tk.LEFT,
             padx=4,
         )
-        title_lbl.grid(row=0, column=0, sticky="w", pady=(4, 2))
+        title_lbl.grid(row=0, column=0, sticky="w")
+
+        self.params_summary_filter_var = tk.StringVar(value="Camino transitable")
+        filter_menu = tk.OptionMenu(
+            summary_header,
+            self.params_summary_filter_var,
+            "Camino transitable",
+            "Muros",
+            "Puerta",
+            command=lambda _value: self._apply_params_summary_filter(),
+        )
+        filter_menu.configure(
+            bg="#d9d9d9",
+            fg="#1f1f1f",
+            activebackground="#cfcfcf",
+            activeforeground="#1f1f1f",
+            bd=0,
+            highlightthickness=0,
+            font=("Segoe UI", 9, "bold"),
+            padx=8,
+            pady=2,
+        )
+        filter_menu.grid(row=0, column=1, sticky="e", padx=(6, 4))
 
         summary_container = tk.Frame(params_body, bg=params_body.cget("bg"))
         summary_container.grid(row=1, column=0, sticky="nsew")
@@ -817,9 +844,25 @@ class SegmentacionApp:
         summary_frame.columnconfigure(0, weight=1)
         summary_frame.columnconfigure(1, weight=0, minsize=70)
 
+        all_fields = param_summary_fields()
+        self._params_summary_group_keys = {
+            "Camino transitable": [],
+            "Muros": [],
+            "Puerta": [],
+        }
+        for key, _label in all_fields:
+            if key.startswith("door_"):
+                group = "Puerta"
+            elif key.startswith("wall_") or key in ("max_up_dot", "ground_perp_deg"):
+                group = "Muros"
+            else:
+                group = "Camino transitable"
+            self._params_summary_group_keys[group].append(key)
+
         self.params_summary_labels = {}
         self.params_summary_name_labels = []
-        for idx, (key, label_text) in enumerate(param_summary_fields()):
+        self._params_summary_row_labels = {}
+        for idx, (key, label_text) in enumerate(all_fields):
             name_lbl = tk.Label(
                 summary_frame,
                 text=f"{label_text}:",
@@ -845,8 +888,10 @@ class SegmentacionApp:
             )
             val_lbl.grid(row=idx, column=1, sticky="w", pady=1)
             self.params_summary_labels[key] = val_lbl
+            self._params_summary_row_labels[key] = (name_lbl, val_lbl)
 
         self._refresh_params_summary()
+        self._apply_params_summary_filter()
 
     def _refresh_params_summary(self) -> None:
         """
@@ -863,6 +908,23 @@ class SegmentacionApp:
             if isinstance(val, bool):
                 val = int(val)
             lbl.configure(text=str(val))
+
+    def _apply_params_summary_filter(self) -> None:
+        """
+        Show only the parameter group selected in the summary filter.
+        """
+        if not getattr(self, "_params_summary_row_labels", None):
+            return
+        group = getattr(self, "params_summary_filter_var", None)
+        group_value = group.get() if group else "Camino transitable"
+        keys_to_show = set(self._params_summary_group_keys.get(group_value, []))
+        for key, (name_lbl, val_lbl) in self._params_summary_row_labels.items():
+            if key in keys_to_show:
+                name_lbl.grid()
+                val_lbl.grid()
+            else:
+                name_lbl.grid_remove()
+                val_lbl.grid_remove()
 
     def _build_db_panel(self, container: tk.Frame) -> None:
         """
@@ -1205,74 +1267,145 @@ class SegmentacionApp:
             "<Configure>",
             lambda event: form_canvas.itemconfigure(form_window, width=event.width),
         )
-        form_fields.grid_columnconfigure(1, weight=1)
-        form_fields.grid_columnconfigure(3, weight=1)
-
-        fields = [
-            ("subsample_stride", "Submuestreo (subsample_stride)", "2"),
-            ("dist_thresh", "Umbral de distancia (m)", "0.03"),
-            ("max_iters", "Iteraciones máximas (max_iters)", "900"),
-            ("min_inliers", "Mínimo de inliers", "400"),
-            ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
-            ("max_up_dot", "Max up dot (0-1)", "0.35"),
-            ("ground_perp_deg", "Perp. suelo (grados)", "20.0"),
-            ("wall_ortho_deg", "Orto paredes (grados)", "20.0"),
-            ("wall_parallel_deg", "Paralelo paredes (grados)", "10.0"),
-            ("wall_parallel_distance_m", "Dist. paredes (m)", "0.60"),
-            ("score_subset", "Subconjunto para puntuar (score_subset)", "4096"),
-            ("early_stop_ratio", "Ratio de corte temprano", "0.92"),
-            ("batch_size", "Tamaño de lote (batch_size)", "256"),
-            ("low_height_pct", "Percentil bajo altura (low_height_pct)", "25.0"),
-            ("roi_bottom_fraction", "Fracción inferior ROI", "0.34"),
-            ("refine_full_res", "Refinar full-res (0/1)", "1"),
-            ("ground_mask_refine", "Mejorar mascara suelo (0/1)", "0"),
-            ("wall_mask_refine", "Mejorar máscara pared (0/1)", "0"),
-            ("refine_dist_mult", "Tolerancia refino (refine_dist_mult)", "1.6"),
-            ("door_hue_tol", "Puerta HSV: tolerancia H (0-179)", "18"),
-            ("door_min_s", "Puerta HSV: min S (0-255)", "30"),
-            ("door_min_v", "Puerta HSV: min V (0-255)", "20"),
-            ("door_glare_s_max", "Puerta HSV: glare S max (0-255)", "35"),
-            ("door_glare_v_min", "Puerta HSV: glare V min (0-255)", "210"),
-            ("door_glare_v_clip", "Puerta HSV: glare V clip (0-255)", "200"),
+        sections = [
+            (
+                "Camino transitable",
+                [
+                    ("subsample_stride", "Submuestreo (stride px)", "2"),
+                    ("dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
+                    ("max_iters", "Iteraciones max (RANSAC)", "900"),
+                    ("min_inliers", "Min inliers (pts)", "400"),
+                    ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
+                    ("score_subset", "Subconjunto para puntuar (pts)", "4096"),
+                    ("early_stop_ratio", "Ratio corte temprano (0-1)", "0.92"),
+                    ("batch_size", "Tamano de lote (modelos)", "256"),
+                    ("low_height_pct", "Percentil bajo de altura (%)", "25.0"),
+                    ("roi_bottom_fraction", "Fraccion inferior ROI (0-1)", "0.34"),
+                    ("refine_full_res", "Refinar full-res", "1"),
+                    ("ground_mask_refine", "Mejorar mascara suelo", "0"),
+                    ("refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
+                ],
+            ),
+            (
+                "Muros",
+                [
+                    ("wall_subsample_stride", "Submuestreo (stride px)", "2"),
+                    ("wall_dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
+                    ("wall_max_iters", "Iteraciones max (RANSAC)", "300"),
+                    ("wall_min_inliers", "Min inliers (pts)", "400"),
+                    ("wall_max_angle_deg", "Ángulo máximo (grados)", "20.0"),
+                    ("wall_score_subset", "Subconjunto para puntuar (pts)", "4096"),
+                    ("wall_early_stop_ratio", "Ratio corte temprano (0-1)", "0.90"),
+                    ("wall_batch_size", "Tamano de lote (modelos)", "1024"),
+                    ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
+                    ("max_up_dot", "Max up dot (0-1)", "0.35"),
+                    ("ground_perp_deg", "Perp. suelo (grados)", "20.0"),
+                    ("wall_ortho_deg", "Orto paredes (grados)", "20.0"),
+                    ("wall_parallel_deg", "Paralelo paredes (grados)", "10.0"),
+                    ("wall_parallel_distance_m", "Dist. paredes (m)", "0.60"),
+                    ("wall_mask_refine", "Mejorar mascara pared", "0"),
+                ],
+            ),
+            (
+                "Puerta",
+                [
+                    ("door_hue_tol", "HSV: tolerancia H (0-179)", "18"),
+                    ("door_min_s", "HSV: S min (0-255)", "30"),
+                    ("door_min_v", "HSV: V min (0-255)", "20"),
+                    ("door_glare_s_max", "HSV: glare S max (0-255)", "35"),
+                    ("door_glare_v_min", "HSV: glare V min (0-255)", "210"),
+                    ("door_glare_v_clip", "HSV: glare V clip (0-255)", "200"),
+                    ("door_ground_parallel_deg", "Angulo inclinacion permitido (grados)", "15.0"),
+                    ("door_plane_inlier_ratio", "Inliers min (0-1)", "0.70"),
+                ],
+            ),
         ]
 
         numeric_validator = (self.root.register(validate_numeric_entry), "%P")
 
-        for idx, (key, label_text, default) in enumerate(fields):
-            row = idx // 2
-            col_offset = 2 * (idx % 2)
-            lbl = tk.Label(
-                form_fields,
-                text=label_text,
-                bg=form_fields.cget("bg"),
-                fg="#1f1f1f",
-                font=("Segoe UI", 10, "bold"),
-                anchor="w",
-                justify="left",
-                wraplength=220,
-                pady=4,
-            )
-            lbl.grid(row=row, column=col_offset, sticky="w", padx=(2, 8))
+        def _bool_from_var(value: str) -> bool:
+            return str(value).strip().lower() in ("1", "true", "t", "si", "yes", "on")
 
-            var = tk.StringVar(value=default)
-            self.config_vars[key] = var
-            self.config_defaults.setdefault(key, default)
-            if key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine"):
-                # Permitir letras/booleanos en este campo
-                entry = tk.Entry(
-                    form_fields,
-                    textvariable=var,
-                    font=("Segoe UI", 10),
+        def _toggle_bool_var(var: tk.StringVar) -> None:
+            new_state = not _bool_from_var(var.get())
+            var.set("1" if new_state else "0")
+
+        def _update_toggle_button(btn: tk.Button, var: tk.StringVar) -> None:
+            enabled = _bool_from_var(var.get())
+            if enabled:
+                btn.configure(
+                    text="Desactivar",
+                    bg="#e53935",
+                    fg="white",
+                    activebackground="#f1625f",
+                    activeforeground="white",
                 )
             else:
-                entry = tk.Entry(
-                    form_fields,
-                    textvariable=var,
-                    font=("Segoe UI", 10),
-                    validate="key",
-                    validatecommand=numeric_validator,
+                btn.configure(
+                    text="Activar",
+                    bg="#00b86b",
+                    fg="white",
+                    activebackground="#21d087",
+                    activeforeground="white",
                 )
-            entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
+
+        for title_text, fields in sections:
+            section = tk.LabelFrame(
+                form_fields,
+                text=title_text,
+                bg=form.cget("bg"),
+                fg="#1f1f1f",
+                font=("Segoe UI", 11, "bold"),
+                bd=1,
+                relief=tk.GROOVE,
+                padx=8,
+                pady=6,
+            )
+            section.pack(fill="x", pady=(0, 10))
+            section.grid_columnconfigure(1, weight=1)
+            section.grid_columnconfigure(3, weight=1)
+
+            for idx, (key, label_text, default) in enumerate(fields):
+                row = idx // 2
+                col_offset = 2 * (idx % 2)
+                lbl = tk.Label(
+                    section,
+                    text=label_text,
+                    bg=section.cget("bg"),
+                    fg="#1f1f1f",
+                    font=("Segoe UI", 10, "bold"),
+                    anchor="w",
+                    justify="left",
+                    wraplength=220,
+                    pady=4,
+                )
+                lbl.grid(row=row, column=col_offset, sticky="w", padx=(2, 8))
+
+                var = tk.StringVar(value=default)
+                self.config_vars[key] = var
+                self.config_defaults.setdefault(key, default)
+                if key in ("ground_mask_refine", "wall_mask_refine", "refine_full_res"):
+                    btn = tk.Button(
+                        section,
+                        text="Activar",
+                        bd=0,
+                        padx=8,
+                        pady=4,
+                        font=("Segoe UI", 9, "bold"),
+                        command=lambda v=var: _toggle_bool_var(v),
+                    )
+                    btn.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
+                    _update_toggle_button(btn, var)
+                    var.trace_add("write", lambda *_args, b=btn, v=var: _update_toggle_button(b, v))
+                else:
+                    entry = tk.Entry(
+                        section,
+                        textvariable=var,
+                        font=("Segoe UI", 10),
+                        validate="key",
+                        validatecommand=numeric_validator,
+                    )
+                    entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
 
         # Ensure the entries reflect the latest defaults pulled from the runtime.
         for key, value in self.config_defaults.items():
@@ -1847,7 +1980,12 @@ class SegmentacionApp:
         sidebar = getattr(self, "frames", {}).get("sidebar") if hasattr(self, "frames") else None
         if sidebar is None:
             return
-        sidebar_height = max(sidebar.winfo_height(), 1)
+        try:
+            if not sidebar.winfo_exists():
+                return
+            sidebar_height = max(sidebar.winfo_height(), 1)
+        except tk.TclError:
+            return
         row_size = max(sidebar_height // 6, 1)
         for r in range(6):
             sidebar.rowconfigure(r, minsize=row_size, weight=1, uniform="sidebar_rows")
@@ -1856,6 +1994,8 @@ class SegmentacionApp:
         """
         \brief Keep sidebar buttons stable during window resizes.
         """
+        if not self.running:
+            return
         self._adjust_sidebar_rows()
 
     def _on_close(self) -> None:
@@ -1863,6 +2003,10 @@ class SegmentacionApp:
         \brief Handles window close: stops threads and releases resources.
         """
         self.running = False
+        try:
+            self.root.unbind("<Configure>")
+        except Exception:
+            pass
         try:
             liberar_recursos()
         finally:

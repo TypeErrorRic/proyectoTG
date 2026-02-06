@@ -42,6 +42,15 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "refine_max_points": "200000",
     "refine_dist_mult": "1.6",
     "ground_mask_refine": "0",
+    "wall_subsample_stride": "2",
+    "wall_dist_thresh": "0.03",
+    "wall_max_iters": "300",
+    "wall_min_inliers": "400",
+    "wall_max_angle_deg": "20.0",
+    "wall_score_subset": "4096",
+    "wall_early_stop_ratio": "0.90",
+    "wall_batch_size": "1024",
+    "wall_refine_dist_mult": "1.6",
     "wall_mask_refine": "0",
     "ground_perp_deg": "20.0",
     "wall_ortho_deg": "20.0",
@@ -53,6 +62,8 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "door_glare_s_max": "35",
     "door_glare_v_min": "210",
     "door_glare_v_clip": "200",
+    "door_ground_parallel_deg": "15.0",
+    "door_plane_inlier_ratio": "0.70",
 }
 
 
@@ -168,31 +179,42 @@ def param_summary_fields() -> List[Tuple[str, str]]:
     Keys and labels to show in the execution summary panel.
     """
     return [
-        ("subsample_stride", "Submuestreo"),
-        ("dist_thresh", "Umbral distancia"),
-        ("max_iters", "Iteraciones max"),
-        ("min_inliers", "Min inliers"),
-        ("max_angle_deg", "Angulo max"),
-        ("max_up_dot", "Max up dot"),
-        ("score_subset", "Score subset"),
-        ("early_stop_ratio", "Corte temprano"),
-        ("batch_size", "Batch size"),
-        ("low_height_pct", "Percentil bajo"),
-        ("roi_bottom_fraction", "ROI inferior"),
-        ("refine_full_res", "Refino full-res"),
-        ("refine_dist_mult", "Tol. refino"),
-        ("ground_mask_refine", "Mejorar mascara suelo"),
-        ("wall_mask_refine", "Mejorar mascara pared"),
-        ("ground_perp_deg", "Perp. suelo (deg)"),
-        ("wall_ortho_deg", "Orto paredes (deg)"),
-        ("wall_parallel_deg", "Paralelo paredes (deg)"),
+        ("subsample_stride", "Submuestreo (stride px)"),
+        ("dist_thresh", "Umbral distancia al plano (m)"),
+        ("max_iters", "Iteraciones max (RANSAC)"),
+        ("min_inliers", "Min inliers (pts)"),
+        ("max_angle_deg", "Angulo max (grados)"),
+        ("max_up_dot", "Max up dot (0-1)"),
+        ("score_subset", "Subconjunto para puntuar (pts)"),
+        ("early_stop_ratio", "Ratio corte temprano (0-1)"),
+        ("batch_size", "Tamano de lote (modelos)"),
+        ("low_height_pct", "Percentil bajo de altura (%)"),
+        ("roi_bottom_fraction", "Fraccion inferior ROI (0-1)"),
+        ("refine_full_res", "Refinar full-res"),
+        ("refine_dist_mult", "Tolerancia refino (dist_mult)"),
+        ("ground_mask_refine", "Mejorar mascara suelo (0/1)"),
+        ("wall_subsample_stride", "Submuestreo (stride px)"),
+        ("wall_dist_thresh", "Umbral distancia al plano (m)"),
+        ("wall_max_iters", "Iteraciones max (RANSAC)"),
+        ("wall_min_inliers", "Min inliers (pts)"),
+        ("wall_max_angle_deg", "Angulo max (grados)"),
+        ("wall_score_subset", "Subconjunto para puntuar (pts)"),
+        ("wall_early_stop_ratio", "Ratio corte temprano (0-1)"),
+        ("wall_batch_size", "Tamano de lote (modelos)"),
+        ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)"),
+        ("wall_mask_refine", "Mejorar mascara pared (0/1)"),
+        ("ground_perp_deg", "Perp. suelo (grados)"),
+        ("wall_ortho_deg", "Orto paredes (grados)"),
+        ("wall_parallel_deg", "Paralelo paredes (grados)"),
         ("wall_parallel_distance_m", "Dist. paredes (m)"),
-        ("door_hue_tol", "HSV: tol H"),
-        ("door_min_s", "HSV: min S"),
-        ("door_min_v", "HSV: min V"),
-        ("door_glare_s_max", "HSV: glare S max"),
-        ("door_glare_v_min", "HSV: glare V min"),
-        ("door_glare_v_clip", "HSV: glare V clip"),
+        ("door_hue_tol", "HSV: tolerancia H (0-179)"),
+        ("door_min_s", "HSV: S min (0-255)"),
+        ("door_min_v", "HSV: V min (0-255)"),
+        ("door_glare_s_max", "HSV: glare S max (0-255)"),
+        ("door_glare_v_min", "HSV: glare V min (0-255)"),
+        ("door_glare_v_clip", "HSV: glare V clip (0-255)"),
+        ("door_ground_parallel_deg", "Angulo inclinacion permitido (grados)"),
+        ("door_plane_inlier_ratio", "Inliers min (0-1)"),
     ]
 
 
@@ -229,6 +251,15 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "max_agg_points": (int, -0.1),
         "refine_max_points": (int, -0.1),
         "refine_dist_mult": (float, 0.99),
+        "wall_subsample_stride": (int, 0.0),
+        "wall_dist_thresh": (float, 0.0),
+        "wall_max_iters": (int, 0.0),
+        "wall_min_inliers": (int, 0.0),
+        "wall_max_angle_deg": (float, 0.0),
+        "wall_score_subset": (int, 0.0),
+        "wall_early_stop_ratio": (float, 0.0),
+        "wall_batch_size": (int, 0.0),
+        "wall_refine_dist_mult": (float, 0.99),
         "ground_perp_deg": (float, 0.0),
         "wall_ortho_deg": (float, 0.0),
         "wall_parallel_deg": (float, 0.0),
@@ -239,6 +270,8 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "door_glare_s_max": (int, -0.1),
         "door_glare_v_min": (int, -0.1),
         "door_glare_v_clip": (int, -0.1),
+        "door_ground_parallel_deg": (float, 0.0),
+        "door_plane_inlier_ratio": (float, 0.0),
     }
     parsed: Dict[str, Any] = {}
     errors = []
@@ -269,6 +302,10 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if not (0.0 < float(val) <= 1.0):
                 errors.append(key)
                 continue
+        elif key == "wall_early_stop_ratio":
+            if not (0.0 < float(val) <= 1.0):
+                errors.append(key)
+                continue
         elif key == "max_up_dot":
             if not (0.0 <= float(val) <= 1.0):
                 errors.append(key)
@@ -295,6 +332,14 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if not (0 <= int(val) <= 255):
                 errors.append(key)
                 continue
+        elif key == "door_ground_parallel_deg":
+            if not (0.0 <= float(val) <= 90.0):
+                errors.append(key)
+                continue
+        elif key == "door_plane_inlier_ratio":
+            if not (0.0 < float(val) <= 1.0):
+                errors.append(key)
+                continue
         elif float(val) <= min_value:
             errors.append(key)
             continue
@@ -316,6 +361,8 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         parsed["low_height_pct"] = max(0.0, min(100.0, float(parsed["low_height_pct"])))
     if "refine_dist_mult" in parsed:
         parsed["refine_dist_mult"] = max(1.0, float(parsed["refine_dist_mult"]))
+    if "wall_refine_dist_mult" in parsed:
+        parsed["wall_refine_dist_mult"] = max(1.0, float(parsed["wall_refine_dist_mult"]))
     for key in ("max_agg_points", "refine_max_points"):
         if key in parsed:
             parsed[key] = max(0, int(parsed[key]))
