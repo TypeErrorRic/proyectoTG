@@ -8,10 +8,13 @@ Uses:
 """
 from typing import Optional, Tuple, Dict, Any
 
+import time
 import cv2
 import numpy as np
 
 from src.utilities.helpers import points_from_rays_and_depth
+
+DEBUG_DOOR_DEEP = True
 
 
 def _to_numpy(arr):
@@ -270,7 +273,6 @@ def door_roi_pointclouds(
     max_iters: int = 64,
     min_island_pixels: int = 300,
     use_realsense: bool = True,
-    debug_print: bool = True,
 ) -> Dict[str, Any]:
     """
     Compute door ROIs using the overlap of raw NN mask and HSV mask, and return
@@ -293,9 +295,14 @@ def door_roi_pointclouds(
           - rois: list of dicts per ROI:
                 {label, bbox, roi_mask, roi_combined_mask, points_xyz, plane_n, plane_d}
     """
+    debug_print = DEBUG_DOOR_DEEP
+    timings = {}
+    t_start = time.perf_counter() if debug_print else None
+
     if door_mask_raw is None or hsv_mask is None:
         raise ValueError("door_mask_raw and hsv_mask are required.")
 
+    t_stage = time.perf_counter() if debug_print else None
     door_mask = np.asarray(door_mask_raw)
     if door_mask.ndim == 3:
         door_mask = door_mask[:, :, 0]
@@ -310,7 +317,10 @@ def door_roi_pointclouds(
 
     combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
     combined_mask_rois = _merge_close_regions(combined_mask_raw, merge_gap_px)
+    if debug_print:
+        timings["prep_masks_s"] = time.perf_counter() - t_stage
 
+    t_stage = time.perf_counter() if debug_print else None
     depth_np = _to_numpy(depth_m)
     rays_np = _to_numpy(rays)
     if depth_np is None or rays_np is None:
@@ -319,6 +329,7 @@ def door_roi_pointclouds(
             "hsv_mask": hsv_mask,
             "combined_mask": combined_mask_raw,
             "rois": [],
+            "timings": timings,
         }
 
     H, W = depth_np.shape[:2]
@@ -346,13 +357,18 @@ def door_roi_pointclouds(
         )
         combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
         combined_mask_rois = _merge_close_regions(combined_mask_raw, merge_gap_px)
+    if debug_print:
+        timings["align_depth_rays_s"] = time.perf_counter() - t_stage
 
+    t_stage = time.perf_counter() if debug_print else None
     _, _, entries = _iter_component_bboxes(combined_mask_rois)
     ground_n = _to_numpy(ground_normal)
     rois = []
     hsv_mask_filtered = np.zeros_like(hsv_mask, dtype=np.uint8)
     if debug_print:
-        print(f"[door_deep] ROIs detectados (candidatos): {len(entries)}")
+        timings["roi_components_s"] = time.perf_counter() - t_stage
+
+    t_stage = time.perf_counter() if debug_print else None
     for label, bbox, area in entries:
         roi_mask = _roi_mask_from_bbox(door_mask.shape[:2], bbox)
         roi_combined = cv2.bitwise_and(combined_mask_raw, roi_mask)
@@ -403,27 +419,6 @@ def door_roi_pointclouds(
             if inlier_ratio < float(plane_inlier_ratio):
                 keep = False
 
-        if debug_print:
-            pts_count = (
-                int(points_xyz.shape[0])
-                if isinstance(points_xyz, np.ndarray)
-                else 0
-            )
-            angle_txt = (
-                f"{angle_deg:.2f} deg ({angle_ref})"
-                if angle_deg is not None
-                else "N/A"
-            )
-            ratio_txt = (
-                f"{inlier_ratio * 100.0:.1f}%"
-                if inlier_ratio is not None
-                else "N/A"
-            )
-            print(
-                f"[door_deep] ROI {label}: bbox={bbox} area={area} "
-                f"pts={pts_count} angle={angle_txt} inliers={ratio_txt} keep={keep}"
-            )
-
         if not keep:
             continue
 
@@ -442,7 +437,10 @@ def door_roi_pointclouds(
                 "plane_d": plane_d,
             }
         )
+    if debug_print:
+        timings["roi_plane_filter_s"] = time.perf_counter() - t_stage
 
+    t_stage = time.perf_counter() if debug_print else None
     combined_mask_filtered = cv2.bitwise_and(door_mask, hsv_mask_filtered)
     if imagen_rgb is not None:
         combined_mask_filtered = _refine_mask_edges(
@@ -455,15 +453,27 @@ def door_roi_pointclouds(
             min_island_pixels=min_island_pixels,
             use_realsense=use_realsense,
         )
+    if debug_print:
+        timings["refine_mask_edges_s"] = time.perf_counter() - t_stage
+        timings["total_s"] = time.perf_counter() - t_start
 
     if debug_print:
-        print(f"[door_deep] ROIs validos (filtrados): {len(rois)}")
+        print(
+            "[door_deep] tiempos (s): "
+            f"prep={timings.get('prep_masks_s', 0):.4f} "
+            f"align={timings.get('align_depth_rays_s', 0):.4f} "
+            f"roi={timings.get('roi_components_s', 0):.4f} "
+            f"fit={timings.get('roi_plane_filter_s', 0):.4f} "
+            f"refine={timings.get('refine_mask_edges_s', 0):.4f} "
+            f"total={timings.get('total_s', 0):.4f}"
+        )
 
     return {
         "door_mask_raw": door_mask,
         "hsv_mask": hsv_mask_filtered,
         "combined_mask": combined_mask_filtered,
         "rois": rois,
+        "timings": timings,
     }
 
 
