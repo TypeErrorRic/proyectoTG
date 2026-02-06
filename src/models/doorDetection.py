@@ -10,6 +10,7 @@ import numpy as np
 
 from .trt_inference import TRTInference
 from .door_hsv import refine_door_mask_hsv
+from .door_deep import door_points_from_masks
 
 
 IMG_MEAN = (0.485, 0.456, 0.406)
@@ -139,6 +140,11 @@ def doorDetection(
     glare_s_max: Optional[int] = None,
     glare_v_min: Optional[int] = None,
     glare_v_clip: Optional[int] = None,
+    depth_m: Optional[np.ndarray] = None,
+    rays=None,
+    ground_normal=None,
+    plane_inlier_dist: float = 0.003,
+    plane_inlier_ratio: float = 0.70,
 ) -> np.ndarray:
     """
     Detect doors from an RGB image using TensorRT.
@@ -158,6 +164,11 @@ def doorDetection(
         glare_s_max: Maximum saturation to classify glare (0-255).
         glare_v_min: Minimum value to classify glare (0-255).
         glare_v_clip: Value used to clip glare pixels (0-255).
+        depth_m: Depth map aligned to rgb_image (H, W), in meters.
+        rays: Rays array (H, W, 3) aligned to rgb_image.
+        ground_normal: Ground plane normal for filtering ROIs.
+        plane_inlier_dist: Max distance to consider point in-plane.
+        plane_inlier_ratio: Min ratio of inliers to keep ROI.
 
     Returns:
         door_mask: Binary mask (H, W) with doors marked as 255.
@@ -186,6 +197,23 @@ def doorDetection(
         glare_v_min=glare_v_min,
         glare_v_clip=glare_v_clip,
     )
+    if depth_m is not None and rays is not None:
+        try:
+            deep_res = door_points_from_masks(
+                door_mask,
+                hsv_mask,
+                depth_m,
+                rays,
+                min_area=min_area,
+                ground_normal=ground_normal,
+                plane_inlier_dist=plane_inlier_dist,
+                plane_inlier_ratio=plane_inlier_ratio,
+            )
+            hsv_filtered = deep_res.get("hsv_mask")
+            if isinstance(hsv_filtered, np.ndarray) and hsv_filtered.size > 0:
+                hsv_mask = hsv_filtered
+        except Exception as exc:
+            print(f"[doorDetection] door_deep filtering failed: {exc}")
     return hsv_mask
 
 

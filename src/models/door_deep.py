@@ -164,65 +164,6 @@ def _is_parallel(normal: np.ndarray, ground_normal: np.ndarray, max_angle_deg: f
     return angle <= float(max_angle_deg)
 
 
-def _line_parallel_to_ground(
-    points: np.ndarray,
-    ground_normal: np.ndarray,
-    max_angle_deg: float,
-) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray], float]:
-    """
-    Check if two points in 'points' can form a line parallel to ground with length >= min_length_m.
-    Returns (ok, p1, p2, length).
-    """
-    if points is None or points.shape[0] < 2:
-        return False, None, None, 0.0
-    if ground_normal is None:
-        return False, None, None, 0.0
-
-    n = np.asarray(ground_normal, dtype=np.float32).reshape(-1)
-    if n.size != 3:
-        return False, None, None, 0.0
-    n_norm = float(np.linalg.norm(n))
-    if n_norm < 1e-9:
-        return False, None, None, 0.0
-    n = n / n_norm
-
-    # Build orthonormal basis (u, v) for the ground plane.
-    axis = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    if abs(float(np.dot(axis, n))) > 0.9:
-        axis = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-    u = np.cross(n, axis)
-    u /= max(1e-9, float(np.linalg.norm(u)))
-    v = np.cross(n, u)
-    v /= max(1e-9, float(np.linalg.norm(v)))
-
-    # Project points to 2D coords on ground plane.
-    coords = np.stack((points @ u, points @ v), axis=1)
-    if coords.shape[0] < 2:
-        return False, None, None, 0.0
-
-    # Find farthest pair along the principal axis in 2D.
-    centered = coords - coords.mean(axis=0, keepdims=True)
-    cov = (centered.T @ centered) / max(1, centered.shape[0])
-    vals, vecs = np.linalg.eigh(cov)
-    dir2 = vecs[:, int(np.argmax(vals))]
-    proj = coords @ dir2
-    i_min = int(np.argmin(proj))
-    i_max = int(np.argmax(proj))
-    p1 = points[i_min]
-    p2 = points[i_max]
-    vec = p2 - p1
-    length = float(np.linalg.norm(vec))
-    # Check line direction parallel to ground plane (orthogonal to normal).
-    dot = float(abs(np.dot(vec, n)) / max(1e-9, length))
-    # Convert max_angle_deg to dot threshold.
-    max_angle_deg = float(max_angle_deg)
-    max_dot = float(np.sin(np.deg2rad(max_angle_deg)))
-    if dot > max_dot:
-        return False, p1, p2, length
-
-    return True, p1, p2, length
-
-
 def door_roi_pointclouds(
     door_mask_raw: np.ndarray,
     hsv_mask: np.ndarray,
@@ -232,11 +173,12 @@ def door_roi_pointclouds(
     min_area: Optional[int] = None,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
-    ground_line_parallel_deg: float = 10.0,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
     max_density_points: int = 20000,
+    plane_inlier_dist: float = 0.003,
+    plane_inlier_ratio: float = 0.70,
 ) -> Dict[str, Any]:
     """
     Compute door ROIs using the raw NN mask and return point clouds per ROI.
@@ -244,7 +186,7 @@ def door_roi_pointclouds(
     HSV mask is provided by the caller. Points are taken from the overlap
     between raw NN mask and HSV mask, constrained by each ROI.
     ROIs are discarded if the fitted plane is not parallel to ground or if
-    there is no line parallel to ground using border points of the ROI mask.
+    fewer than plane_inlier_ratio of points lie within plane_inlier_dist.
 
     Returns:
         dict with:
@@ -317,23 +259,9 @@ def door_roi_pointclouds(
     for label, bbox, area in entries:
         roi_mask = _roi_mask_from_bbox(door_mask.shape[:2], bbox)
         roi_combined = cv2.bitwise_and(combined_mask_raw, roi_mask)
-        # Border points (external points within the mask)
-        mask_bin = (roi_combined > 0).astype(np.uint8)
-        if np.any(mask_bin):
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            eroded = cv2.erode(mask_bin, kernel, iterations=1)
-            border = mask_bin & (eroded == 0)
-            border_mask = (border * 255).astype(np.uint8)
-        else:
-            border_mask = np.zeros_like(roi_combined, dtype=np.uint8)
         depth_roi = depth_np.copy()
         depth_roi[roi_combined == 0] = 0
         points_xyz = points_from_rays_and_depth(rays_np, depth_roi, stride=stride)
-        depth_border = depth_np.copy()
-        depth_border[border_mask == 0] = 0
-        border_points = points_from_rays_and_depth(
-            rays_np, depth_border, stride=stride
-        )
         plane_n = None
         plane_d = None
         keep = True
@@ -375,14 +303,14 @@ def door_roi_pointclouds(
         if keep and ground_n is not None:
             keep = _is_parallel(plane_n, ground_n, ground_parallel_deg)
 
-        if keep and ground_n is not None:
-            ok_line, _, _, _ = _line_parallel_to_ground(
-                border_points,
-                ground_n,
-                ground_line_parallel_deg,
-            )
-            if not ok_line:
+        if keep and plane_n is not None and plane_d is not None:
+            dist = np.abs(pts_all @ plane_n + plane_d)
+            if dist.size == 0:
                 keep = False
+            else:
+                ratio = float(np.mean(dist <= float(plane_inlier_dist)))
+                if ratio < float(plane_inlier_ratio):
+                    keep = False
 
         if not keep:
             continue
@@ -422,11 +350,12 @@ def door_points_from_masks(
     min_area: Optional[int] = None,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
-    ground_line_parallel_deg: float = 10.0,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
     max_density_points: int = 20000,
+    plane_inlier_dist: float = 0.003,
+    plane_inlier_ratio: float = 0.70,
 ) -> Dict[str, Any]:
     """
     Aggregate points from all ROIs using the overlap of raw NN mask and HSV mask.
@@ -440,11 +369,12 @@ def door_points_from_masks(
         min_area=min_area,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
-        ground_line_parallel_deg=ground_line_parallel_deg,
         density_voxel=density_voxel,
         seed_radius_ratio=seed_radius_ratio,
         min_plane_points=min_plane_points,
         max_density_points=max_density_points,
+        plane_inlier_dist=plane_inlier_dist,
+        plane_inlier_ratio=plane_inlier_ratio,
     )
     points_all = []
     for roi in res.get("rois") or []:
@@ -468,11 +398,12 @@ def door_roi_pointcloud(
     min_area: Optional[int] = None,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
-    ground_line_parallel_deg: float = 10.0,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
     max_density_points: int = 20000,
+    plane_inlier_dist: float = 0.003,
+    plane_inlier_ratio: float = 0.70,
 ) -> Dict[str, Any]:
     """
     Backwards-compatible wrapper that returns the first ROI (if any).
@@ -486,11 +417,12 @@ def door_roi_pointcloud(
         min_area=min_area,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
-        ground_line_parallel_deg=ground_line_parallel_deg,
         density_voxel=density_voxel,
         seed_radius_ratio=seed_radius_ratio,
         min_plane_points=min_plane_points,
         max_density_points=max_density_points,
+        plane_inlier_dist=plane_inlier_dist,
+        plane_inlier_ratio=plane_inlier_ratio,
     )
     rois = res.get("rois") or []
     first = rois[0] if rois else {}
