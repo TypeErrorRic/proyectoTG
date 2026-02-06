@@ -175,6 +175,17 @@ def _angle_between_normals_deg(
     return float(np.degrees(np.arccos(dot)))
 
 
+def _merge_close_regions(mask: np.ndarray, merge_gap_px: int) -> np.ndarray:
+    if mask is None or mask.size == 0:
+        return mask
+    if not merge_gap_px or int(merge_gap_px) <= 0:
+        return mask
+    k = 2 * int(merge_gap_px) + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    # Close small gaps so nearby ROIs merge into one.
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+
 def door_roi_pointclouds(
     door_mask_raw: np.ndarray,
     hsv_mask: np.ndarray,
@@ -183,6 +194,7 @@ def door_roi_pointclouds(
     stride: int = 4,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
+    merge_gap_px: int = 3,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
@@ -197,6 +209,7 @@ def door_roi_pointclouds(
 
     HSV mask is provided by the caller. Points are taken from the overlap
     between raw NN mask and HSV mask, constrained by each ROI.
+    If merge_gap_px > 0, nearby regions are merged before extracting ROIs.
     ROIs are discarded if the fitted plane is not parallel to ground or if
     fewer than plane_inlier_ratio of points lie within plane_inlier_dist.
 
@@ -224,6 +237,7 @@ def door_roi_pointclouds(
         )
 
     combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
+    combined_mask_rois = _merge_close_regions(combined_mask_raw, merge_gap_px)
 
     depth_np = _to_numpy(depth_m)
     rays_np = _to_numpy(rays)
@@ -240,6 +254,7 @@ def door_roi_pointclouds(
         door_mask = cv2.resize(door_mask, (W, H), interpolation=cv2.INTER_NEAREST)
         hsv_mask = cv2.resize(hsv_mask, (W, H), interpolation=cv2.INTER_NEAREST)
         combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
+        combined_mask_rois = _merge_close_regions(combined_mask_raw, merge_gap_px)
 
     if rays_np.shape[:2] != (H, W):
         depth_np = cv2.resize(
@@ -258,8 +273,9 @@ def door_roi_pointclouds(
             interpolation=cv2.INTER_NEAREST,
         )
         combined_mask_raw = cv2.bitwise_and(door_mask, hsv_mask)
+        combined_mask_rois = _merge_close_regions(combined_mask_raw, merge_gap_px)
 
-    _, _, entries = _iter_component_bboxes(combined_mask_raw)
+    _, _, entries = _iter_component_bboxes(combined_mask_rois)
     ground_n = _to_numpy(ground_normal)
     rois = []
     hsv_mask_filtered = np.zeros_like(hsv_mask, dtype=np.uint8)
@@ -390,11 +406,12 @@ def door_points_from_masks(
     stride: int = 4,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
+    merge_gap_px: int = 3,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
     max_density_points: int = 20000,
-    plane_inlier_dist: float = 0.003,
+    plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
 ) -> Dict[str, Any]:
     """
@@ -408,6 +425,7 @@ def door_points_from_masks(
         stride=stride,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
+        merge_gap_px=merge_gap_px,
         density_voxel=density_voxel,
         seed_radius_ratio=seed_radius_ratio,
         min_plane_points=min_plane_points,
@@ -436,11 +454,12 @@ def door_roi_pointcloud(
     stride: int = 4,
     ground_normal=None,
     ground_parallel_deg: float = 15.0,
+    merge_gap_px: int = 3,
     density_voxel: float = 0.05,
     seed_radius_ratio: float = 0.12,
     min_plane_points: int = 50,
     max_density_points: int = 20000,
-    plane_inlier_dist: float = 0.003,
+    plane_inlier_dist: float = 0.02,
     plane_inlier_ratio: float = 0.70,
 ) -> Dict[str, Any]:
     """
@@ -454,6 +473,7 @@ def door_roi_pointcloud(
         stride=stride,
         ground_normal=ground_normal,
         ground_parallel_deg=ground_parallel_deg,
+        merge_gap_px=merge_gap_px,
         density_voxel=density_voxel,
         seed_radius_ratio=seed_radius_ratio,
         min_plane_points=min_plane_points,
