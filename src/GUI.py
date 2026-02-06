@@ -55,7 +55,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar2 import (
+from src.utilities.segmentar import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
@@ -767,12 +767,10 @@ class SegmentacionApp:
 
         summary_header = tk.Frame(params_body, bg=params_body.cget("bg"))
         summary_header.grid(row=0, column=0, sticky="ew", pady=(4, 2))
-        summary_header.columnconfigure(0, weight=1)
-        summary_header.columnconfigure(1, weight=0)
 
         title_lbl = tk.Label(
             summary_header,
-            text="Parametros actuales",
+            text="Parametros\nactuales",
             bg=params_body.cget("bg"),
             fg="#1f1f1f",
             font=("Segoe UI", 10, "bold italic"),
@@ -780,13 +778,13 @@ class SegmentacionApp:
             justify=tk.LEFT,
             padx=4,
         )
-        title_lbl.grid(row=0, column=0, sticky="w")
+        title_lbl.pack(side="left", fill="x", expand=True)
 
-        self.params_summary_filter_var = tk.StringVar(value="Camino transitable")
+        self.params_summary_filter_var = tk.StringVar(value="Camino\ntransitable")
         filter_menu = tk.OptionMenu(
             summary_header,
             self.params_summary_filter_var,
-            "Camino transitable",
+            "Camino\ntransitable",
             "Muros",
             "Puerta",
             command=lambda _value: self._apply_params_summary_filter(),
@@ -799,10 +797,13 @@ class SegmentacionApp:
             bd=0,
             highlightthickness=0,
             font=("Segoe UI", 9, "bold"),
+            width=12,
+            anchor="center",
+            justify="center",
             padx=8,
             pady=2,
         )
-        filter_menu.grid(row=0, column=1, sticky="e", padx=(6, 4))
+        filter_menu.pack(side="right", padx=(6, 4))
 
         summary_container = tk.Frame(params_body, bg=params_body.cget("bg"))
         summary_container.grid(row=1, column=0, sticky="nsew")
@@ -917,7 +918,8 @@ class SegmentacionApp:
             return
         group = getattr(self, "params_summary_filter_var", None)
         group_value = group.get() if group else "Camino transitable"
-        keys_to_show = set(self._params_summary_group_keys.get(group_value, []))
+        normalized = str(group_value).replace("\n", " ").strip()
+        keys_to_show = set(self._params_summary_group_keys.get(normalized, []))
         for key, (name_lbl, val_lbl) in self._params_summary_row_labels.items():
             if key in keys_to_show:
                 name_lbl.grid()
