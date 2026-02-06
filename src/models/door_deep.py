@@ -163,6 +163,21 @@ def _is_parallel(normal: np.ndarray, ground_normal: np.ndarray, max_angle_deg: f
     angle = float(np.degrees(np.arccos(dot)))
     return angle <= float(max_angle_deg)
 
+def _angle_between_normals_deg(
+    normal: np.ndarray, ref_normal: np.ndarray
+) -> Optional[float]:
+    if normal is None or ref_normal is None:
+        return None
+    n1 = np.asarray(normal, dtype=np.float32).reshape(-1)
+    n2 = np.asarray(ref_normal, dtype=np.float32).reshape(-1)
+    if n1.size != 3 or n2.size != 3:
+        return None
+    n1 /= max(1e-9, float(np.linalg.norm(n1)))
+    n2 /= max(1e-9, float(np.linalg.norm(n2)))
+    dot = float(abs(np.dot(n1, n2)))
+    dot = max(-1.0, min(1.0, dot))
+    return float(np.degrees(np.arccos(dot)))
+
 
 def door_roi_pointclouds(
     door_mask_raw: np.ndarray,
@@ -179,6 +194,7 @@ def door_roi_pointclouds(
     max_density_points: int = 20000,
     plane_inlier_dist: float = 0.003,
     plane_inlier_ratio: float = 0.70,
+    debug_print: bool = True,
 ) -> Dict[str, Any]:
     """
     Compute door ROIs using the raw NN mask and return point clouds per ROI.
@@ -256,6 +272,8 @@ def door_roi_pointclouds(
     ground_n = _to_numpy(ground_normal)
     rois = []
     hsv_mask_filtered = np.zeros_like(hsv_mask, dtype=np.uint8)
+    if debug_print:
+        print(f"[door_deep] ROIs detectados (candidatos): {len(entries)}")
     for label, bbox, area in entries:
         roi_mask = _roi_mask_from_bbox(door_mask.shape[:2], bbox)
         roi_combined = cv2.bitwise_and(combined_mask_raw, roi_mask)
@@ -264,6 +282,10 @@ def door_roi_pointclouds(
         points_xyz = points_from_rays_and_depth(rays_np, depth_roi, stride=stride)
         plane_n = None
         plane_d = None
+        pts_all = None
+        inlier_ratio = None
+        angle_deg = None
+        angle_ref = None
         keep = True
         if isinstance(points_xyz, np.ndarray) and points_xyz.shape[0] >= min_plane_points:
             pts_all = points_xyz
@@ -300,17 +322,42 @@ def door_roi_pointclouds(
         else:
             keep = False
 
-        if keep and ground_n is not None:
-            keep = _is_parallel(plane_n, ground_n, ground_parallel_deg)
+        if plane_n is not None and ground_n is not None:
+            angle_ref = "ground"
+            angle_deg = _angle_between_normals_deg(plane_n, ground_n)
 
-        if keep and plane_n is not None and plane_d is not None:
+        if plane_n is not None and plane_d is not None and pts_all is not None:
             dist = np.abs(pts_all @ plane_n + plane_d)
-            if dist.size == 0:
+            if dist.size > 0:
+                inlier_ratio = float(np.mean(dist <= float(plane_inlier_dist)))
+
+        if keep and angle_deg is not None:
+            keep = angle_deg >= (90.0 - float(ground_parallel_deg))
+
+        if keep and inlier_ratio is not None:
+            if inlier_ratio < float(plane_inlier_ratio):
                 keep = False
-            else:
-                ratio = float(np.mean(dist <= float(plane_inlier_dist)))
-                if ratio < float(plane_inlier_ratio):
-                    keep = False
+
+        if debug_print:
+            pts_count = (
+                int(points_xyz.shape[0])
+                if isinstance(points_xyz, np.ndarray)
+                else 0
+            )
+            angle_txt = (
+                f"{angle_deg:.2f} deg ({angle_ref})"
+                if angle_deg is not None
+                else "N/A"
+            )
+            ratio_txt = (
+                f"{inlier_ratio * 100.0:.1f}%"
+                if inlier_ratio is not None
+                else "N/A"
+            )
+            print(
+                f"[door_deep] ROI {label}: bbox={bbox} area={area} "
+                f"pts={pts_count} angle={angle_txt} inliers={ratio_txt} keep={keep}"
+            )
 
         if not keep:
             continue
@@ -332,6 +379,9 @@ def door_roi_pointclouds(
         )
 
     combined_mask_filtered = cv2.bitwise_and(door_mask, hsv_mask_filtered)
+
+    if debug_print:
+        print(f"[door_deep] ROIs validos (filtrados): {len(rois)}")
 
     return {
         "door_mask_raw": door_mask,
