@@ -1318,7 +1318,7 @@ class SegmentacionApp:
                     ("door_glare_v_min", "HSV: glare V min (0-255)", "210"),
                     ("door_glare_v_clip", "HSV: glare V clip (0-255)", "200"),
                     ("door_ground_parallel_deg", "Angulo inclinacion permitido (grados)", "15.0"),
-                    ("door_plane_inlier_ratio", "Inliers min (0-1)", "0.70"),
+                    ("door_plane_inlier_ratio", "Inliers min (0-1)", "0.40"),
                 ],
             ),
         ]

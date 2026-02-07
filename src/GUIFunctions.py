@@ -63,7 +63,7 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "door_glare_v_min": "210",
     "door_glare_v_clip": "200",
     "door_ground_parallel_deg": "15.0",
-    "door_plane_inlier_ratio": "0.70",
+    "door_plane_inlier_ratio": "0.40",
 }
 
 
