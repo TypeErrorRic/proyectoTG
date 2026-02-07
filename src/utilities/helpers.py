@@ -480,7 +480,8 @@ def apply_mask_to_rgb(
     rgb_image: np.ndarray,
     ground_mask: np.ndarray,
     wall_mask: Optional[np.ndarray] = None,
-    door_mask: Optional[np.ndarray] = None
+    door_mask: Optional[np.ndarray] = None,
+    overlay_alpha: float = 0.35,
 ) -> np.ndarray:
     """
     Paint floor, wall, and door regions with different colors over the RGB image.
@@ -490,6 +491,7 @@ def apply_mask_to_rgb(
         ground_mask: Floor mask (H, W) - painted in GREEN
         wall_mask: Wall mask (H, W) - painted in BLUE (optional)
         door_mask: Door mask (H, W) - painted in RED (optional)
+        overlay_alpha: Opacity of the colored overlay (0.0-1.0)
 
     Returns:
         RGB image with colored masks overlaid
@@ -572,31 +574,35 @@ def apply_mask_to_rgb(
     result_gpu = rgb_gpu.clone()
 
     # Apply masks in order: wall -> door -> ground (ground has priority)
-    def _apply_overlay(base_gpu, overlay_gpu, mask_gpu):
-        """Apply colored overlay using mask"""
+    def _apply_overlay(base_gpu, overlay_gpu, mask_gpu, alpha: float):
+        """Apply colored overlay using mask with alpha blend."""
         if mask_gpu is None:
             return base_gpu
+        if alpha <= 0.0:
+            return base_gpu
+        alpha = min(1.0, float(alpha))
 
         # Convert mask to 3 channels
         mask3_gpu = cv2.cuda.cvtColor(mask_gpu, cv2.COLOR_GRAY2BGR)
         mask_inv_gpu = cv2.cuda.bitwise_not(mask_gpu)
         mask_inv3_gpu = cv2.cuda.cvtColor(mask_inv_gpu, cv2.COLOR_GRAY2BGR)
 
-        # Apply overlay: fg = overlay & mask, bg = base & ~mask
-        fg_gpu = cv2.cuda.bitwise_and(overlay_gpu, mask3_gpu)
+        # Blend overlay with base, then apply in masked region
+        blend_gpu = cv2.cuda.addWeighted(base_gpu, 1.0 - alpha, overlay_gpu, alpha, 0.0)
+        fg_gpu = cv2.cuda.bitwise_and(blend_gpu, mask3_gpu)
         bg_gpu = cv2.cuda.bitwise_and(base_gpu, mask_inv3_gpu)
         return cv2.cuda.bitwise_or(bg_gpu, fg_gpu)
 
     # Apply wall (blue)
     if wall_gpu is not None:
-        result_gpu = _apply_overlay(result_gpu, blue_gpu, wall_gpu)
+        result_gpu = _apply_overlay(result_gpu, blue_gpu, wall_gpu, overlay_alpha)
 
     # Apply door (red)
     if door_overlay_gpu is not None:
-        result_gpu = _apply_overlay(result_gpu, red_gpu, door_overlay_gpu)
+        result_gpu = _apply_overlay(result_gpu, red_gpu, door_overlay_gpu, overlay_alpha)
 
     # Apply ground (green) - has highest priority
-    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu)
+    result_gpu = _apply_overlay(result_gpu, green_gpu, ground_gpu, overlay_alpha)
 
     return result_gpu.download()
 

@@ -87,7 +87,7 @@ _runtime: Dict[str, Any] = {
         "door_glare_v_min": 210,         # min V para considerar glare
         "door_glare_v_clip": 200,        # V usado al recortar glare
         "door_ground_parallel_deg": 15.0, # tolerancia de inclinacion (grados)
-        "door_plane_inlier_ratio": 0.70,  # porcentaje minimo de inliers
+        "door_plane_inlier_ratio": 0.40,  # porcentaje minimo de inliers
     },
 }
 
