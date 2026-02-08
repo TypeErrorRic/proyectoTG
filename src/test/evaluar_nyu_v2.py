@@ -283,9 +283,10 @@ def main() -> int:
             h, w = labels.shape[:2]
 
             gt_floor = np.isin(labels, FLOOR_IDS)
-            if int(gt_floor.sum()) <= 1200:
+            gt_wall = np.isin(labels, WALL_IDS)
+            if int(gt_floor.sum()) <= 3000 or int(gt_wall.sum()) <= 3000:
                 if args.verbose:
-                    print(f"[{idx}] Skip: piso <= 1200 pixeles")
+                    print(f"[{idx}] Skip: piso <= 3000 o pared <= 3000 pixeles")
                 continue
 
             # Schedules segmentation
@@ -303,8 +304,6 @@ def main() -> int:
             if pred_floor is None or pred_wall is None:
                 print(f"[{idx}] No se obtuvieron mascaras")
                 continue
-
-            gt_wall = np.isin(labels, WALL_IDS)
 
             _update_counts(totals["floor"], pred_floor, gt_floor)
             _update_counts(totals["wall"], pred_wall, gt_wall)
