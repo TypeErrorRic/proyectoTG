@@ -215,6 +215,45 @@ def _update_counts(counts: Dict[str, int], pred: np.ndarray, gt: np.ndarray) -> 
     counts["fn"] += int(np.logical_and(~pred, gt).sum())
 
 
+def _overlay_cpu(
+    bgr: np.ndarray,
+    floor_mask: np.ndarray | None,
+    wall_mask: np.ndarray | None,
+    alpha: float = 0.35,
+) -> np.ndarray | None:
+    if bgr is None:
+        return None
+    out = bgr.copy()
+    if floor_mask is None and wall_mask is None:
+        return out
+    alpha = min(1.0, max(0.0, float(alpha)))
+    if wall_mask is not None:
+        color = np.array([255, 0, 0], dtype=np.uint8)  # BGR blue
+        mask = wall_mask.astype(bool)
+        out[mask] = (out[mask] * (1.0 - alpha) + color * alpha).astype(np.uint8)
+    if floor_mask is not None:
+        color = np.array([0, 255, 0], dtype=np.uint8)  # BGR green
+        mask = floor_mask.astype(bool)
+        out[mask] = (out[mask] * (1.0 - alpha) + color * alpha).astype(np.uint8)
+    return out
+
+
+def _depth_to_u16(depth: np.ndarray) -> np.ndarray | None:
+    if depth is None:
+        return None
+    d = np.asarray(depth)
+    if d.ndim != 2:
+        d = np.squeeze(d)
+    if d.ndim != 2:
+        return None
+    if d.dtype == np.uint16:
+        return d
+    if np.issubdtype(d.dtype, np.floating):
+        d_mm = np.clip(d * 1000.0, 0, 65535)
+        return d_mm.astype(np.uint16)
+    return d.astype(np.uint16)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -224,7 +263,7 @@ def main() -> int:
     )
     parser.add_argument("--index", type=int, default=None, help="Indice unico a evaluar")
     parser.add_argument("--start", type=int, default=0, help="Indice inicial")
-    parser.add_argument("--count", type=int, default=10, help="Cantidad de frames")
+    parser.add_argument("--count", type=int, default=30, help="Cantidad de frames")
     parser.add_argument("--step", type=int, default=1, help="Paso entre indices")
     parser.add_argument("--timeout", type=float, default=8.0, help="Timeout por frame (s)")
     parser.add_argument("--verbose", action="store_true", help="Log por frame")
@@ -237,13 +276,13 @@ def main() -> int:
     parser.add_argument(
         "--save_iou",
         type=float,
-        default=0.80,
-        help="Umbral de IoU para guardar overlay (0-1)",
+        default=0.70,
+        help="Umbral de IoU para guardar resultados (0-1)",
     )
     parser.add_argument(
         "--save_dir",
-        default=os.path.join("data", "nyu_eval_iou80"),
-        help="Carpeta base para guardar overlays",
+        default=os.path.join("src", "test", "data"),
+        help="Carpeta base para guardar resultados (se crean subcarpetas)",
     )
     parser.add_argument(
         "--show",
@@ -290,16 +329,17 @@ def main() -> int:
         shown = 0
         show_dir = args.show_dir
         max_retries = max(0, int(args.retry))
+        save_thresh = float(args.save_iou)
+        save_base = args.save_dir
+        save_rgb_dir = os.path.join(save_base, "RGB")
+        save_depth_dir = os.path.join(save_base, "Depth")
+        save_floor_dir = os.path.join(save_base, "Floor")
+        save_wall_dir = os.path.join(save_base, "Wall")
+        save_overlay_dir = os.path.join(save_base, "Overlay")
+        for d in (save_rgb_dir, save_depth_dir, save_floor_dir, save_wall_dir, save_overlay_dir):
+            os.makedirs(d, exist_ok=True)
         if show_enabled:
             os.makedirs(show_dir, exist_ok=True)
-            save_thresh = float(args.save_iou)
-            save_base = args.save_dir
-            floor_dir = os.path.join(save_base, "floor")
-            wall_dir = os.path.join(save_base, "wall")
-            both_dir = os.path.join(save_base, "both")
-            os.makedirs(floor_dir, exist_ok=True)
-            os.makedirs(wall_dir, exist_ok=True)
-            os.makedirs(both_dir, exist_ok=True)
 
         time_sum = 0.0
         processed = 0
@@ -377,6 +417,8 @@ def main() -> int:
                     )
                 except Exception:
                     overlay = None
+            if overlay is None:
+                overlay = _overlay_cpu(bgr, pred_floor, pred_wall)
 
             if args.verbose:
                 dt = time.time() - t0
@@ -405,14 +447,21 @@ def main() -> int:
                 out_name = f"show_{shown:03d}_idx_{idx:05d}.png"
                 cv2.imwrite(os.path.join(show_dir, out_name), combo)
 
-            if show_enabled and overlay is not None and (iou_floor >= save_thresh or iou_wall >= save_thresh):
-                fname = f"idx_{idx:05d}_floor_{iou_floor:.3f}_wall_{iou_wall:.3f}.png"
-                if iou_floor >= save_thresh:
-                    cv2.imwrite(os.path.join(floor_dir, fname), overlay)
-                if iou_wall >= save_thresh:
-                    cv2.imwrite(os.path.join(wall_dir, fname), overlay)
-                if iou_floor >= save_thresh and iou_wall >= save_thresh:
-                    cv2.imwrite(os.path.join(both_dir, fname), overlay)
+            if overlay is not None and (iou_floor >= save_thresh and iou_wall >= save_thresh):
+                base = f"{idx:04d}"
+                cv2.imwrite(os.path.join(save_rgb_dir, f"{base}.png"), bgr)
+                depth_u16 = _depth_to_u16(depth)
+                if depth_u16 is not None:
+                    cv2.imwrite(os.path.join(save_depth_dir, f"{base}.png"), depth_u16)
+                cv2.imwrite(
+                    os.path.join(save_floor_dir, f"{base}.png"),
+                    pred_floor.astype(np.uint8) * 255,
+                )
+                cv2.imwrite(
+                    os.path.join(save_wall_dir, f"{base}.png"),
+                    pred_wall.astype(np.uint8) * 255,
+                )
+                cv2.imwrite(os.path.join(save_overlay_dir, f"{base}.png"), overlay)
 
         floor_metrics = _metrics_from_counts(totals["floor"])
         wall_metrics = _metrics_from_counts(totals["wall"])
