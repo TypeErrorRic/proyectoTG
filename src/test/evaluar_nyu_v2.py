@@ -223,7 +223,7 @@ def main() -> int:
     )
     parser.add_argument("--index", type=int, default=None, help="Indice unico a evaluar")
     parser.add_argument("--start", type=int, default=0, help="Indice inicial")
-    parser.add_argument("--count", type=int, default=5, help="Cantidad de frames")
+    parser.add_argument("--count", type=int, default=10, help="Cantidad de frames")
     parser.add_argument("--step", type=int, default=1, help="Paso entre indices")
     parser.add_argument("--timeout", type=float, default=8.0, help="Timeout por frame (s)")
     parser.add_argument("--verbose", action="store_true", help="Log por frame")
@@ -284,13 +284,6 @@ def main() -> int:
             bgr, depth, labels = cache.load(idx)
             h, w = labels.shape[:2]
 
-            gt_floor = np.isin(labels, FLOOR_IDS)
-            gt_wall = np.isin(labels, WALL_IDS)
-            if int(gt_floor.sum()) <= 3000 or int(gt_wall.sum()) <= 3000:
-                if args.verbose:
-                    print(f"[{idx}] Skip: piso <= 3000 o pared <= 3000 pixeles")
-                continue
-
             # Schedules segmentation
             segmentar.AlgoritmosSegmentacion(
                 mode="prueba",
@@ -304,14 +297,26 @@ def main() -> int:
             pred_floor = _as_bool_mask(masks.get("ground"), (h, w))
             pred_wall = _as_bool_mask(masks.get("wall"), (h, w))
             if pred_floor is None or pred_wall is None:
-                print(f"[{idx}] No se obtuvieron mascaras")
+                print(f"[{idx}] No se obtuvieron ambas mascaras")
                 continue
+
+            gt_floor = np.isin(labels, FLOOR_IDS)
+            gt_wall = np.isin(labels, WALL_IDS)
 
             _update_counts(totals["floor"], pred_floor, gt_floor)
             _update_counts(totals["wall"], pred_wall, gt_wall)
 
             iou_floor = _iou_from_masks(pred_floor, gt_floor)
             iou_wall = _iou_from_masks(pred_wall, gt_wall)
+
+            if args.verbose:
+                dt = time.time() - t0
+                print(
+                    f"[{idx}] floor IoU={iou_floor:.3f} wall IoU={iou_wall:.3f} "
+                    f"({dt:.2f}s)"
+                )
+            else:
+                print(f"[{idx}] floor IoU={iou_floor:.3f} wall IoU={iou_wall:.3f}")
 
             if overlay is not None and (iou_floor >= save_thresh or iou_wall >= save_thresh):
                 if not isinstance(overlay, np.ndarray):
@@ -323,19 +328,6 @@ def main() -> int:
                     cv2.imwrite(os.path.join(wall_dir, fname), overlay)
                 if iou_floor >= save_thresh and iou_wall >= save_thresh:
                     cv2.imwrite(os.path.join(both_dir, fname), overlay)
-
-            if args.verbose:
-                dt = time.time() - t0
-                mf = _metrics_from_counts({"tp": int(np.logical_and(pred_floor, gt_floor).sum()),
-                                           "fp": int(np.logical_and(pred_floor, ~gt_floor).sum()),
-                                           "fn": int(np.logical_and(~pred_floor, gt_floor).sum())})
-                mw = _metrics_from_counts({"tp": int(np.logical_and(pred_wall, gt_wall).sum()),
-                                           "fp": int(np.logical_and(pred_wall, ~gt_wall).sum()),
-                                           "fn": int(np.logical_and(~pred_wall, gt_wall).sum())})
-                print(
-                    f"[{idx}] floor IoU={mf['iou']:.3f} wall IoU={mw['iou']:.3f} "
-                    f"({dt:.2f}s)"
-                )
 
             time_sum += (time.time() - t0)
             processed += 1
