@@ -28,11 +28,13 @@ except Exception as exc:
         "Instala con: pip install h5py"
     ) from exc
 
-# Ensure repo root is in sys.path so "src.*" imports work.
+# Ensure repo root and src are in sys.path so "src.*" and "utilities.*" imports work.
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(THIS_DIR))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+SRC_DIR = os.path.join(REPO_ROOT, "src")
+for path in (REPO_ROOT, SRC_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 from src.utilities import segmentar
 
