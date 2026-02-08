@@ -235,6 +235,28 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
     return metrics.copy() if copy else metrics
 
 
+def obtener_mascaras(copy: bool = True) -> Dict[str, Any]:
+    """
+    Snapshot of the latest raw masks (ground, wall, door).
+
+    Returns a dict with keys: "ground", "wall", "door".
+    """
+    with _runtime_lock:
+        masks = _runtime.get("last_masks") or {}
+    if not copy:
+        return masks
+    out: Dict[str, Any] = {}
+    for key, value in masks.items():
+        if value is None:
+            out[key] = None
+        else:
+            try:
+                out[key] = value.copy()
+            except Exception:
+                out[key] = np.asarray(value).copy()
+    return out
+
+
 def segmentar() -> Any:
     """
     Segmentation worker.
@@ -380,6 +402,13 @@ def segmentar() -> Any:
             )
         except Exception as e:
             print(f"[segmentar] Wall mask refinement failed: {e}")
+
+    with _runtime_lock:
+        _runtime["last_masks"] = {
+            "ground": ground_mask,
+            "wall": wall_mask,
+            "door": door_mask,
+        }
 
     return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
 
