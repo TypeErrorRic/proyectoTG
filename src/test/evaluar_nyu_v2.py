@@ -241,13 +241,18 @@ def main() -> int:
     parser.add_argument(
         "--show",
         action="store_true",
-        help="Mostrar overlays en vivo (usa OpenCV imshow)",
+        help="Guardar overlays en carpeta (modo show sin ventana)",
     )
     parser.add_argument(
         "--show_limit",
         type=int,
         default=10,
         help="Mostrar overlays solo para las primeras N imagenes procesadas",
+    )
+    parser.add_argument(
+        "--show_dir",
+        default=os.path.join("data", "nyu_eval_show"),
+        help="Carpeta para guardar overlays cuando se usa --show",
     )
     args = parser.parse_args()
 
@@ -284,15 +289,9 @@ def main() -> int:
         show_enabled = bool(args.show)
         show_limit = max(0, int(args.show_limit))
         shown = 0
-        if show_enabled and not os.environ.get("DISPLAY"):
-            print("Aviso: no hay DISPLAY configurado; se desactiva --show.")
-            show_enabled = False
+        show_dir = args.show_dir
         if show_enabled:
-            try:
-                cv2.namedWindow("NYU RGB | Overlay", cv2.WINDOW_NORMAL)
-            except Exception as exc:
-                print(f"Aviso: no se pudo crear ventana OpenCV ({exc}).")
-                show_enabled = False
+            os.makedirs(show_dir, exist_ok=True)
 
         time_sum = 0.0
         processed = 0
@@ -366,12 +365,9 @@ def main() -> int:
                         view_rgb, (overlay.shape[1], overlay.shape[0]), interpolation=cv2.INTER_AREA
                     )
                 combo = cv2.hconcat([view_rgb, overlay])
-                cv2.imshow("NYU RGB | Overlay", combo)
-                key = cv2.waitKey(1) & 0xFF
                 shown += 1
-                if key in (27, ord("q")):
-                    show_enabled = False
-                    cv2.destroyAllWindows()
+                out_name = f"show_{shown:03d}_idx_{idx:05d}.png"
+                cv2.imwrite(os.path.join(show_dir, out_name), combo)
 
         floor_metrics = _metrics_from_counts(totals["floor"])
         wall_metrics = _metrics_from_counts(totals["wall"])
