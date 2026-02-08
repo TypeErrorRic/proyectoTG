@@ -284,6 +284,15 @@ def main() -> int:
         show_enabled = bool(args.show)
         show_limit = max(0, int(args.show_limit))
         shown = 0
+        if show_enabled and not os.environ.get("DISPLAY"):
+            print("Aviso: no hay DISPLAY configurado; se desactiva --show.")
+            show_enabled = False
+        if show_enabled:
+            try:
+                cv2.namedWindow("NYU RGB | Overlay", cv2.WINDOW_NORMAL)
+            except Exception as exc:
+                print(f"Aviso: no se pudo crear ventana OpenCV ({exc}).")
+                show_enabled = False
 
         time_sum = 0.0
         processed = 0
@@ -349,7 +358,15 @@ def main() -> int:
             if show_enabled and overlay is not None and (show_limit == 0 or shown < show_limit):
                 if not isinstance(overlay, np.ndarray):
                     overlay = np.asarray(overlay)
-                cv2.imshow("NYU Overlay", overlay)
+                view_rgb = bgr
+                if view_rgb is None:
+                    view_rgb = overlay
+                if view_rgb.shape[:2] != overlay.shape[:2]:
+                    view_rgb = cv2.resize(
+                        view_rgb, (overlay.shape[1], overlay.shape[0]), interpolation=cv2.INTER_AREA
+                    )
+                combo = cv2.hconcat([view_rgb, overlay])
+                cv2.imshow("NYU RGB | Overlay", combo)
                 key = cv2.waitKey(1) & 0xFF
                 shown += 1
                 if key in (27, ord("q")):
