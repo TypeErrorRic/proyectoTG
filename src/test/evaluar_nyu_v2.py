@@ -37,6 +37,7 @@ for path in (REPO_ROOT, SRC_DIR):
         sys.path.insert(0, path)
 
 from src.utilities import segmentar
+from src.utilities.helpers import apply_mask_to_rgb
 
 WALL_IDS = [21]
 FLOOR_IDS = [11]
@@ -184,48 +185,6 @@ def _as_bool_mask(mask: np.ndarray, shape_hw: Tuple[int, int]) -> np.ndarray:
     return m > 0
 
 
-def _overlay_masks_cpu(
-    bgr: np.ndarray,
-    ground_mask: np.ndarray,
-    wall_mask: np.ndarray,
-    door_mask: np.ndarray = None,
-    alpha: float = 0.35,
-) -> np.ndarray:
-    if bgr is None:
-        return None
-    out = bgr.copy()
-    h, w = out.shape[:2]
-
-    def _prep(mask):
-        if mask is None:
-            return None
-        m = np.asarray(mask)
-        if m.ndim == 3:
-            m = m[:, :, 0]
-        if m.shape[:2] != (h, w):
-            m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
-        return m > 0
-
-    m_wall = _prep(wall_mask)
-    m_door = _prep(door_mask)
-    m_ground = _prep(ground_mask)
-
-    def _blend(mask, color_bgr):
-        if mask is None:
-            return
-        color = np.array(color_bgr, dtype=np.float32)
-        sel = mask
-        out_f = out.astype(np.float32)
-        out_f[sel] = out_f[sel] * (1.0 - alpha) + color * alpha
-        out[:] = np.clip(out_f, 0, 255).astype(np.uint8)
-
-    # Apply wall (blue), door (red), ground (green) in that order.
-    _blend(m_wall, (255, 0, 0))
-    _blend(m_door, (0, 0, 255))
-    _blend(m_ground, (0, 255, 0))
-    return out
-
-
 def _metrics_from_counts(counts: Dict[str, int]) -> Dict[str, float]:
     tp = counts["tp"]
     fp = counts["fp"]
@@ -320,20 +279,20 @@ def main() -> int:
             "wall": {"tp": 0, "fp": 0, "fn": 0},
         }
 
-        save_thresh = float(args.save_iou)
-        save_base = args.save_dir
-        floor_dir = os.path.join(save_base, "floor")
-        wall_dir = os.path.join(save_base, "wall")
-        both_dir = os.path.join(save_base, "both")
-        os.makedirs(floor_dir, exist_ok=True)
-        os.makedirs(wall_dir, exist_ok=True)
-        os.makedirs(both_dir, exist_ok=True)
         show_enabled = bool(args.show)
         show_limit = max(0, int(args.show_limit))
         shown = 0
         show_dir = args.show_dir
         if show_enabled:
             os.makedirs(show_dir, exist_ok=True)
+            save_thresh = float(args.save_iou)
+            save_base = args.save_dir
+            floor_dir = os.path.join(save_base, "floor")
+            wall_dir = os.path.join(save_base, "wall")
+            both_dir = os.path.join(save_base, "both")
+            os.makedirs(floor_dir, exist_ok=True)
+            os.makedirs(wall_dir, exist_ok=True)
+            os.makedirs(both_dir, exist_ok=True)
 
         time_sum = 0.0
         processed = 0
@@ -341,21 +300,24 @@ def main() -> int:
         if tqdm is not None:
             iterator = tqdm(indices, desc="Evaluando", unit="frame")
 
+        segmentar.detener_hilo_secundario()
+        try:
+            segmentar._lazy_init(mode="prueba")
+        except Exception:
+            pass
+
         for idx in iterator:
-            _drain_results()
             t0 = time.time()
 
             bgr, depth, labels = cache.load(idx)
             h, w = labels.shape[:2]
 
-            # Schedules segmentation
-            segmentar.AlgoritmosSegmentacion(
-                mode="prueba",
-                dataset_index=idx,
-            )
+            ok = segmentar.preprocesar(mode="prueba", dataset_index=idx)
+            if not ok:
+                print(f"[{idx}] Frame invalido")
+                continue
 
-            # Wait for background result (forces completion)
-            overlay = segmentar.obtener_resultado(bloqueante=True, timeout=args.timeout)
+            overlay = segmentar.segmentar()
             masks = segmentar.obtener_mascaras(copy=True)
 
             pred_floor = _as_bool_mask(masks.get("ground"), (h, w))
@@ -373,7 +335,16 @@ def main() -> int:
             iou_floor = _iou_from_masks(pred_floor, gt_floor)
             iou_wall = _iou_from_masks(pred_wall, gt_wall)
 
-            overlay_for_save = _overlay_masks_cpu(bgr, pred_floor, pred_wall)
+            if overlay is None:
+                try:
+                    overlay = apply_mask_to_rgb(
+                        bgr,
+                        pred_floor.astype(np.uint8) * 255,
+                        pred_wall.astype(np.uint8) * 255,
+                        None,
+                    )
+                except Exception:
+                    overlay = None
 
             if args.verbose:
                 dt = time.time() - t0
@@ -384,32 +355,32 @@ def main() -> int:
             else:
                 print(f"[{idx}] floor IoU={iou_floor:.3f} wall IoU={iou_wall:.3f}")
 
-            if overlay_for_save is not None and (iou_floor >= save_thresh or iou_wall >= save_thresh):
-                fname = f"idx_{idx:05d}_floor_{iou_floor:.3f}_wall_{iou_wall:.3f}.png"
-                if iou_floor >= save_thresh:
-                    cv2.imwrite(os.path.join(floor_dir, fname), overlay_for_save)
-                if iou_wall >= save_thresh:
-                    cv2.imwrite(os.path.join(wall_dir, fname), overlay_for_save)
-                if iou_floor >= save_thresh and iou_wall >= save_thresh:
-                    cv2.imwrite(os.path.join(both_dir, fname), overlay_for_save)
-
             time_sum += (time.time() - t0)
             processed += 1
 
-            if show_enabled and overlay_for_save is not None and (show_limit == 0 or shown < show_limit):
+            if show_enabled and overlay is not None and (show_limit == 0 or shown < show_limit):
                 view_rgb = bgr
                 if view_rgb is None:
-                    view_rgb = overlay_for_save
-                if view_rgb.shape[:2] != overlay_for_save.shape[:2]:
+                    view_rgb = overlay
+                if view_rgb.shape[:2] != overlay.shape[:2]:
                     view_rgb = cv2.resize(
                         view_rgb,
-                        (overlay_for_save.shape[1], overlay_for_save.shape[0]),
+                        (overlay.shape[1], overlay.shape[0]),
                         interpolation=cv2.INTER_AREA,
                     )
-                combo = cv2.hconcat([view_rgb, overlay_for_save])
+                combo = cv2.hconcat([view_rgb, overlay])
                 shown += 1
                 out_name = f"show_{shown:03d}_idx_{idx:05d}.png"
                 cv2.imwrite(os.path.join(show_dir, out_name), combo)
+
+            if show_enabled and overlay is not None and (iou_floor >= save_thresh or iou_wall >= save_thresh):
+                fname = f"idx_{idx:05d}_floor_{iou_floor:.3f}_wall_{iou_wall:.3f}.png"
+                if iou_floor >= save_thresh:
+                    cv2.imwrite(os.path.join(floor_dir, fname), overlay)
+                if iou_wall >= save_thresh:
+                    cv2.imwrite(os.path.join(wall_dir, fname), overlay)
+                if iou_floor >= save_thresh and iou_wall >= save_thresh:
+                    cv2.imwrite(os.path.join(both_dir, fname), overlay)
 
         floor_metrics = _metrics_from_counts(totals["floor"])
         wall_metrics = _metrics_from_counts(totals["wall"])
