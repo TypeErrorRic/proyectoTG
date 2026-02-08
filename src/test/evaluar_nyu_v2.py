@@ -310,7 +310,6 @@ def main() -> int:
 
     mat_path = args.mat
     if not os.path.isfile(mat_path):
-        print(f"No existe: {mat_path}")
         return 1
 
     reader = NYUV2Mat(mat_path)
@@ -369,12 +368,10 @@ def main() -> int:
             gt_floor = np.isin(labels, FLOOR_IDS)
             gt_wall = np.isin(labels, WALL_IDS)
             if not gt_floor.any() or not gt_wall.any():
-                print(f"[{idx}] GT sin suelo o pared, se omite")
                 continue
 
             ok = segmentar.preprocesar(mode="prueba", dataset_index=idx)
             if not ok:
-                print(f"[{idx}] Frame invalido")
                 continue
 
             overlay = None
@@ -387,9 +384,7 @@ def main() -> int:
                     masks = segmentar.obtener_mascaras(copy=True)
                 except Exception as exc:
                     if attempt < max_retries:
-                        print(f"[{idx}] segmentar fallo, reintento {attempt + 1}/{max_retries}")
                         continue
-                    print(f"[{idx}] segmentar fallo sin reintentos: {exc}")
                     masks = None
                     overlay = None
                     break
@@ -400,12 +395,10 @@ def main() -> int:
                     which = "suelo/pared" if pred_floor is None and pred_wall is None else (
                         "suelo" if pred_floor is None else "pared"
                     )
-                    print(f"[{idx}] sin mascara de {which}, reintento {attempt + 1}/{max_retries}")
                     continue
                 break
 
             if pred_floor is None or pred_wall is None:
-                print(f"[{idx}] No se obtuvieron ambas mascaras")
                 continue
 
             _update_counts(totals["floor"], pred_floor, gt_floor)
@@ -426,15 +419,6 @@ def main() -> int:
                     overlay = None
             if overlay is None:
                 overlay = _overlay_cpu(bgr, pred_floor, pred_wall)
-
-            if args.verbose:
-                dt = time.time() - t0
-                print(
-                    f"[{idx}] floor IoU={iou_floor:.3f} wall IoU={iou_wall:.3f} "
-                    f"({dt:.2f}s)"
-                )
-            else:
-                print(f"[{idx}] floor IoU={iou_floor:.3f} wall IoU={iou_wall:.3f}")
 
             time_sum += (time.time() - t0)
             processed += 1

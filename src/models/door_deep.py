@@ -14,7 +14,7 @@ import numpy as np
 
 from src.utilities.helpers import points_from_rays_and_depth
 
-DEBUG_DOOR_DEEP = True
+DEBUG_DOOR_DEEP = False
 
 
 def _to_numpy(arr):
