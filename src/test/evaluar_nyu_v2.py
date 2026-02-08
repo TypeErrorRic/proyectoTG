@@ -238,6 +238,17 @@ def main() -> int:
         default=os.path.join("data", "nyu_eval_iou80"),
         help="Carpeta base para guardar overlays",
     )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Mostrar overlays en vivo (usa OpenCV imshow)",
+    )
+    parser.add_argument(
+        "--show_limit",
+        type=int,
+        default=10,
+        help="Mostrar overlays solo para las primeras N imagenes procesadas",
+    )
     args = parser.parse_args()
 
     mat_path = args.mat
@@ -270,6 +281,9 @@ def main() -> int:
         os.makedirs(floor_dir, exist_ok=True)
         os.makedirs(wall_dir, exist_ok=True)
         os.makedirs(both_dir, exist_ok=True)
+        show_enabled = bool(args.show)
+        show_limit = max(0, int(args.show_limit))
+        shown = 0
 
         time_sum = 0.0
         processed = 0
@@ -331,6 +345,16 @@ def main() -> int:
 
             time_sum += (time.time() - t0)
             processed += 1
+
+            if show_enabled and overlay is not None and (show_limit == 0 or shown < show_limit):
+                if not isinstance(overlay, np.ndarray):
+                    overlay = np.asarray(overlay)
+                cv2.imshow("NYU Overlay", overlay)
+                key = cv2.waitKey(1) & 0xFF
+                shown += 1
+                if key in (27, ord("q")):
+                    show_enabled = False
+                    cv2.destroyAllWindows()
 
         floor_metrics = _metrics_from_counts(totals["floor"])
         wall_metrics = _metrics_from_counts(totals["wall"])
