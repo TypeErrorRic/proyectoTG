@@ -184,6 +184,48 @@ def _as_bool_mask(mask: np.ndarray, shape_hw: Tuple[int, int]) -> np.ndarray:
     return m > 0
 
 
+def _overlay_masks_cpu(
+    bgr: np.ndarray,
+    ground_mask: np.ndarray,
+    wall_mask: np.ndarray,
+    door_mask: np.ndarray = None,
+    alpha: float = 0.35,
+) -> np.ndarray:
+    if bgr is None:
+        return None
+    out = bgr.copy()
+    h, w = out.shape[:2]
+
+    def _prep(mask):
+        if mask is None:
+            return None
+        m = np.asarray(mask)
+        if m.ndim == 3:
+            m = m[:, :, 0]
+        if m.shape[:2] != (h, w):
+            m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
+        return m > 0
+
+    m_wall = _prep(wall_mask)
+    m_door = _prep(door_mask)
+    m_ground = _prep(ground_mask)
+
+    def _blend(mask, color_bgr):
+        if mask is None:
+            return
+        color = np.array(color_bgr, dtype=np.float32)
+        sel = mask
+        out_f = out.astype(np.float32)
+        out_f[sel] = out_f[sel] * (1.0 - alpha) + color * alpha
+        out[:] = np.clip(out_f, 0, 255).astype(np.uint8)
+
+    # Apply wall (blue), door (red), ground (green) in that order.
+    _blend(m_wall, (255, 0, 0))
+    _blend(m_door, (0, 0, 255))
+    _blend(m_ground, (0, 255, 0))
+    return out
+
+
 def _metrics_from_counts(counts: Dict[str, int]) -> Dict[str, float]:
     tp = counts["tp"]
     fp = counts["fp"]
@@ -241,13 +283,13 @@ def main() -> int:
     parser.add_argument(
         "--show",
         action="store_true",
-        help="Guardar overlays en carpeta (modo show sin ventana)",
+        help="Guardar RGB + overlay en carpeta (modo show sin ventana)",
     )
     parser.add_argument(
         "--show_limit",
         type=int,
-        default=10,
-        help="Mostrar overlays solo para las primeras N imagenes procesadas",
+        default=0,
+        help="Guardar overlays solo para las primeras N imagenes (0 = sin limite)",
     )
     parser.add_argument(
         "--show_dir",
@@ -331,6 +373,8 @@ def main() -> int:
             iou_floor = _iou_from_masks(pred_floor, gt_floor)
             iou_wall = _iou_from_masks(pred_wall, gt_wall)
 
+            overlay_for_save = _overlay_masks_cpu(bgr, pred_floor, pred_wall)
+
             if args.verbose:
                 dt = time.time() - t0
                 print(
@@ -340,31 +384,29 @@ def main() -> int:
             else:
                 print(f"[{idx}] floor IoU={iou_floor:.3f} wall IoU={iou_wall:.3f}")
 
-            if overlay is not None and (iou_floor >= save_thresh or iou_wall >= save_thresh):
-                if not isinstance(overlay, np.ndarray):
-                    overlay = np.asarray(overlay)
+            if overlay_for_save is not None and (iou_floor >= save_thresh or iou_wall >= save_thresh):
                 fname = f"idx_{idx:05d}_floor_{iou_floor:.3f}_wall_{iou_wall:.3f}.png"
                 if iou_floor >= save_thresh:
-                    cv2.imwrite(os.path.join(floor_dir, fname), overlay)
+                    cv2.imwrite(os.path.join(floor_dir, fname), overlay_for_save)
                 if iou_wall >= save_thresh:
-                    cv2.imwrite(os.path.join(wall_dir, fname), overlay)
+                    cv2.imwrite(os.path.join(wall_dir, fname), overlay_for_save)
                 if iou_floor >= save_thresh and iou_wall >= save_thresh:
-                    cv2.imwrite(os.path.join(both_dir, fname), overlay)
+                    cv2.imwrite(os.path.join(both_dir, fname), overlay_for_save)
 
             time_sum += (time.time() - t0)
             processed += 1
 
-            if show_enabled and overlay is not None and (show_limit == 0 or shown < show_limit):
-                if not isinstance(overlay, np.ndarray):
-                    overlay = np.asarray(overlay)
+            if show_enabled and overlay_for_save is not None and (show_limit == 0 or shown < show_limit):
                 view_rgb = bgr
                 if view_rgb is None:
-                    view_rgb = overlay
-                if view_rgb.shape[:2] != overlay.shape[:2]:
+                    view_rgb = overlay_for_save
+                if view_rgb.shape[:2] != overlay_for_save.shape[:2]:
                     view_rgb = cv2.resize(
-                        view_rgb, (overlay.shape[1], overlay.shape[0]), interpolation=cv2.INTER_AREA
+                        view_rgb,
+                        (overlay_for_save.shape[1], overlay_for_save.shape[0]),
+                        interpolation=cv2.INTER_AREA,
                     )
-                combo = cv2.hconcat([view_rgb, overlay])
+                combo = cv2.hconcat([view_rgb, overlay_for_save])
                 shown += 1
                 out_name = f"show_{shown:03d}_idx_{idx:05d}.png"
                 cv2.imwrite(os.path.join(show_dir, out_name), combo)
