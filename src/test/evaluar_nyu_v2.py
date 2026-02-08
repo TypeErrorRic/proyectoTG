@@ -229,6 +229,12 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=8.0, help="Timeout por frame (s)")
     parser.add_argument("--verbose", action="store_true", help="Log por frame")
     parser.add_argument(
+        "--retry",
+        type=int,
+        default=3,
+        help="Reintentos cuando falla segmentar o falta la mascara de suelo/pared",
+    )
+    parser.add_argument(
         "--save_iou",
         type=float,
         default=0.80,
@@ -283,6 +289,7 @@ def main() -> int:
         show_limit = max(0, int(args.show_limit))
         shown = 0
         show_dir = args.show_dir
+        max_retries = max(0, int(args.retry))
         if show_enabled:
             os.makedirs(show_dir, exist_ok=True)
             save_thresh = float(args.save_iou)
@@ -312,22 +319,47 @@ def main() -> int:
             bgr, depth, labels = cache.load(idx)
             h, w = labels.shape[:2]
 
+            gt_floor = np.isin(labels, FLOOR_IDS)
+            gt_wall = np.isin(labels, WALL_IDS)
+            if not gt_floor.any() or not gt_wall.any():
+                print(f"[{idx}] GT sin suelo o pared, se omite")
+                continue
+
             ok = segmentar.preprocesar(mode="prueba", dataset_index=idx)
             if not ok:
                 print(f"[{idx}] Frame invalido")
                 continue
 
-            overlay = segmentar.segmentar()
-            masks = segmentar.obtener_mascaras(copy=True)
+            overlay = None
+            masks = None
+            pred_floor = None
+            pred_wall = None
+            for attempt in range(max_retries + 1):
+                try:
+                    overlay = segmentar.segmentar()
+                    masks = segmentar.obtener_mascaras(copy=True)
+                except Exception as exc:
+                    if attempt < max_retries:
+                        print(f"[{idx}] segmentar fallo, reintento {attempt + 1}/{max_retries}")
+                        continue
+                    print(f"[{idx}] segmentar fallo sin reintentos: {exc}")
+                    masks = None
+                    overlay = None
+                    break
 
-            pred_floor = _as_bool_mask(masks.get("ground"), (h, w))
-            pred_wall = _as_bool_mask(masks.get("wall"), (h, w))
+                pred_floor = _as_bool_mask(masks.get("ground"), (h, w)) if masks else None
+                pred_wall = _as_bool_mask(masks.get("wall"), (h, w)) if masks else None
+                if (pred_floor is None or pred_wall is None) and attempt < max_retries:
+                    which = "suelo/pared" if pred_floor is None and pred_wall is None else (
+                        "suelo" if pred_floor is None else "pared"
+                    )
+                    print(f"[{idx}] sin mascara de {which}, reintento {attempt + 1}/{max_retries}")
+                    continue
+                break
+
             if pred_floor is None or pred_wall is None:
                 print(f"[{idx}] No se obtuvieron ambas mascaras")
                 continue
-
-            gt_floor = np.isin(labels, FLOOR_IDS)
-            gt_wall = np.isin(labels, WALL_IDS)
 
             _update_counts(totals["floor"], pred_floor, gt_floor)
             _update_counts(totals["wall"], pred_wall, gt_wall)
