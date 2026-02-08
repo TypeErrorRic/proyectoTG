@@ -277,7 +277,13 @@ def main() -> int:
         "--save_iou",
         type=float,
         default=0.70,
-        help="Umbral de IoU para guardar resultados (0-1)",
+        help="Umbral de IoU para suelo (0-1)",
+    )
+    parser.add_argument(
+        "--save_iou_wall",
+        type=float,
+        default=0.50,
+        help="Umbral de IoU para pared (0-1)",
     )
     parser.add_argument(
         "--save_dir",
@@ -330,6 +336,7 @@ def main() -> int:
         show_dir = args.show_dir
         max_retries = max(0, int(args.retry))
         save_thresh = float(args.save_iou)
+        save_wall_thresh = float(args.save_iou_wall)
         save_base = args.save_dir
         save_rgb_dir = os.path.join(save_base, "RGB")
         save_depth_dir = os.path.join(save_base, "Depth")
@@ -447,7 +454,7 @@ def main() -> int:
                 out_name = f"show_{shown:03d}_idx_{idx:05d}.png"
                 cv2.imwrite(os.path.join(show_dir, out_name), combo)
 
-            if overlay is not None and (iou_floor >= save_thresh and iou_wall >= save_thresh):
+            if overlay is not None and (iou_floor >= save_thresh and iou_wall >= save_wall_thresh):
                 base = f"{idx:04d}"
                 cv2.imwrite(os.path.join(save_rgb_dir, f"{base}.png"), bgr)
                 depth_u16 = _depth_to_u16(depth)
