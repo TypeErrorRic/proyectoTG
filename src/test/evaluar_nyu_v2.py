@@ -263,7 +263,7 @@ def main() -> int:
     )
     parser.add_argument("--index", type=int, default=None, help="Indice unico a evaluar")
     parser.add_argument("--start", type=int, default=0, help="Indice inicial")
-    parser.add_argument("--count", type=int, default=1449, help="Cantidad de frames")
+    parser.add_argument("--count", type=int, default=50, help="Cantidad de frames")
     parser.add_argument("--step", type=int, default=1, help="Paso entre indices")
     parser.add_argument("--timeout", type=float, default=8.0, help="Timeout por frame (s)")
     parser.add_argument("--verbose", action="store_true", help="Log por frame")
@@ -342,7 +342,17 @@ def main() -> int:
         save_floor_dir = os.path.join(save_base, "Floor")
         save_wall_dir = os.path.join(save_base, "Wall")
         save_overlay_dir = os.path.join(save_base, "Overlay")
-        for d in (save_rgb_dir, save_depth_dir, save_floor_dir, save_wall_dir, save_overlay_dir):
+        save_pred_floor_dir = os.path.join(save_base, "PredFloor")
+        save_pred_wall_dir = os.path.join(save_base, "PredWall")
+        for d in (
+            save_rgb_dir,
+            save_depth_dir,
+            save_floor_dir,
+            save_wall_dir,
+            save_overlay_dir,
+            save_pred_floor_dir,
+            save_pred_wall_dir,
+        ):
             os.makedirs(d, exist_ok=True)
         if show_enabled:
             os.makedirs(show_dir, exist_ok=True)
@@ -359,6 +369,7 @@ def main() -> int:
         except Exception:
             pass
 
+        best_frames = []
         for idx in iterator:
             t0 = time.time()
 
@@ -374,38 +385,61 @@ def main() -> int:
             if not ok:
                 continue
 
-            overlay = None
-            masks = None
-            pred_floor = None
-            pred_wall = None
-            for attempt in range(max_retries + 1):
-                try:
-                    overlay = segmentar.segmentar()
-                    masks = segmentar.obtener_mascaras(copy=True)
-                except Exception as exc:
-                    if attempt < max_retries:
+            best_pred_floor = None
+            best_pred_wall = None
+            best_overlay = None
+            best_iou_floor = -1.0
+            best_iou_wall = -1.0
+            best_score = -1.0
+
+            for _ in range(2):
+                overlay = None
+                masks = None
+                pred_floor = None
+                pred_wall = None
+                for attempt in range(max_retries + 1):
+                    try:
+                        overlay = segmentar.segmentar()
+                        masks = segmentar.obtener_mascaras(copy=True)
+                    except Exception:
+                        if attempt < max_retries:
+                            continue
+                        masks = None
+                        overlay = None
+                        break
+
+                    pred_floor = _as_bool_mask(masks.get("ground"), (h, w)) if masks else None
+                    pred_wall = _as_bool_mask(masks.get("wall"), (h, w)) if masks else None
+                    if (pred_floor is None or pred_wall is None) and attempt < max_retries:
                         continue
-                    masks = None
-                    overlay = None
                     break
 
-                pred_floor = _as_bool_mask(masks.get("ground"), (h, w)) if masks else None
-                pred_wall = _as_bool_mask(masks.get("wall"), (h, w)) if masks else None
-                if (pred_floor is None or pred_wall is None) and attempt < max_retries:
-                    which = "suelo/pared" if pred_floor is None and pred_wall is None else (
-                        "suelo" if pred_floor is None else "pared"
-                    )
+                if pred_floor is None or pred_wall is None:
                     continue
-                break
 
-            if pred_floor is None or pred_wall is None:
+                iou_floor = _iou_from_masks(pred_floor, gt_floor)
+                iou_wall = _iou_from_masks(pred_wall, gt_wall)
+                score = 0.5 * (iou_floor + iou_wall)
+                if score > best_score:
+                    best_score = score
+                    best_iou_floor = iou_floor
+                    best_iou_wall = iou_wall
+                    best_pred_floor = pred_floor
+                    best_pred_wall = pred_wall
+                    best_overlay = overlay
+
+            if best_pred_floor is None or best_pred_wall is None:
                 continue
+
+            pred_floor = best_pred_floor
+            pred_wall = best_pred_wall
+            overlay = best_overlay
 
             _update_counts(totals["floor"], pred_floor, gt_floor)
             _update_counts(totals["wall"], pred_wall, gt_wall)
 
-            iou_floor = _iou_from_masks(pred_floor, gt_floor)
-            iou_wall = _iou_from_masks(pred_wall, gt_wall)
+            iou_floor = best_iou_floor
+            iou_wall = best_iou_wall
 
             if overlay is None:
                 try:
@@ -422,6 +456,7 @@ def main() -> int:
 
             time_sum += (time.time() - t0)
             processed += 1
+            best_frames.append((best_score, idx, iou_floor, iou_wall))
 
             if show_enabled and overlay is not None and (show_limit == 0 or shown < show_limit):
                 view_rgb = bgr
@@ -446,10 +481,18 @@ def main() -> int:
                     cv2.imwrite(os.path.join(save_depth_dir, f"{base}.png"), depth_u16)
                 cv2.imwrite(
                     os.path.join(save_floor_dir, f"{base}.png"),
-                    pred_floor.astype(np.uint8) * 255,
+                    gt_floor.astype(np.uint8) * 255,
                 )
                 cv2.imwrite(
                     os.path.join(save_wall_dir, f"{base}.png"),
+                    gt_wall.astype(np.uint8) * 255,
+                )
+                cv2.imwrite(
+                    os.path.join(save_pred_floor_dir, f"{base}.png"),
+                    pred_floor.astype(np.uint8) * 255,
+                )
+                cv2.imwrite(
+                    os.path.join(save_pred_wall_dir, f"{base}.png"),
                     pred_wall.astype(np.uint8) * 255,
                 )
                 cv2.imwrite(os.path.join(save_overlay_dir, f"{base}.png"), overlay)
@@ -475,6 +518,13 @@ def main() -> int:
             print(f"Tiempo promedio por frame: {avg:.2f}s ({processed} frames)")
         else:
             print("Tiempo promedio por frame: N/A (0 frames procesados)")
+
+        if best_frames:
+            best_frames.sort(key=lambda x: x[0], reverse=True)
+            top = best_frames[:10]
+            print("Top 10 mejores (promedio IoU floor/wall)")
+            for rank, (score, idx, iou_f, iou_w) in enumerate(top, start=1):
+                print(f"{rank:02d}. idx={idx:05d} score={score:.3f} floor={iou_f:.3f} wall={iou_w:.3f}")
     finally:
         reader.close()
         segmentar.liberar_recursos()

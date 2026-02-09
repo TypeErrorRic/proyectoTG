@@ -345,7 +345,7 @@ def main() -> int:
 
             if args.verbose:
                 print(
-                    f"[{idx:04d}] {filename} "
+                    f"{filename} "
                     f"tp_floor={counts_floor['tp']} fp_floor={counts_floor['fp']} "
                     f"tp_wall={counts_wall['tp']} fp_wall={counts_wall['fp']}"
                 )
@@ -362,7 +362,10 @@ def main() -> int:
             "depth_dir": depth_dir,
             "floor_dir": floor_dir,
             "wall_dir": wall_dir,
-            "indices": indices,
+            "start": int(args.start) if args.index is None else None,
+            "count": int(args.count) if args.index is None and args.count is not None else None,
+            "step": int(args.step) if args.index is None else None,
+            "index": int(args.index) if args.index is not None else None,
             "retry": int(args.retry),
             "skip_empty_gt": bool(args.skip_empty_gt),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -383,7 +386,6 @@ def main() -> int:
                 "micro": wall_micro,
             },
         },
-        "skipped": skipped,
     }
 
     out_dir = os.path.dirname(out_path)
