@@ -461,6 +461,19 @@ PY
       exit 1
     fi
     ;;
+  metrics)
+    require_jetson
+    ensure_python
+    setup_cupy_env
+    echo "Evaluando metricas con AlgoritmosSegmentacion (dataset PNG en src/test/data)..."
+    if [[ -f "src/test/metrics.py" ]]; then
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" src/test/metrics.py "${@:2}"
+    else
+      echo "ERROR: No se encontro src/test/metrics.py"
+      exit 1
+    fi
+    ;;
   build-engine)
     require_jetson
     ensure_python
@@ -492,6 +505,6 @@ PY
     fi
     ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|test-v1|test-v2|eval-nyu|build-engine|test-trt}"
+    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|test-v1|test-v2|eval-nyu|metrics|build-engine|test-trt}"
     ;;
 esac
