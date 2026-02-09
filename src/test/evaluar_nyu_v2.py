@@ -263,7 +263,7 @@ def main() -> int:
     )
     parser.add_argument("--index", type=int, default=None, help="Indice unico a evaluar")
     parser.add_argument("--start", type=int, default=0, help="Indice inicial")
-    parser.add_argument("--count", type=int, default=50, help="Cantidad de frames")
+    parser.add_argument("--count", type=int, default=1449, help="Cantidad de frames")
     parser.add_argument("--step", type=int, default=1, help="Paso entre indices")
     parser.add_argument("--timeout", type=float, default=8.0, help="Timeout por frame (s)")
     parser.add_argument("--verbose", action="store_true", help="Log por frame")
