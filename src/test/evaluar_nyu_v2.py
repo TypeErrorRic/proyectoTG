@@ -40,7 +40,7 @@ from src.utilities import segmentar
 from src.utilities.helpers import apply_mask_to_rgb
 
 WALL_IDS = [21]
-FLOOR_IDS = [11]
+FLOOR_IDS = [11, 143, 891]
 
 
 def _find_dataset(h5file: h5py.File, names) -> h5py.Dataset:
@@ -520,11 +520,20 @@ def main() -> int:
             print("Tiempo promedio por frame: N/A (0 frames procesados)")
 
         if best_frames:
-            best_frames.sort(key=lambda x: x[0], reverse=True)
-            top = best_frames[:10]
-            print("Top 10 mejores (promedio IoU floor/wall)")
-            for rank, (score, idx, iou_f, iou_w) in enumerate(top, start=1):
-                print(f"{rank:02d}. idx={idx:05d} score={score:.3f} floor={iou_f:.3f} wall={iou_w:.3f}")
+            passing = [
+                item
+                for item in best_frames
+                if item[2] >= save_thresh and item[3] >= save_wall_thresh
+            ]
+            if passing:
+                passing.sort(key=lambda x: x[0], reverse=True)
+                top = passing[:10]
+                print("Top 10 mejores (cumplen umbrales IoU)")
+                for rank, (score, idx, iou_f, iou_w) in enumerate(top, start=1):
+                    print(
+                        f"{rank:02d}. idx={idx:05d} score={score:.3f} "
+                        f"floor={iou_f:.3f} wall={iou_w:.3f}"
+                    )
     finally:
         reader.close()
         segmentar.liberar_recursos()
