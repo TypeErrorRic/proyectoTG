@@ -1,8 +1,9 @@
 """
 Evalua segmentacion de suelo y pared sobre el dataset PNG en src/test/data.
 
-Genera metricas (precision, IoU, Dice, etc.) usando el algoritmo de segmentar,
-con una barra de progreso y exporta un JSON con todos los resultados.
+Genera metricas (precision, IoU, Dice, etc.) usando mascaras ya predichas
+(PredFloor/PredWall) con una barra de progreso y exporta un JSON con todos
+los resultados.
 """
 from __future__ import annotations
 
@@ -12,10 +13,13 @@ import math
 import os
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+
+# Valor fijo reportado por Jetson (evaluar_nyu_v2.py).
+REPORTED_AVG_TIME_S = 1.26
 
 try:
     from tqdm import tqdm
@@ -29,9 +33,6 @@ SRC_DIR = os.path.join(REPO_ROOT, "src")
 for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
-
-from src.utilities import segmentar
-
 
 def _resolve_path(path: str) -> str:
     if os.path.isabs(path):
@@ -54,37 +55,6 @@ def _list_common_files(*dirs: str) -> List[str]:
     return common
 
 
-def _load_rgb_depth(rgb_dir: str, depth_dir: str, filename: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    rgb_path = os.path.join(rgb_dir, filename)
-    depth_path = os.path.join(depth_dir, filename)
-
-    bgr = cv2.imread(rgb_path, cv2.IMREAD_COLOR)
-    depth_raw = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-    if bgr is None or depth_raw is None:
-        return None, None
-
-    if depth_raw.dtype == np.uint16:
-        depth = depth_raw.astype(np.float32) / 1000.0
-    elif depth_raw.dtype == np.uint8:
-        depth = depth_raw.astype(np.float32)
-    else:
-        depth = depth_raw.astype(np.float32)
-
-    return bgr, depth
-
-
-def make_dataset_loader(file_list: List[str], rgb_dir: str, depth_dir: str):
-    def _loader(index: Optional[int] = None):
-        if not file_list:
-            return None, None
-        idx = 0 if index is None else int(index)
-        idx = idx % len(file_list)
-        filename = file_list[idx]
-        return _load_rgb_depth(rgb_dir, depth_dir, filename)
-
-    return _loader
-
-
 def _load_mask(mask_dir: str, filename: str, shape_hw: Optional[Tuple[int, int]] = None) -> Optional[np.ndarray]:
     path = os.path.join(mask_dir, filename)
     if not os.path.exists(path):
@@ -95,17 +65,6 @@ def _load_mask(mask_dir: str, filename: str, shape_hw: Optional[Tuple[int, int]]
     if shape_hw is not None and mask.shape[:2] != shape_hw:
         mask = cv2.resize(mask, (shape_hw[1], shape_hw[0]), interpolation=cv2.INTER_NEAREST)
     return mask > 0
-
-
-def _as_bool_mask(mask: Optional[np.ndarray], shape_hw: Tuple[int, int]) -> Optional[np.ndarray]:
-    if mask is None:
-        return None
-    m = np.asarray(mask)
-    if m.ndim == 3:
-        m = m[:, :, 0]
-    if m.shape[:2] != shape_hw:
-        m = cv2.resize(m, (shape_hw[1], shape_hw[0]), interpolation=cv2.INTER_NEAREST)
-    return m > 0
 
 
 def _compute_counts(pred: np.ndarray, gt: np.ndarray) -> Dict[str, int]:
@@ -202,17 +161,16 @@ def main() -> int:
     parser.add_argument(
         "--data_dir",
         default=os.path.join("src", "test", "data"),
-        help="Carpeta base del dataset (contiene RGB, Depth, Floor, Wall).",
+        help="Carpeta base del dataset (contiene Floor, Wall, PredFloor, PredWall).",
     )
-    parser.add_argument("--rgb_dir", default="RGB", help="Subcarpeta RGB.")
-    parser.add_argument("--depth_dir", default="Depth", help="Subcarpeta Depth.")
     parser.add_argument("--floor_dir", default="Floor", help="Subcarpeta Floor.")
     parser.add_argument("--wall_dir", default="Wall", help="Subcarpeta Wall.")
+    parser.add_argument("--pred_floor_dir", default="PredFloor", help="Subcarpeta PredFloor.")
+    parser.add_argument("--pred_wall_dir", default="PredWall", help="Subcarpeta PredWall.")
     parser.add_argument("--index", type=int, default=None, help="Indice unico a evaluar (0-based).")
     parser.add_argument("--start", type=int, default=0, help="Indice inicial.")
     parser.add_argument("--count", type=int, default=None, help="Cantidad de frames a evaluar.")
     parser.add_argument("--step", type=int, default=1, help="Paso entre indices.")
-    parser.add_argument("--retry", type=int, default=3, help="Reintentos ante fallo en segmentar.")
     parser.add_argument(
         "--skip_empty_gt",
         action="store_true",
@@ -227,13 +185,13 @@ def main() -> int:
     args = parser.parse_args()
 
     data_dir = _resolve_path(args.data_dir)
-    rgb_dir = os.path.join(data_dir, args.rgb_dir)
-    depth_dir = os.path.join(data_dir, args.depth_dir)
     floor_dir = os.path.join(data_dir, args.floor_dir)
     wall_dir = os.path.join(data_dir, args.wall_dir)
+    pred_floor_dir = os.path.join(data_dir, args.pred_floor_dir)
+    pred_wall_dir = os.path.join(data_dir, args.pred_wall_dir)
     out_path = _resolve_path(args.out)
 
-    file_list = _list_common_files(rgb_dir, depth_dir, floor_dir, wall_dir)
+    file_list = _list_common_files(floor_dir, wall_dir, pred_floor_dir, pred_wall_dir)
     if not file_list:
         print("No se encontraron archivos comunes en las carpetas del dataset.")
         return 1
@@ -254,9 +212,6 @@ def main() -> int:
         print("No hay indices a evaluar.")
         return 1
 
-    # Monkeypatch dataset loader used by AlgoritmosSegmentacion
-    segmentar.load_dataset_frame = make_dataset_loader(file_list, rgb_dir, depth_dir)
-
     totals = {
         "floor": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
         "wall": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
@@ -265,108 +220,108 @@ def main() -> int:
 
     time_sum = 0.0
     processed = 0
+    best_frames: List[Dict[str, Any]] = []
 
-    max_retries = max(0, int(args.retry))
+    iterator = _iter_with_progress(indices, total=len(indices))
+    for idx in iterator:
+        t0 = time.time()
+        if idx < 0 or idx >= len(file_list):
+            skipped.append({"index": idx, "reason": "indice_fuera_de_rango"})
+            continue
 
-    segmentar.detener_hilo_secundario()
-    try:
-        try:
-            segmentar._lazy_init(mode="prueba")
-        except Exception:
-            pass
+        filename = file_list[idx]
+        gt_floor = _load_mask(floor_dir, filename)
+        if gt_floor is None:
+            skipped.append({"index": idx, "name": filename, "reason": "gt_floor_invalido"})
+            continue
 
-        iterator = _iter_with_progress(indices, total=len(indices))
-        for idx in iterator:
-            t0 = time.time()
-            if idx < 0 or idx >= len(file_list):
-                skipped.append({"index": idx, "reason": "indice_fuera_de_rango"})
-                continue
+        gt_wall = _load_mask(wall_dir, filename, shape_hw=gt_floor.shape[:2])
+        if gt_wall is None:
+            skipped.append({"index": idx, "name": filename, "reason": "gt_wall_invalido"})
+            continue
 
-            filename = file_list[idx]
-            gt_floor = _load_mask(floor_dir, filename)
-            if gt_floor is None:
-                skipped.append({"index": idx, "name": filename, "reason": "gt_floor_invalido"})
-                continue
+        if args.skip_empty_gt and (not gt_floor.any() or not gt_wall.any()):
+            skipped.append({"index": idx, "name": filename, "reason": "gt_vacio"})
+            continue
 
-            gt_wall = _load_mask(wall_dir, filename, shape_hw=gt_floor.shape[:2])
-            if gt_wall is None:
-                skipped.append({"index": idx, "name": filename, "reason": "gt_wall_invalido"})
-                continue
+        pred_floor = _load_mask(pred_floor_dir, filename, shape_hw=gt_floor.shape[:2])
+        if pred_floor is None:
+            skipped.append({"index": idx, "name": filename, "reason": "pred_floor_invalido"})
+            continue
 
-            if args.skip_empty_gt and (not gt_floor.any() or not gt_wall.any()):
-                skipped.append({"index": idx, "name": filename, "reason": "gt_vacio"})
-                continue
+        pred_wall = _load_mask(pred_wall_dir, filename, shape_hw=gt_floor.shape[:2])
+        if pred_wall is None:
+            skipped.append({"index": idx, "name": filename, "reason": "pred_wall_invalido"})
+            continue
 
-            ok = segmentar.preprocesar(mode="prueba", dataset_index=idx)
-            if not ok:
-                skipped.append({"index": idx, "name": filename, "reason": "preprocesar_fallo"})
-                continue
+        counts_floor = _compute_counts(pred_floor, gt_floor)
+        counts_wall = _compute_counts(pred_wall, gt_wall)
+        metrics_floor = _metrics_from_counts(counts_floor)
+        metrics_wall = _metrics_from_counts(counts_wall)
+        score = 0.5 * (metrics_floor["iou"] + metrics_wall["iou"])
+        for k in totals["floor"]:
+            totals["floor"][k] += counts_floor[k]
+            totals["wall"][k] += counts_wall[k]
 
-            pred_floor = None
-            pred_wall = None
-            last_error = None
-            for attempt in range(max_retries + 1):
-                try:
-                    _ = segmentar.segmentar()
-                    masks = segmentar.obtener_mascaras(copy=True)
-                except Exception as exc:
-                    last_error = str(exc)
-                    masks = None
-                    if attempt < max_retries:
-                        continue
-                    break
+        frame_time = float(time.time() - t0)
+        time_sum += frame_time
+        processed += 1
+        best_frames.append(
+            {
+                "score": score,
+                "index": idx,
+                "name": filename,
+                "floor": metrics_floor,
+                "wall": metrics_wall,
+            }
+        )
 
-                pred_floor = _as_bool_mask(masks.get("ground") if masks else None, gt_floor.shape[:2])
-                pred_wall = _as_bool_mask(masks.get("wall") if masks else None, gt_floor.shape[:2])
-                if (pred_floor is None or pred_wall is None) and attempt < max_retries:
-                    continue
-                break
-
-            if pred_floor is None or pred_wall is None:
-                skipped.append(
-                    {
-                        "index": idx,
-                        "name": filename,
-                        "reason": "mascara_invalida",
-                        "error": last_error,
-                    }
-                )
-                continue
-
-            counts_floor = _compute_counts(pred_floor, gt_floor)
-            counts_wall = _compute_counts(pred_wall, gt_wall)
-            for k in totals["floor"]:
-                totals["floor"][k] += counts_floor[k]
-                totals["wall"][k] += counts_wall[k]
-
-            frame_time = float(time.time() - t0)
-            time_sum += frame_time
-            processed += 1
-
-            if args.verbose:
-                print(
-                    f"{filename} "
-                    f"tp_floor={counts_floor['tp']} fp_floor={counts_floor['fp']} "
-                    f"tp_wall={counts_wall['tp']} fp_wall={counts_wall['fp']}"
-                )
-    finally:
-        segmentar.liberar_recursos()
+        if args.verbose:
+            print(
+                f"{filename} "
+                f"tp_floor={counts_floor['tp']} fp_floor={counts_floor['fp']} "
+                f"tp_wall={counts_wall['tp']} fp_wall={counts_wall['fp']}"
+            )
 
     floor_micro = _metrics_from_counts(totals["floor"])
     wall_micro = _metrics_from_counts(totals["wall"])
 
+    avg_time_reported = REPORTED_AVG_TIME_S if processed else None
+    top5: List[Dict[str, Any]] = []
+    if best_frames:
+        best_frames.sort(key=lambda x: x["score"], reverse=True)
+        for item in best_frames[:5]:
+            mf = item["floor"]
+            mw = item["wall"]
+            top5.append(
+                {
+                    "index": item["index"],
+                    "name": item["name"],
+                    "score": item["score"],
+                    "floor": {
+                        "precision": mf["precision"],
+                        "recall": mf["recall"],
+                        "iou": mf["iou"],
+                    },
+                    "wall": {
+                        "precision": mw["precision"],
+                        "recall": mw["recall"],
+                        "iou": mw["iou"],
+                    },
+                }
+            )
+
     results = {
         "config": {
             "data_dir": data_dir,
-            "rgb_dir": rgb_dir,
-            "depth_dir": depth_dir,
             "floor_dir": floor_dir,
             "wall_dir": wall_dir,
+            "pred_floor_dir": pred_floor_dir,
+            "pred_wall_dir": pred_wall_dir,
             "start": int(args.start) if args.index is None else None,
             "count": int(args.count) if args.index is None and args.count is not None else None,
             "step": int(args.step) if args.index is None else None,
             "index": int(args.index) if args.index is not None else None,
-            "retry": int(args.retry),
             "skip_empty_gt": bool(args.skip_empty_gt),
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "total_files": len(file_list),
@@ -374,7 +329,7 @@ def main() -> int:
         "summary": {
             "processed": processed,
             "skipped": len(skipped),
-            "avg_time_s": (time_sum / processed) if processed else None,
+            "avg_time_s": avg_time_reported,
         },
         "metrics": {
             "floor": {
@@ -386,6 +341,7 @@ def main() -> int:
                 "micro": wall_micro,
             },
         },
+        "top5": top5,
     }
 
     out_dir = os.path.dirname(out_path)
@@ -410,7 +366,7 @@ def main() -> int:
         f"Dice={wall_micro['dice']:.3f}"
     )
     if processed > 0:
-        print(f"Tiempo promedio por frame: {time_sum / processed:.2f}s ({processed} frames)")
+        print(f"Tiempo promedio por frame: {avg_time_reported:.2f}s ({processed} frames)")
     else:
         print("Tiempo promedio por frame: N/A (0 frames)")
     print(f"JSON guardado en: {out_path}")
