@@ -20,7 +20,7 @@
   - [x] ~~1.1 Prepare a comparative analysis of technical background to identify functional requirements relevant to the proposed system.~~
   - [x] ~~1.2 Analyze the common limitations found in the consulted technical background.~~
   - [x] ~~1.3 Document the functional and non-functional requirements of the system based on the identified capabilities and limitations.~~
-- [ ] 2. Build a test dataset with annotations for recognizing walls, doors, and walkable paths in structured indoor environments, using captured point clouds or existing databases.
+- [] 2. Build a test dataset with annotations for recognizing walls, doors, and walkable paths in structured indoor environments, using captured point clouds or existing databases.
   - [x] ~~2.1 Collect data using RGB-D cameras or from existing databases in structured indoor environments.~~
   - [x] ~~2.2 Process point clouds to remove noise and optimize spatial structure.~~
   - [x] ~~2.3 Provide semantic annotations for walls, doors, walkable paths, and other objects in the collected data.~~
@@ -29,16 +29,16 @@
   - [x] ~~3.1 Create the conceptual diagram of the recognition model according to the SCRUM methodology.~~
   - [x] ~~3.2 Define user stories in a project planning tool according to the SCRUM methodology.~~
   - [x] ~~3.3 Prioritize the backlog with the technical and operational items needed for training the model, following the SCRUM methodology.~~
-  - [ ] 3.4 Design the recognition model according to the SCRUM methodology.
-  - [ ] 3.5 Prepare the technical report of the recognition model along with the design sketches of the graphical user interface (GUI).
+  - [x] 3.4 Design the recognition model according to the SCRUM methodology.
+  - [] 3.5 Prepare the technical report of the recognition model along with the design sketches of the graphical user interface (GUI).
 - [ ] 4. Implement on an embedded system the recognition model for walls, doors, walkable paths, and other objects.
-  - [] ~~4.1 Configure the embedded system environment to ensure compatibility and deployment of the trained model.~~
+  - [x] ~~4.1 Configure the embedded system environment to ensure compatibility and deployment of the trained model.~~
   - [x] ~~4.2 Implement the perception module by integrating the recognition model into the embedded system.~~
-  - [ ] 4.3 Implement the processing module to apply the integrated model to input data, generating classified outputs under controlled operating conditions.
+  - [x] 4.3 Implement the processing module to apply the integrated model to input data, generating classified outputs under controlled operating conditions.
   - [ ] 4.4 Implement the feedback module with performance metric logging.
   - [ ] 4.5 Document the integration of the recognition model into the embedded system.
 - [ ] 5. Validate the application's functionality and accuracy in recognizing the selected classes in real environments through a test protocol.
-  - [ ] 5.1 Define the validation protocol for recognition accuracy and functionality, including metrics, scenarios, and acceptance criteria.
+  - [x] 5.1 Define the validation protocol for recognition accuracy and functionality, including metrics, scenarios, and acceptance criteria.
   - [ ] 5.2 Execute the test protocol in real environments to validate recognition accuracy and system functionality.
   - [ ] 5.3 Record the performance results, errors, and technical observations.
 
