@@ -392,7 +392,6 @@ if __name__ == "__main__":
         fov = params['fov']
         point_size = params['point_size']
         
-        cv2.namedWindow('RGB', cv2.WINDOW_NORMAL)
         cv2.namedWindow('PointCloud', cv2.WINDOW_NORMAL)
         
         # Métrica simple de tiempos
@@ -448,15 +447,13 @@ if __name__ == "__main__":
             # 7) HUD y visualización
             t_end_frame = time.perf_counter()
             
-            vis = rgb.copy()
             hud1 = f"rays: {H}x{W}x3  stride:{stride_demo}  pts:{0 if points_xyz is None else len(points_xyz)}"
             hud2 = f"Yaw:{yaw:.0f} Pitch:{pitch:.0f} Roll:{roll:.0f} FOV:{fov:.0f} Size:{point_size}"
-            cv2.putText(vis, hud1, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
-            cv2.putText(vis, hud2, (10, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
+            cv2.putText(pc_img, hud1, (10, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
+            cv2.putText(pc_img, hud2, (10, 84), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
             
             cv2.putText(pc_img, "Controles: A/D yaw  W/S pitch  Q/E roll  Z/X FOV  +/- tamaño  ESC",
                         (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
-            cv2.imshow('RGB', vis)
             cv2.imshow('PointCloud', pc_img)
             
             # Tiempos cada 60 frames

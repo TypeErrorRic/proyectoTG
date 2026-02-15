@@ -33,14 +33,14 @@ from src.utilities.viewCamera import (  # noqa: E402
 )
 
 
-def depth_to_colormap(depth_m: np.ndarray) -> np.ndarray:
-    """Convierte depth (m, float32) a imagen BGR para visualizacion."""
+def depth_to_grayscale(depth_m: np.ndarray) -> np.ndarray:
+    """Convierte depth (m, float32) a imagen grayscale uint8 para visualizacion."""
     if depth_m is None:
-        return np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+        return np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype=np.uint8)
 
     valid = depth_m > 0.0
     if not np.any(valid):
-        return np.zeros((depth_m.shape[0], depth_m.shape[1], 3), dtype=np.uint8)
+        return np.zeros((depth_m.shape[0], depth_m.shape[1]), dtype=np.uint8)
 
     valid_vals = depth_m[valid]
     vmin = float(np.percentile(valid_vals, 2))
@@ -48,10 +48,9 @@ def depth_to_colormap(depth_m: np.ndarray) -> np.ndarray:
     vmax = max(vmax, vmin + 1e-6)
 
     depth_norm = np.clip((depth_m - vmin) / (vmax - vmin), 0.0, 1.0)
-    depth_8u = (depth_norm * 255.0).astype(np.uint8)
-    depth_color = cv2.applyColorMap(depth_8u, cv2.COLORMAP_TURBO)
-    depth_color[~valid] = 0
-    return depth_color
+    depth_gray = (depth_norm * 255.0).astype(np.uint8)
+    depth_gray[~valid] = 0
+    return depth_gray
 
 
 def main() -> int:
@@ -106,7 +105,7 @@ def main() -> int:
                     interpolation=cv2.INTER_NEAREST,
                 )
 
-            depth_vis = depth_to_colormap(depth_m)
+            depth_vis = depth_to_grayscale(depth_m)
             cv2.imshow("RGB", rgb)
             cv2.imshow("Depth", depth_vis)
 
