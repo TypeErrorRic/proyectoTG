@@ -1,0 +1,61 @@
+{
+  "groundParams": {
+    "dist_thresh": 0.03,
+    "max_iters": 300,
+    "min_inliers": 400,
+    "subsample_stride": 2,
+    "up_axis": [0.0, -1.0, 0.0],
+    "max_angle_deg": 60.0,
+    "seed": 42,
+    "score_subset": 2048,
+    "orientation": "ground",
+    "early_stop_ratio": 0.9,
+    "batch_size": 512,
+    "low_height_pct": 25.0,
+    "roi_bottom_fraction": 0.34,
+    "roi_expand_step": 0.2,
+    "max_agg_points": 150000,
+    "refine_full_res": true,
+    "refine_max_points": 200000,
+    "refine_dist_mult": 1.6,
+    "ground_mask_refine": true
+  },
+  "wallParams": {
+    "wall_subsample_stride": 2,
+    "wall_dist_thresh": 0.04,
+    "wall_max_iters": 300,
+    "wall_min_inliers": 400,
+    "wall_max_angle_deg": 20.0,
+    "wall_score_subset": 2048,
+    "wall_early_stop_ratio": 0.9,
+    "wall_batch_size": 512,
+    "wall_refine_dist_mult": 1.6,
+    "max_up_dot": 0.35,
+    "ground_perp_deg": 20.0,
+    "wall_ortho_deg": 20.0,
+    "wall_parallel_deg": 10.0,
+    "wall_parallel_distance_m": 0.6,
+    "wall_mask_refine": true
+  },
+  "doorParams": {
+    "door_hue_tol": 18,
+    "door_min_s": 30,
+    "door_min_v": 20,
+    "door_glare_s_max": 35,
+    "door_glare_v_min": 210,
+    "door_glare_v_clip": 200,
+    "door_ground_parallel_deg": 15.0,
+    "door_plane_inlier_ratio": 0.4
+  },
+  "wallParamsOverrides": {
+    "max_angle_deg": 20.0,
+    "max_planes": 3,
+    "enforce_vertical": true,
+    "max_up_dot": 0.35,
+    "refine": true,
+    "ground_perp_deg": 20.0,
+    "wall_ortho_deg": 20.0,
+    "wall_parallel_deg": 10.0,
+    "wall_parallel_distance_m": 0.6
+  }
+}

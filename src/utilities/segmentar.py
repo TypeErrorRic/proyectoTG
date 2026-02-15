@@ -19,14 +19,67 @@ from utilities.WallPlaneDetection import get_wall_planes
 from src.models.doorDetection import doorDetection
 
 # Runtime libraries
+import json
 import numpy as np
 import cupy as cp
 import cv2
 import threading
 import time
 import queue
+from pathlib import Path
 from typing import Optional, Callable, Any, Tuple, Dict
 
+
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "segmentar_defaults.json"
+_REQUIRED_CONFIG_SECTIONS = (
+    "groundParams",
+    "wallParams",
+    "doorParams",
+    "wallParamsOverrides",
+)
+
+
+def _load_segmentation_config() -> Dict[str, Dict[str, Any]]:
+    """
+    Load segmentation defaults from config/segmentar_defaults.json.
+    """
+    try:
+        with _CONFIG_PATH.open("r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            raise ValueError("la raiz del archivo debe ser un objeto JSON")
+    except FileNotFoundError:
+        raise RuntimeError(f"[segmentar] No existe archivo de configuracion: {_CONFIG_PATH}") from None
+    except Exception as exc:
+        raise RuntimeError(f"[segmentar] No se pudo leer config '{_CONFIG_PATH}': {exc}") from exc
+
+    cfg: Dict[str, Dict[str, Any]] = {}
+    for section in _REQUIRED_CONFIG_SECTIONS:
+        section_data = loaded.get(section)
+        if not isinstance(section_data, dict):
+            raise RuntimeError(
+                f"[segmentar] Seccion requerida faltante o invalida en config: '{section}'"
+            )
+        cfg[section] = dict(section_data)
+
+    # JSON stores arrays, but the ground detector expects a tuple-like up axis.
+    up_axis = cfg["groundParams"].get("up_axis")
+    if isinstance(up_axis, (list, tuple)) and len(up_axis) == 3:
+        try:
+            cfg["groundParams"]["up_axis"] = tuple(float(x) for x in up_axis)
+        except Exception as exc:
+            raise RuntimeError(
+                "[segmentar] groundParams.up_axis debe tener 3 valores numericos"
+            ) from exc
+    else:
+        raise RuntimeError(
+            "[segmentar] groundParams.up_axis debe ser una lista de 3 elementos"
+        )
+
+    return cfg
+
+
+_loaded_config = _load_segmentation_config()
 
 # Centralized state dictionary to avoid loose globals
 _runtime: Dict[str, Any] = {
@@ -40,120 +93,17 @@ _runtime: Dict[str, Any] = {
     "imagenRGB": None,
     "mapaProfundidad": None,
     "last_ransac_ms": None,
-    "groundParams": {
-        "dist_thresh": 0.03,
-        "max_iters": 300,
-        "min_inliers": 400,
-        "subsample_stride": 2,
-        "up_axis": (0.0, -1.0, 0.0),
-        "max_angle_deg": 60.0,
-        "seed": 42,
-        "score_subset": 2048,
-        "orientation": "ground",
-        "early_stop_ratio": 0.90,
-        "batch_size": 512,
-        # Extra controls for quality vs velocidad
-        "low_height_pct": 25.0,          # usar percentil inferior en altura
-        "roi_bottom_fraction": 0.34,     # arranca con este porcentaje inferior
-        "roi_expand_step": 0.2,          # expande ROI hacia arriba si faltan puntos
-        "max_agg_points": 150000,        # límite de puntos usados en RANSAC
-        "refine_full_res": True,         # refinar plano con inliers full-res
-        "refine_max_points": 200000,     # límite puntos en refinamiento
-        "refine_dist_mult": 1.6,         # tolerancia para recolectar inliers al refinar
-        "ground_mask_refine": True,     # mejora opcional mascara de suelo
-    },
-    "wallParams": {
-        "wall_subsample_stride": 2,
-        "wall_dist_thresh": 0.04,
-        "wall_max_iters": 300,
-        "wall_min_inliers": 400,
-        "wall_max_angle_deg": 20.0,
-        "wall_score_subset": 2048,
-        "wall_early_stop_ratio": 0.90,
-        "wall_batch_size": 512,
-        "wall_refine_dist_mult": 1.6,
-        "max_up_dot": 0.35,              # |dot(normal, up)| maximo para paredes
-        "ground_perp_deg": 20.0,
-        "wall_ortho_deg": 20.0,
-        "wall_parallel_deg": 10.0,
-        "wall_parallel_distance_m": 0.60,
-        "wall_mask_refine": True,       # mejora opcional mascara de pared
-    },
-    "doorParams": {
-        "door_hue_tol": 18,              # tolerancia HSV (H) para puerta
-        "door_min_s": 30,                # saturacion minima HSV
-        "door_min_v": 20,                # valor minimo HSV
-        "door_glare_s_max": 35,          # max S para considerar glare
-        "door_glare_v_min": 210,         # min V para considerar glare
-        "door_glare_v_clip": 200,        # V usado al recortar glare
-        "door_ground_parallel_deg": 15.0, # tolerancia de inclinacion (grados)
-        "door_plane_inlier_ratio": 0.40,  # porcentaje minimo de inliers
-    },
+    "groundParams": dict(_loaded_config["groundParams"]),
+    "wallParams": dict(_loaded_config["wallParams"]),
+    "doorParams": dict(_loaded_config["doorParams"]),
 }
 
-GROUND_PARAM_KEYS = {
-    "dist_thresh",
-    "max_iters",
-    "min_inliers",
-    "subsample_stride",
-    "up_axis",
-    "max_angle_deg",
-    "seed",
-    "score_subset",
-    "orientation",
-    "early_stop_ratio",
-    "batch_size",
-    "low_height_pct",
-    "roi_bottom_fraction",
-    "roi_expand_step",
-    "max_agg_points",
-    "refine_full_res",
-    "refine_max_points",
-    "refine_dist_mult",
-    "ground_mask_refine",
-}
-
-WALL_PARAM_KEYS = {
-    "wall_subsample_stride",
-    "wall_dist_thresh",
-    "wall_max_iters",
-    "wall_min_inliers",
-    "wall_max_angle_deg",
-    "wall_score_subset",
-    "wall_early_stop_ratio",
-    "wall_batch_size",
-    "wall_refine_dist_mult",
-    "max_up_dot",
-    "ground_perp_deg",
-    "wall_ortho_deg",
-    "wall_parallel_deg",
-    "wall_parallel_distance_m",
-    "wall_mask_refine",
-}
-
-DOOR_PARAM_KEYS = {
-    "door_hue_tol",
-    "door_min_s",
-    "door_min_v",
-    "door_glare_s_max",
-    "door_glare_v_min",
-    "door_glare_v_clip",
-    "door_ground_parallel_deg",
-    "door_plane_inlier_ratio",
-}
+GROUND_PARAM_KEYS = set(_loaded_config["groundParams"].keys())
+WALL_PARAM_KEYS = set(_loaded_config["wallParams"].keys())
+DOOR_PARAM_KEYS = set(_loaded_config["doorParams"].keys())
 
 # Wall-plane overrides applied on top of ground parameters.
-WALL_PARAMS_OVERRIDES: Dict[str, Any] = {
-    "max_angle_deg": 20.0,
-    "max_planes": 3,
-    "enforce_vertical": True,
-    "max_up_dot": 0.35,
-    "refine": True,
-    "ground_perp_deg": 20.0,
-    "wall_ortho_deg": 20.0,
-    "wall_parallel_deg": 10.0,
-    "wall_parallel_distance_m": 0.60,
-}
+WALL_PARAMS_OVERRIDES: Dict[str, Any] = dict(_loaded_config["wallParamsOverrides"])
 
 # Protect shared runtime parameters updated from the GUI while the worker runs.
 _runtime_lock = threading.Lock()
@@ -649,7 +599,7 @@ def preprocesar(
         lab[:, :, 0] = clahe.apply(lab[:, :, 0])
         imagenRGB = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-        # Filtro morfológico: dilatar valores válidos hacia inválidos
+        # Filtro morfologico: dilatar valores validos hacia invalidos
         invalid_mask = (mapaProfundidad < 0.3) | (mapaProfundidad == 0)
         if np.any(invalid_mask):
             kernel = np.ones((3, 3), dtype=np.uint8)
@@ -659,7 +609,7 @@ def preprocesar(
             valid_from_dilation = depth_dilated > 0.3
             mapaProfundidad[invalid_mask & valid_from_dilation] = depth_dilated[invalid_mask & valid_from_dilation]
 
-        # Guided filter: suaviza ruido preservando bordes usando RGB como guía
+        # Guided filter: suaviza ruido preservando bordes usando RGB como guia
         mapaProfundidad = cv2.ximgproc.guidedFilter(
             guide=imagenRGB,
             src=mapaProfundidad.astype(np.float32),
@@ -802,3 +752,4 @@ def liberar_recursos() -> None:
             _resultados.get_nowait()
     except queue.Empty:
         pass
+
