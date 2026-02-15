@@ -13,6 +13,9 @@ import sys
 import cv2
 import numpy as np
 
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
+
 
 # Permite ejecutar este archivo directamente: `python src/data/RGB_DEPTH.py`
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,7 +36,7 @@ from src.utilities.viewCamera import (  # noqa: E402
 def depth_to_colormap(depth_m: np.ndarray) -> np.ndarray:
     """Convierte depth (m, float32) a imagen BGR para visualizacion."""
     if depth_m is None:
-        return np.zeros((480, 640, 3), dtype=np.uint8)
+        return np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
 
     valid = depth_m > 0.0
     if not np.any(valid):
@@ -55,16 +58,16 @@ def main() -> int:
     pipeline = None
     try:
         pipeline, _ = init_camera(
-            color_width=640,
-            color_height=480,
-            depth_width=640,
-            depth_height=480,
+            color_width=FRAME_WIDTH,
+            color_height=FRAME_HEIGHT,
+            depth_width=FRAME_WIDTH,
+            depth_height=FRAME_HEIGHT,
             fps=30,
         )
         align_depth_to_color = make_depth_to_color_aligner(pipeline)
 
-        cv2.namedWindow("RGB", cv2.WINDOW_NORMAL)
-        cv2.namedWindow("Depth", cv2.WINDOW_NORMAL)
+        cv2.namedWindow("RGB", cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow("Depth", cv2.WINDOW_AUTOSIZE)
 
         print("Mostrando RGB + Depth. Presiona 'q' o ESC para salir.")
 
@@ -87,6 +90,19 @@ def main() -> int:
                 depth_m = cv2.resize(
                     depth_m,
                     (rgb.shape[1], rgb.shape[0]),
+                    interpolation=cv2.INTER_NEAREST,
+                )
+
+            if rgb.shape[1] != FRAME_WIDTH or rgb.shape[0] != FRAME_HEIGHT:
+                rgb = cv2.resize(
+                    rgb,
+                    (FRAME_WIDTH, FRAME_HEIGHT),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+            if depth_m.shape[1] != FRAME_WIDTH or depth_m.shape[0] != FRAME_HEIGHT:
+                depth_m = cv2.resize(
+                    depth_m,
+                    (FRAME_WIDTH, FRAME_HEIGHT),
                     interpolation=cv2.INTER_NEAREST,
                 )
 
