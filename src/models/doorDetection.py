@@ -23,7 +23,16 @@ _runtime: Dict[str, Any] = {
     "engine_path": None,
     "input_size": (256, 256),  # (width, height) - must match TensorRT engine
     "min_area": 300,  # Minimum connected-component area (pixels) to keep
+    "model_loading": True,
 }
+
+
+def is_model_loading() -> bool:
+    """
+    Returns whether the door model is still loading/not ready.
+    """
+    return bool(_runtime.get("model_loading", True))
+
 
 def _lazy_init(engine_path: Optional[str] = None) -> bool:
     """
@@ -32,6 +41,7 @@ def _lazy_init(engine_path: Optional[str] = None) -> bool:
     Returns True if model is ready, False otherwise.
     """
     if _runtime["model"] is not None:
+        _runtime["model_loading"] = False
         return True
 
     if engine_path is None:
@@ -46,10 +56,12 @@ def _lazy_init(engine_path: Optional[str] = None) -> bool:
         return False
 
     try:
+        _runtime["model_loading"] = True
         print(f"[doorDetection] Loading TensorRT engine from: {engine_path}")
         _runtime["model"] = TRTInference(engine_path)
         _runtime["engine_path"] = engine_path
         print("[doorDetection] Model loaded successfully")
+        _runtime["model_loading"] = False
         return True
     except Exception as exc:
         print(f"[doorDetection] Failed to load model: {exc}")

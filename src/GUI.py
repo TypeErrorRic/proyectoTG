@@ -62,6 +62,7 @@ from src.utilities.segmentar import (
     obtener_parametros_ground,
     obtener_metricas,
 )
+from src.models.doorDetection import is_model_loading
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
@@ -1919,6 +1920,21 @@ class SegmentacionApp:
         """
         if self._gallery_active:
             return
+
+        show_loading = False
+        if self.mode == "prueba":
+            show_loading = is_model_loading()
+        elif self.mode == "camera" and self._stream_requested:
+            show_loading = is_model_loading()
+
+        if show_loading:
+            self.display_area.configure(
+                text="Modelos cargando...",
+                image="",
+                bg="#7f7f7f",
+            )
+            return
+
         with self._frame_lock:
             frame = None if self.last_frame is None else self.last_frame.copy()
             frame_ts = self._last_frame_ts
