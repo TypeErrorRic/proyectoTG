@@ -94,6 +94,13 @@ class SegmentacionApp:
         self._frame_lock = threading.Lock()
         self._last_frame_ts = 0.0
         self._stream_requested = False
+        self._loading_msg_variants: List[str] = [
+            "Modelos cargando...",
+            "Modelos cargando..",
+            "Modelos cargando.",
+        ]
+        self._loading_msg_idx: int = 0
+        self._loading_msg_last_ts: float = time.perf_counter()
 
         self.photo_ref: Optional[ImageTk.PhotoImage] = None
         self.logo_image: Optional[ImageTk.PhotoImage] = None
@@ -1914,6 +1921,16 @@ class SegmentacionApp:
             self._update_image()
         self.root.after(10, self._heartbeat)
 
+    def _loading_message(self) -> str:
+        """
+        Build animated loading text for the display area.
+        """
+        now = time.perf_counter()
+        if now - self._loading_msg_last_ts >= 0.35:
+            self._loading_msg_last_ts = now
+            self._loading_msg_idx = (self._loading_msg_idx + 1) % len(self._loading_msg_variants)
+        return self._loading_msg_variants[self._loading_msg_idx]
+
     def _update_image(self) -> None:
         """
         \brief Retrieves the segmented image and draws it on the label.
@@ -1921,29 +1938,38 @@ class SegmentacionApp:
         if self._gallery_active:
             return
 
-        show_loading = False
-        if self.mode == "prueba":
-            show_loading = is_model_loading()
-        elif self.mode == "camera" and self._stream_requested:
-            show_loading = is_model_loading()
-
-        if show_loading:
-            self.display_area.configure(
-                text="Modelos cargando...",
-                image="",
-                bg="#7f7f7f",
-            )
-            return
-
         with self._frame_lock:
             frame = None if self.last_frame is None else self.last_frame.copy()
             frame_ts = self._last_frame_ts
 
+        segmentation_active = self.mode == "prueba" or (
+            self.mode == "camera" and self._stream_requested
+        )
+        show_loading = segmentation_active and is_model_loading()
+
         if frame is None:
+            if show_loading:
+                self.display_area.configure(
+                    text=self._loading_message(),
+                    image="",
+                    bg="#7f7f7f",
+                    compound="center",
+                )
+                return
             self.display_area.configure(
                 text="Sin datos de segmentación.",
                 image="",
                 bg="#7f7f7f",
+                compound="center",
+            )
+            return
+
+        if show_loading:
+            self.display_area.configure(
+                text=self._loading_message(),
+                image="",
+                bg="#7f7f7f",
+                compound="center",
             )
             return
 
