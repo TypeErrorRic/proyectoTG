@@ -231,6 +231,3 @@ def doorDetection(
             print(f"[doorDetection] door_deep filtering failed: {exc}")
     return hsv_mask
 
-
-# Backwards-compatible alias (if any old code still references wallDetection)
-wallDetection = doorDetection

@@ -1319,14 +1319,14 @@ class SegmentacionApp:
             (
                 "Puerta",
                 [
-                    ("door_hue_tol", "HSV: tolerancia H (0-179)", "18"),
-                    ("door_min_s", "HSV: S min (0-255)", "30"),
-                    ("door_min_v", "HSV: V min (0-255)", "20"),
-                    ("door_glare_s_max", "HSV: glare S max (0-255)", "35"),
-                    ("door_glare_v_min", "HSV: glare V min (0-255)", "210"),
-                    ("door_glare_v_clip", "HSV: glare V clip (0-255)", "200"),
-                    ("door_ground_parallel_deg", "Angulo inclinacion permitido (grados)", "15.0"),
-                    ("door_plane_inlier_ratio", "Inliers min (0-1)", "0.40"),
+                    ("door_hue_tol", "Rango color", "18"),
+                    ("door_min_s", "Color min", "30"),
+                    ("door_min_v", "Luz min", "20"),
+                    ("door_glare_s_max", "Reflejo color", "35"),
+                    ("door_glare_v_min", "Reflejo luz", "210"),
+                    ("door_glare_v_clip", "Bajar reflejo", "200"),
+                    ("door_ground_parallel_deg", "Inclinacion max", "15.0"),
+                    ("door_plane_inlier_ratio", "Plano min", "0.40"),
                 ],
             ),
         ]

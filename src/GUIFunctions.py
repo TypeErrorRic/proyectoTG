@@ -207,14 +207,14 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("wall_ortho_deg", "Orto paredes (grados)"),
         ("wall_parallel_deg", "Paralelo paredes (grados)"),
         ("wall_parallel_distance_m", "Dist. paredes (m)"),
-        ("door_hue_tol", "HSV: tolerancia H (0-179)"),
-        ("door_min_s", "HSV: S min (0-255)"),
-        ("door_min_v", "HSV: V min (0-255)"),
-        ("door_glare_s_max", "HSV: glare S max (0-255)"),
-        ("door_glare_v_min", "HSV: glare V min (0-255)"),
-        ("door_glare_v_clip", "HSV: glare V clip (0-255)"),
-        ("door_ground_parallel_deg", "Angulo inclinacion permitido (grados)"),
-        ("door_plane_inlier_ratio", "Inliers min (0-1)"),
+        ("door_hue_tol", "Rango color"),
+        ("door_min_s", "Color min"),
+        ("door_min_v", "Luz min"),
+        ("door_glare_s_max", "Reflejo color"),
+        ("door_glare_v_min", "Reflejo luz"),
+        ("door_glare_v_clip", "Bajar reflejo"),
+        ("door_ground_parallel_deg", "Inclinacion max"),
+        ("door_plane_inlier_ratio", "Plano min"),
     ]
 
 
