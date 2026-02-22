@@ -1326,7 +1326,7 @@ class SegmentacionApp:
                     ("door_glare_v_min", "Reflejo luz (0-255)", "210"),
                     ("door_glare_v_clip", "Bajar reflejo (0-255)", "200"),
                     ("door_ground_parallel_deg", "Inclinacion max (grados)", "15.0"),
-                    ("door_plane_inlier_ratio", "Plano min (0-1)", "0.40"),
+                    ("door_plane_inlier_ratio", "Min puntos en plano (0-1)", "0.40"),
                 ],
             ),
         ]

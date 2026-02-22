@@ -214,7 +214,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("door_glare_v_min", "Reflejo luz (0-255)"),
         ("door_glare_v_clip", "Bajar reflejo (0-255)"),
         ("door_ground_parallel_deg", "Inclinacion max (grados)"),
-        ("door_plane_inlier_ratio", "Plano min (0-1)"),
+        ("door_plane_inlier_ratio", "Min puntos en plano (0-1)"),
     ]
 
 
