@@ -376,7 +376,7 @@ if __name__ == "__main__":
         pitch=25.0,
         roll=0.0,
         fov=60.0,
-        point_size=1
+        point_size=2
     )
     
     print("Demo: Nube de puntos desde rayos + profundidad (ESC para salir)")
@@ -449,11 +449,11 @@ if __name__ == "__main__":
             
             hud1 = f"rays: {H}x{W}x3  stride:{stride_demo}  pts:{0 if points_xyz is None else len(points_xyz)}"
             hud2 = f"Yaw:{yaw:.0f} Pitch:{pitch:.0f} Roll:{roll:.0f} FOV:{fov:.0f} Size:{point_size}"
-            cv2.putText(pc_img, hud1, (10, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
-            cv2.putText(pc_img, hud2, (10, 84), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
+            cv2.putText(pc_img, hud1, (10, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 1, cv2.LINE_AA)
+            cv2.putText(pc_img, hud2, (10, 84), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 1, cv2.LINE_AA)
             
             cv2.putText(pc_img, "Controles: A/D yaw  W/S pitch  Q/E roll  Z/X FOV  +/- tamaño  ESC",
-                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230,230,230), 1, cv2.LINE_AA)
+                        (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,0), 1, cv2.LINE_AA)
             cv2.imshow('PointCloud', pc_img)
             
             # Tiempos cada 60 frames

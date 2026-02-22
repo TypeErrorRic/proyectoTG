@@ -84,7 +84,7 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
     - colors_bgr: optional (N,3) uint8; if None uses gray
     """
     H, W = out_size
-    img = np.zeros((H, W, 3), dtype=np.uint8)
+    img = np.full((H, W, 3), 255, dtype=np.uint8)
     if points_xyz is None or len(points_xyz) == 0:
         return img
 
@@ -127,12 +127,12 @@ def render_pointcloud_numpy(points_xyz: np.ndarray,
 
     if point_size <= 1:
         if col is None:
-            img[v, u] = (200, 200, 200)
+            img[v, u] = (60, 60, 60)
         else:
             img[v, u] = col.astype(np.uint8)
     else:
         for i in range(u.size):
-            c = (int(col[i, 0]), int(col[i, 1]), int(col[i, 2])) if col is not None else (200, 200, 200)
+            c = (int(col[i, 0]), int(col[i, 1]), int(col[i, 2])) if col is not None else (60, 60, 60)
             cv2.circle(img, (int(u[i]), int(v[i])), point_size, c, -1, lineType=cv2.LINE_AA)
     return img
 
