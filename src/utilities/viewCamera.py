@@ -376,7 +376,7 @@ if __name__ == "__main__":
         pitch=25.0,
         roll=0.0,
         fov=60.0,
-        point_size=2
+        point_size=1
     )
     
     print("Demo: Nube de puntos desde rayos + profundidad (ESC para salir)")
