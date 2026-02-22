@@ -39,7 +39,7 @@
   },
   "doorParams": {
     "door_hue_tol": 18,
-    "door_min_s": 30,
+    "door_min_s": 50,
     "door_min_v": 20,
     "door_glare_s_max": 35,
     "door_glare_v_min": 210,

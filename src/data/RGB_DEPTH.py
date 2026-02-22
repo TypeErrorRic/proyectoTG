@@ -53,6 +53,17 @@ def depth_to_grayscale(depth_m: np.ndarray) -> np.ndarray:
     return depth_gray
 
 
+def depth_to_colormap(depth_m: np.ndarray) -> np.ndarray:
+    """Convierte depth (m, float32) a imagen pseudocolor uint8 para visualizacion."""
+    if depth_m is None:
+        return np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+
+    depth_gray = depth_to_grayscale(depth_m)
+    depth_color = cv2.applyColorMap(depth_gray, cv2.COLORMAP_TURBO)
+    depth_color[depth_m <= 0.0] = 0
+    return depth_color
+
+
 def main() -> int:
     pipeline = None
     try:
@@ -105,7 +116,7 @@ def main() -> int:
                     interpolation=cv2.INTER_NEAREST,
                 )
 
-            depth_vis = depth_to_grayscale(depth_m)
+            depth_vis = depth_to_colormap(depth_m)
             cv2.imshow("RGB", rgb)
             cv2.imshow("Depth", depth_vis)
 
