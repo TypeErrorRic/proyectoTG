@@ -433,7 +433,7 @@ class SegmentacionApp:
             text="Iniciar Transmisión",
             bg=C.SUCCESS_BG,
             fg=C.TEXT_LIGHT,
-            activebackground=C.BTN_NEUTRAL_DARK_BG,
+            activebackground=C.SUCCESS_HOVER_BG,
             activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=8,
@@ -448,7 +448,7 @@ class SegmentacionApp:
             text="Detener Transmisión",
             bg=C.DANGER_BG,
             fg=C.TEXT_LIGHT,
-            activebackground=C.BTN_NEUTRAL_DARK_BG,
+            activebackground=C.DANGER_HOVER_BG,
             activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=8,
@@ -462,9 +462,9 @@ class SegmentacionApp:
             buttons_panel,
             text="Capturar",
             bg=C.WARNING_BG,
-            fg=C.TEXT_DARK,
+            fg=C.TEXT_LIGHT,
             activebackground=C.WARNING_HOVER_BG,
-            activeforeground=C.TEXT_DARK,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=10,
             pady=8,
@@ -984,7 +984,8 @@ class SegmentacionApp:
             text="Aplicar",
             bg=C.WARNING_BG,
             activebackground=C.WARNING_HOVER_BG,
-            fg=C.TEXT_DARK,
+            fg=C.TEXT_LIGHT,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             width=12,
             padx=12,
@@ -1092,7 +1093,8 @@ class SegmentacionApp:
             text="Visualizar",
             bg=C.WARNING_BG,
             activebackground=C.WARNING_HOVER_BG,
-            fg=C.TEXT_DARK,
+            fg=C.TEXT_LIGHT,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             width=12,
             padx=12,
@@ -1444,9 +1446,9 @@ class SegmentacionApp:
             actions,
             text="Aplicar",
             bg=C.SUCCESS_BG,
-            fg=C.FORM_BG,
+            fg=C.TEXT_LIGHT,
             activebackground=C.SUCCESS_HOVER_BG,
-            activeforeground=C.FORM_BG,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=14,
             pady=8,
@@ -1603,11 +1605,11 @@ class SegmentacionApp:
         \brief Updates sidebar button styles based on the active page.
         """
         if active == "config":
-            self.btn_config.configure(bg=C.SIDEBAR_ACTIVE_BG)
-            self.btn_exec.configure(bg=C.BTN_NEUTRAL_DARK_BG)
+            self.btn_config.configure(bg=C.SIDEBAR_ACTIVE_BG, activebackground=C.SIDEBAR_ACTIVE_BG)
+            self.btn_exec.configure(bg=C.BTN_NEUTRAL_DARK_BG, activebackground=C.SIDEBAR_ACTIVE_BG)
         else:
-            self.btn_exec.configure(bg=C.SIDEBAR_ACTIVE_BG)
-            self.btn_config.configure(bg=C.BTN_NEUTRAL_BG)
+            self.btn_exec.configure(bg=C.SIDEBAR_ACTIVE_BG, activebackground=C.SIDEBAR_ACTIVE_BG)
+            self.btn_config.configure(bg=C.BTN_NEUTRAL_BG, activebackground=C.SIDEBAR_ACTIVE_BG)
         self._adjust_sidebar_rows()
 
     def _show_mode(self, mode: str) -> None:
@@ -1634,7 +1636,7 @@ class SegmentacionApp:
 
     def _on_mode_transmision_pressed(self) -> None:
         """
-        Handle user tap on the Transmision mode button.
+        Handle user tap on the Transmisión mode button.
         """
         self._disable_capturas_button()
         self._set_mode("camera")
