@@ -1,6 +1,6 @@
 {
   "groundParams": {
-    "dist_thresh": 0.03,
+    "dist_thresh": 0.01,
     "max_iters": 300,
     "min_inliers": 400,
     "subsample_stride": 2,
@@ -22,7 +22,7 @@
   },
   "wallParams": {
     "wall_subsample_stride": 2,
-    "wall_dist_thresh": 0.04,
+    "wall_dist_thresh": 0.03,
     "wall_max_iters": 300,
     "wall_min_inliers": 400,
     "wall_max_angle_deg": 20.0,
