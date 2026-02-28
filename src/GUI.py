@@ -55,14 +55,15 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segmentar import (
+from src.utilities.segmentar2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
     obtener_parametros_ground,
     obtener_metricas,
 )
-from src.models.doorDetection import is_model_loading
+from src.models.doorDetection2 import is_model_loading
+from src.color.palette import GUI_COLORS as C
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
@@ -111,8 +112,8 @@ class SegmentacionApp:
         self.config_defaults: Dict[str, str] = {}
         self._config_apply_btn: Optional[tk.Button] = None
         self._apply_btn_default_text: str = "Aplicar"
-        self._apply_btn_default_bg: str = "#00b86b"
-        self._apply_btn_default_activebg: str = "#21d087"
+        self._apply_btn_default_bg: str = C.SUCCESS_BG
+        self._apply_btn_default_activebg: str = C.SUCCESS_HOVER_BG
         self._apply_status_after_id: Optional[str] = None
         self.params_summary_labels: Dict[str, tk.Label] = {}
         self.params_summary_name_labels: List[tk.Label] = []
@@ -156,10 +157,10 @@ class SegmentacionApp:
         r"""
         \brief Sets up the base window properties (title, size, and style flags).
         """
-        self.root.title("Segmentacion")
+        self.root.title("Segmentación")
         self.root.geometry("1250x600")
         self.root.resizable(False, False)
-        self.root.configure(bg="#2f2f2f")
+        self.root.configure(bg=C.ROOT_BG)
         try:
             self.root.attributes("-fullscreen", False)
         except Exception:
@@ -206,39 +207,39 @@ class SegmentacionApp:
         \brief Creates and arranges the main UI panels.
         """
         # @note Sidebar panel.
-        frame_sidebar = tk.Frame(self.root, bg="#333333")
+        frame_sidebar = tk.Frame(self.root, bg=C.SIDEBAR_BG)
         frame_sidebar.grid(row=0, column=0, rowspan=6, sticky="nsew")
         frame_sidebar.grid_propagate(False)
         self._build_sidebar(frame_sidebar)
 
         # @note Video panel.
-        frame_video = tk.Frame(self.root, bg="#999999")
+        frame_video = tk.Frame(self.root, bg=C.PANEL_BG)
         frame_video.grid(row=0, column=1, rowspan=6, sticky="nsew")
         self._build_display_area(frame_video)
 
         # @note Parameter panel uses the full column (includes mode buttons).
-        frame_params = tk.Frame(self.root, bg="#999999")
+        frame_params = tk.Frame(self.root, bg=C.PANEL_BG)
         frame_params.grid(row=0, column=2, rowspan=6, sticky="nsew")
         self._build_exec_controls(frame_params)
 
         # @note Database panel (rows 0-3) -> column 3.
-        frame_db = tk.Frame(self.root, bg="#999999")
+        frame_db = tk.Frame(self.root, bg=C.PANEL_BG)
         frame_db.grid(row=0, column=3, rowspan=2, sticky="nsew")
         self._build_db_panel(frame_db)
 
         # @note Database panel (rows 0-3) -> column 3.
-        frame_db = tk.Frame(self.root, bg="#999999")
+        frame_db = tk.Frame(self.root, bg=C.PANEL_BG)
         frame_db.grid(row=2, column=3, rowspan=2, sticky="nsew")
         self._build_captura(frame_db)
 
 
         # @note Logo panel (rows 4-5, column 3).
-        frame_logo = tk.Frame(self.root, bg="#999999")
+        frame_logo = tk.Frame(self.root, bg=C.PANEL_BG)
         frame_logo.grid(row=4, column=3, rowspan=2, sticky="nsew")
         self._build_logo(frame_logo)
 
         # @note Full-screen configuration panel (except sidebar).
-        frame_config = tk.Frame(self.root, bg="#cccccc")
+        frame_config = tk.Frame(self.root, bg=C.CONFIG_BG)
         frame_config.grid(row=0, column=1, rowspan=6, columnspan=3, sticky="nsew")
         self._build_config_placeholder(frame_config)
         frame_config.grid_remove()
@@ -263,9 +264,9 @@ class SegmentacionApp:
             container.rowconfigure(r, weight=1, uniform="sidebar_rows")
         container.columnconfigure(0, weight=1)
 
-        top_wrapper = tk.Frame(container, bg="#333333")
+        top_wrapper = tk.Frame(container, bg=C.SIDEBAR_BG)
         top_wrapper.grid(row=0, column=0, rowspan=3, sticky="nsew")
-        bottom_wrapper = tk.Frame(container, bg="#333333")
+        bottom_wrapper = tk.Frame(container, bg=C.SIDEBAR_BG)
         bottom_wrapper.grid(row=3, column=0, rowspan=3, sticky="nsew")
 
         for wrapper in (top_wrapper, bottom_wrapper):
@@ -278,16 +279,16 @@ class SegmentacionApp:
             top_wrapper,
             image=config_icon,
             text="" if config_icon else "Config",
-            bg="#4a4a4a",
-            fg="white",
+            bg=C.BTN_NEUTRAL_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             width=1,
             height=1,
             compound="center",
             relief=tk.FLAT,
             overrelief=tk.FLAT,
-            activebackground="#4a4a4a",
-            activeforeground="white",
+            activebackground=C.BTN_NEUTRAL_BG,
+            activeforeground=C.TEXT_LIGHT,
             highlightthickness=0,
             takefocus=0,
             command=lambda: self._show_mode("config"),
@@ -298,17 +299,17 @@ class SegmentacionApp:
         self.btn_exec = tk.Button(
             bottom_wrapper,
             image=exec_icon,
-            text="" if exec_icon else "Ejecucion",
-            bg="#5c5c5c",
-            fg="white",
+            text="" if exec_icon else "Ejecución",
+            bg=C.BTN_NEUTRAL_DARK_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             width=1,
             height=1,
             compound="center",
             relief=tk.FLAT,
             overrelief=tk.FLAT,
-            activebackground="#5c5c5c",
-            activeforeground="white",
+            activebackground=C.BTN_NEUTRAL_DARK_BG,
+            activeforeground=C.TEXT_LIGHT,
             highlightthickness=0,
             takefocus=0,
             command=lambda: self._show_mode("exec"),
@@ -319,15 +320,15 @@ class SegmentacionApp:
         """
         \brief Builds the video display area and legend.
         """
-        frame_video_inner = tk.Frame(container, bg="#7f7f7f", width=DISPLAY_MAX_W, height=DISPLAY_MAX_H, bd=1, relief=tk.SOLID)
+        frame_video_inner = tk.Frame(container, bg=C.PANEL_NEUTRAL_BG, width=DISPLAY_MAX_W, height=DISPLAY_MAX_H, bd=1, relief=tk.SOLID)
         frame_video_inner.pack(side="top", pady=8, padx=8)
         frame_video_inner.pack_propagate(False)
 
         self.display_area = tk.Label(
             frame_video_inner,
             text="Esperando imagen...",
-            bg="#7f7f7f",
-            fg="white",
+            bg=C.PANEL_NEUTRAL_BG,
+            fg=C.TEXT_LIGHT,
             font=("Segoe UI", 11, "bold"),
             bd=0,
             relief=tk.FLAT,
@@ -341,7 +342,7 @@ class SegmentacionApp:
         # Gallery frame (hidden initially) used to browse saved captures.
         self.gallery_frame = tk.Frame(
             container,
-            bg="#7f7f7f",
+            bg=C.PANEL_NEUTRAL_BG,
             width=DISPLAY_MAX_W,
             height=DISPLAY_MAX_H,
             bd=1,
@@ -351,8 +352,8 @@ class SegmentacionApp:
         self.gallery_display = tk.Label(
             self.gallery_frame,
             text="Sin capturas para mostrar.",
-            bg="#7f7f7f",
-            fg="white",
+            bg=C.PANEL_NEUTRAL_BG,
+            fg=C.TEXT_LIGHT,
             font=("Segoe UI", 11, "bold"),
             bd=0,
             relief=tk.FLAT,
@@ -363,15 +364,15 @@ class SegmentacionApp:
         )
         self.gallery_display.pack(fill="both", expand=True)
 
-        gallery_nav = tk.Frame(self.gallery_frame, bg="#7f7f7f")
+        gallery_nav = tk.Frame(self.gallery_frame, bg=C.PANEL_NEUTRAL_BG)
         gallery_nav.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
         self.gallery_prev_btn = tk.Button(
             gallery_nav,
             text="Anterior",
-            bg="#5c5c5c",
-            fg="white",
-            activebackground="#4a4a4a",
-            activeforeground="white",
+            bg=C.BTN_NEUTRAL_DARK_BG,
+            fg=C.TEXT_LIGHT,
+            activebackground=C.BTN_NEUTRAL_BG,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=6,
@@ -383,8 +384,8 @@ class SegmentacionApp:
         self.gallery_counter = tk.Label(
             gallery_nav,
             text="0/0",
-            bg="#7f7f7f",
-            fg="white",
+            bg=C.PANEL_NEUTRAL_BG,
+            fg=C.TEXT_LIGHT,
             font=("Segoe UI", 9, "bold"),
         )
         self.gallery_counter.pack(side="left", padx=4)
@@ -392,10 +393,10 @@ class SegmentacionApp:
         self.gallery_next_btn = tk.Button(
             gallery_nav,
             text="Siguiente",
-            bg="#5c5c5c",
-            fg="white",
-            activebackground="#4a4a4a",
-            activeforeground="white",
+            bg=C.BTN_NEUTRAL_DARK_BG,
+            fg=C.TEXT_LIGHT,
+            activebackground=C.BTN_NEUTRAL_BG,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=6,
@@ -408,7 +409,7 @@ class SegmentacionApp:
 
         mode_panel = tk.Frame(
             container,
-            bg="#7f7f7f",
+            bg=C.PANEL_NEUTRAL_BG,
             bd=1,
             relief=tk.SOLID,
             width=DISPLAY_MAX_W,
@@ -420,7 +421,7 @@ class SegmentacionApp:
         self.mode_panel = mode_panel
 
         # Buttons stack on the right: two stacked and one spanning their combined height.
-        buttons_panel = tk.Frame(mode_panel, bg="#7f7f7f")
+        buttons_panel = tk.Frame(mode_panel, bg=C.PANEL_NEUTRAL_BG)
         buttons_panel.pack(side="right", padx=(6, 8), pady=8, fill="y")
         buttons_panel.grid_rowconfigure(0, weight=1)
         buttons_panel.grid_rowconfigure(1, weight=1)
@@ -430,10 +431,10 @@ class SegmentacionApp:
         self.btn_start_stream = tk.Button(
             buttons_panel,
             text="Iniciar Transmisión",
-            bg="#00b86b",
-            fg="white",
-            activebackground="#5c5c5c",
-            activeforeground="white",
+            bg=C.SUCCESS_BG,
+            fg=C.TEXT_LIGHT,
+            activebackground=C.BTN_NEUTRAL_DARK_BG,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=8,
             pady=8,
@@ -445,10 +446,10 @@ class SegmentacionApp:
         self.btn_stop_stream = tk.Button(
             buttons_panel,
             text="Detener Transmisión",
-            bg="#e53935",
-            fg="white",
-            activebackground="#5c5c5c",
-            activeforeground="white",
+            bg=C.DANGER_BG,
+            fg=C.TEXT_LIGHT,
+            activebackground=C.BTN_NEUTRAL_DARK_BG,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=8,
             pady=8,
@@ -460,10 +461,10 @@ class SegmentacionApp:
         self.btn_capturar = tk.Button(
             buttons_panel,
             text="Capturar",
-            bg="#f2c200",
-            fg="#1f1f1f",
-            activebackground="#ffd54f",
-            activeforeground="#1f1f1f",
+            bg=C.WARNING_BG,
+            fg=C.TEXT_DARK,
+            activebackground=C.WARNING_HOVER_BG,
+            activeforeground=C.TEXT_DARK,
             bd=0,
             padx=10,
             pady=8,
@@ -474,37 +475,37 @@ class SegmentacionApp:
         self.frame_video_inner = frame_video_inner
 
         # Content to the left of the buttons.
-        mode_content = tk.Frame(mode_panel, bg="#7f7f7f")
+        mode_content = tk.Frame(mode_panel, bg=C.PANEL_NEUTRAL_BG)
         mode_content.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=(4, 6))
 
         self.mode_label_text = tk.StringVar(
-            value="Modo de ejecucion: Camara RGB-D" if self.mode == "camera" else "Modo de ejecucion: Dataset de pruebas"
+            value="Modo de ejecución: Cámara RGB-D" if self.mode == "camera" else "Modo de ejecución: Dataset de pruebas"
         )
         mode_label = tk.Label(
             mode_content,
             textvariable=self.mode_label_text,
-            bg="#7f7f7f",
-            fg="white",
+            bg=C.PANEL_NEUTRAL_BG,
+            fg=C.TEXT_LIGHT,
             font=("Segoe UI", 10, "bold"),
         )
         mode_label.pack(side="top", pady=(0, 2), anchor="w")
 
-        indicators = tk.Frame(mode_content, bg="#7f7f7f")
+        indicators = tk.Frame(mode_content, bg=C.PANEL_NEUTRAL_BG)
         indicators.pack(side="top", pady=(0, 6), anchor="w")
         for color, text, handler in (
-            ("#00b86b", "Suelo", on_indicator_floor),
-            ("#1e88e5", "Muro", on_indicator_wall),
-            ("#e53935", "Puerta", on_indicator_door),
+            (C.SUCCESS_BG, "Suelo", on_indicator_floor),
+            (C.INFO_BG, "Muro", on_indicator_wall),
+            (C.DANGER_BG, "Puerta", on_indicator_door),
         ):
-            item = tk.Frame(indicators, bg="#7f7f7f")
+            item = tk.Frame(indicators, bg=C.PANEL_NEUTRAL_BG)
             item.pack(side="left", padx=8)
             circle_img = self._create_indicator_image(color)
             self._indicator_images.append(circle_img)
             dot_btn = tk.Button(
                 item,
                 image=circle_img,
-                bg="#7f7f7f",
-                activebackground="#7f7f7f",
+                bg=C.PANEL_NEUTRAL_BG,
+                activebackground=C.PANEL_NEUTRAL_BG,
                 bd=0,
                 relief=tk.FLAT,
                 overrelief=tk.FLAT,
@@ -513,7 +514,7 @@ class SegmentacionApp:
                 cursor="hand2",
             )
             dot_btn.pack(side="left")
-            lbl = tk.Label(item, text=text, bg="#7f7f7f", fg="white", font=("Segoe UI", 11, "bold"))
+            lbl = tk.Label(item, text=text, bg=C.PANEL_NEUTRAL_BG, fg=C.TEXT_LIGHT, font=("Segoe UI", 11, "bold"))
             lbl.pack(side="left", padx=6)
             dot_btn.configure(command=lambda h=handler, l=lbl: h(self, l))
 
@@ -611,7 +612,7 @@ class SegmentacionApp:
             self.gallery_display.configure(
                 text="No hay capturas en uploads.",
                 image="",
-                bg="#7f7f7f",
+                bg=C.PANEL_NEUTRAL_BG,
             )
             self._update_gallery_nav_state()
             return
@@ -629,8 +630,8 @@ class SegmentacionApp:
             self.gallery_display.configure(
                 image=self.gallery_photo_ref,
                 text=os.path.basename(path),
-                bg="#7f7f7f",
-                fg="white",
+                bg=C.PANEL_NEUTRAL_BG,
+                fg=C.TEXT_LIGHT,
                 compound=tk.BOTTOM,
             )
         except Exception as exc:
@@ -638,8 +639,8 @@ class SegmentacionApp:
             self.gallery_display.configure(
                 image="",
                 text=f"No se pudo cargar:\n{os.path.basename(path)}\n{exc}",
-                bg="#7f7f7f",
-                fg="white",
+                bg=C.PANEL_NEUTRAL_BG,
+                fg=C.TEXT_LIGHT,
                 compound=tk.TOP,
             )
         self._update_gallery_nav_state()
@@ -716,8 +717,8 @@ class SegmentacionApp:
         self.btn_mode_test = tk.Button(
             row_holder,
             text="Prueba",
-            bg="#e53935",
-            fg="white",
+            bg=C.DANGER_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             font=("Segoe UI", 10, "bold"),
             padx=12,
@@ -728,9 +729,9 @@ class SegmentacionApp:
 
         self.btn_mode_cam = tk.Button(
             row_holder,
-            text="Transmision",
-            bg="#e53935",
-            fg="white",
+            text="Transmisión",
+            bg=C.DANGER_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             font=("Segoe UI", 10, "bold"),
             padx=12,
@@ -741,7 +742,7 @@ class SegmentacionApp:
 
         params_panel = tk.Frame(
             container,
-            bg="#b3b3b3",
+            bg=C.CARD_BG,
             bd=0,
             relief=tk.FLAT,
             highlightthickness=0,
@@ -754,8 +755,8 @@ class SegmentacionApp:
         params_title = tk.Label(
             params_panel,
             text="Panel de Parámetros",
-            bg="#b3b3b3",
-            fg="#1f1f1f",
+            bg=C.CARD_BG,
+            fg=C.TEXT_DARK,
             font=("Segoe UI", 11, "bold"),
             anchor="center",
             padx=8,
@@ -764,7 +765,7 @@ class SegmentacionApp:
 
         params_body = tk.Frame(
             params_panel,
-            bg="#f2f2f2",
+            bg=C.LIGHT_BG,
             bd=0,
             relief=tk.FLAT,
             highlightthickness=0,
@@ -778,9 +779,9 @@ class SegmentacionApp:
 
         title_lbl = tk.Label(
             summary_header,
-            text="Parametros\nactuales",
+            text="Parámetros\nactuales",
             bg=params_body.cget("bg"),
-            fg="#1f1f1f",
+            fg=C.TEXT_DARK,
             font=("Segoe UI", 10, "bold italic"),
             anchor="w",
             justify=tk.LEFT,
@@ -798,10 +799,10 @@ class SegmentacionApp:
             command=lambda _value: self._apply_params_summary_filter(),
         )
         filter_menu.configure(
-            bg="#d9d9d9",
-            fg="#1f1f1f",
-            activebackground="#cfcfcf",
-            activeforeground="#1f1f1f",
+            bg=C.FORM_BG,
+            fg=C.TEXT_DARK,
+            activebackground=C.BTN_LIGHT_HOVER_BG,
+            activeforeground=C.TEXT_DARK,
             bd=0,
             highlightthickness=0,
             font=("Segoe UI", 9, "bold"),
@@ -876,7 +877,7 @@ class SegmentacionApp:
                 summary_frame,
                 text=f"{label_text}:",
                 bg=summary_frame.cget("bg"),
-                fg="#333333",
+                fg=C.SIDEBAR_BG,
                 font=("Segoe UI", 10, "bold"),
                 anchor="e",
                 justify="right",
@@ -890,7 +891,7 @@ class SegmentacionApp:
                 summary_frame,
                 text="",
                 bg=summary_frame.cget("bg"),
-                fg="#1f1f1f",
+                fg=C.TEXT_DARK,
                 font=("Segoe UI", 10),
                 anchor="w",
                 padx=4,
@@ -941,15 +942,15 @@ class SegmentacionApp:
         \brief Builds the header for the database panel.
         """
         container_bg = container.cget("bg")
-        panel = tk.Frame(container, bg="#b3b3b3", width=240, height=190, highlightthickness=0, bd=0)
+        panel = tk.Frame(container, bg=C.CARD_BG, width=240, height=190, highlightthickness=0, bd=0)
         panel.pack(anchor="n", padx=6, pady=6)
         panel.pack_propagate(False)
 
         header = tk.Label(
             panel,
             text="Panel de Muestras de Datos",
-            bg="#b3b3b3",
-            fg="black",
+            bg=C.CARD_BG,
+            fg=C.BLACK,
             font=("Segoe UI", 10, "bold"),
             anchor="center",
             wraplength=210,
@@ -981,9 +982,9 @@ class SegmentacionApp:
         btn_aplicar = tk.Button(
             body,
             text="Aplicar",
-            bg="#f2c200",
-            activebackground="#ffd54f",
-            fg="#1f1f1f",
+            bg=C.WARNING_BG,
+            activebackground=C.WARNING_HOVER_BG,
+            fg=C.TEXT_DARK,
             bd=0,
             width=12,
             padx=12,
@@ -1002,7 +1003,7 @@ class SegmentacionApp:
             showvalue=False,
             bg=container_bg,
             highlightthickness=0,
-            troughcolor="#d5d5d5",
+            troughcolor=C.SLIDER_TROUGH_BG,
             variable=self.dataset_index_var,
             command=self._on_dataset_slider,
         )
@@ -1012,10 +1013,10 @@ class SegmentacionApp:
         nav_row.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
         btn_atras = tk.Button(
             nav_row,
-            text="Atras",
-            bg="#e53935",
-            activebackground="#f1625f",
-            fg="white",
+            text="Atrás",
+            bg=C.DANGER_BG,
+            activebackground=C.DANGER_HOVER_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=6,
@@ -1026,9 +1027,9 @@ class SegmentacionApp:
         btn_siguiente = tk.Button(
             nav_row,
             text="Siguiente",
-            bg="#00b86b",
-            activebackground="#21d087",
-            fg="white",
+            bg=C.SUCCESS_BG,
+            activebackground=C.SUCCESS_HOVER_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=6,
@@ -1050,15 +1051,15 @@ class SegmentacionApp:
         \brief Builds the header for the database panel.
         """
         container_bg = container.cget("bg")
-        panel = tk.Frame(container, bg="#b3b3b3", width=240, height=190, highlightthickness=0, bd=0)
+        panel = tk.Frame(container, bg=C.CARD_BG, width=240, height=190, highlightthickness=0, bd=0)
         panel.pack(anchor="n", padx=6, pady=6)
         panel.pack_propagate(False)
 
         header = tk.Label(
             panel,
             text="Panel de Captura",
-            bg="#b3b3b3",
-            fg="black",
+            bg=C.CARD_BG,
+            fg=C.BLACK,
             font=("Segoe UI", 12, "bold"),
             anchor="center",
             pady=4,
@@ -1089,9 +1090,9 @@ class SegmentacionApp:
         btn_aplicar = tk.Button(
             body,
             text="Visualizar",
-            bg="#f2c200",
-            activebackground="#ffd54f",
-            fg="#1f1f1f",
+            bg=C.WARNING_BG,
+            activebackground=C.WARNING_HOVER_BG,
+            fg=C.TEXT_DARK,
             bd=0,
             width=12,
             padx=12,
@@ -1110,7 +1111,7 @@ class SegmentacionApp:
             showvalue=False,
             bg=container_bg,
             highlightthickness=0,
-            troughcolor="#d5d5d5",
+            troughcolor=C.SLIDER_TROUGH_BG,
             variable=self.capture_index_var,
             command=self._on_capture_slider,
         )
@@ -1121,9 +1122,9 @@ class SegmentacionApp:
         btn_atras = tk.Button(
             nav_row,
             text="Borrar",
-            bg="#e53935",
-            activebackground="#f1625f",
-            fg="white",
+            bg=C.DANGER_BG,
+            activebackground=C.DANGER_HOVER_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=6,
@@ -1133,9 +1134,9 @@ class SegmentacionApp:
         btn_siguiente = tk.Button(
             nav_row,
             text="Capturas",
-            bg="#00b86b",
-            activebackground="#21d087",
-            fg="white",
+            bg=C.SUCCESS_BG,
+            activebackground=C.SUCCESS_HOVER_BG,
+            fg=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=6,
@@ -1207,7 +1208,7 @@ class SegmentacionApp:
                     logos_frame,
                     text=f"No se pudo cargar\n{fname}",
                     bg=container_bg,
-                    fg="white",
+                    fg=C.TEXT_LIGHT,
                     font=("Segoe UI", 9, "bold"),
                     justify="center",
                     width=14,
@@ -1218,15 +1219,15 @@ class SegmentacionApp:
         """
         \brief Configuration panel for RANSAC parameters.
         """
-        container.configure(bg="#d9d9d9")
-        wrapper = tk.Frame(container, bg="#d9d9d9")
+        container.configure(bg=C.FORM_BG)
+        wrapper = tk.Frame(container, bg=C.FORM_BG)
         wrapper.pack(expand=True, fill="both", padx=22, pady=22)
 
         title = tk.Label(
             wrapper,
             text="Panel de Configuración",
-            bg="#d9d9d9",
-            fg="#1f1f1f",
+            bg=C.FORM_BG,
+            fg=C.TEXT_DARK,
             font=("Segoe UI", 16, "bold"),
             anchor="w",
         )
@@ -1235,21 +1236,21 @@ class SegmentacionApp:
         subtitle = tk.Label(
             wrapper,
             text="Ajusta los parámetros usados por el Aplicativo de Segmentación.",
-            bg="#d9d9d9",
-            fg="#333333",
+            bg=C.FORM_BG,
+            fg=C.SIDEBAR_BG,
             font=("Segoe UI", 10),
             anchor="w",
             justify="left",
         )
         subtitle.pack(fill="x", pady=(0, 10))
 
-        body = tk.Frame(wrapper, bg="#d9d9d9")
+        body = tk.Frame(wrapper, bg=C.FORM_BG)
         body.pack(fill="both", expand=True)
         body.grid_columnconfigure(0, weight=3, uniform="cfg_cols")
         body.grid_columnconfigure(1, weight=1, uniform="cfg_cols")
         body.grid_rowconfigure(0, weight=1)
 
-        form = tk.Frame(body, bg="#f2f2f2", bd=1, relief=tk.SOLID)
+        form = tk.Frame(body, bg=C.LIGHT_BG, bd=1, relief=tk.SOLID)
         form.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         form.grid_rowconfigure(0, weight=1)
         form.grid_columnconfigure(0, weight=1)
@@ -1345,18 +1346,18 @@ class SegmentacionApp:
             if enabled:
                 btn.configure(
                     text="Desactivar",
-                    bg="#e53935",
-                    fg="white",
-                    activebackground="#f1625f",
-                    activeforeground="white",
+                    bg=C.DANGER_BG,
+                    fg=C.TEXT_LIGHT,
+                    activebackground=C.DANGER_HOVER_BG,
+                    activeforeground=C.TEXT_LIGHT,
                 )
             else:
                 btn.configure(
                     text="Activar",
-                    bg="#00b86b",
-                    fg="white",
-                    activebackground="#21d087",
-                    activeforeground="white",
+                    bg=C.SUCCESS_BG,
+                    fg=C.TEXT_LIGHT,
+                    activebackground=C.SUCCESS_HOVER_BG,
+                    activeforeground=C.TEXT_LIGHT,
                 )
 
         for title_text, fields in sections:
@@ -1364,7 +1365,7 @@ class SegmentacionApp:
                 form_fields,
                 text=title_text,
                 bg=form.cget("bg"),
-                fg="#1f1f1f",
+                fg=C.TEXT_DARK,
                 font=("Segoe UI", 11, "bold"),
                 bd=1,
                 relief=tk.GROOVE,
@@ -1382,7 +1383,7 @@ class SegmentacionApp:
                     section,
                     text=label_text,
                     bg=section.cget("bg"),
-                    fg="#1f1f1f",
+                    fg=C.TEXT_DARK,
                     font=("Segoe UI", 10, "bold"),
                     anchor="w",
                     justify="left",
@@ -1428,10 +1429,10 @@ class SegmentacionApp:
         btn_cancel = tk.Button(
             actions,
             text="Cancelar",
-            bg="#e53935",
-            fg="white",
-            activebackground="#f1625f",
-            activeforeground="white",
+            bg=C.DANGER_BG,
+            fg=C.TEXT_LIGHT,
+            activebackground=C.DANGER_HOVER_BG,
+            activeforeground=C.TEXT_LIGHT,
             bd=0,
             padx=12,
             pady=8,
@@ -1442,10 +1443,10 @@ class SegmentacionApp:
         btn_apply = tk.Button(
             actions,
             text="Aplicar",
-            bg="#00b86b",
-            fg="#d9d9d9",
-            activebackground="#21d087",
-            activeforeground="#d9d9d9",
+            bg=C.SUCCESS_BG,
+            fg=C.FORM_BG,
+            activebackground=C.SUCCESS_HOVER_BG,
+            activeforeground=C.FORM_BG,
             bd=0,
             padx=14,
             pady=8,
@@ -1458,7 +1459,7 @@ class SegmentacionApp:
         self._apply_btn_default_bg = btn_apply.cget("bg")
         self._apply_btn_default_activebg = btn_apply.cget("activebackground")
 
-        logos_panel = tk.Frame(body, bg="#d9d9d9")
+        logos_panel = tk.Frame(body, bg=C.FORM_BG)
         logos_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=(4, 0))
         logos_panel.grid_columnconfigure(0, weight=1)
         logos_panel.grid_rowconfigure(0, weight=1)
@@ -1487,14 +1488,14 @@ class SegmentacionApp:
             photo = _load_logo(fname, tw, th)
             if photo:
                 self.config_logo_images.append(photo)
-                lbl = tk.Label(logos_panel, image=photo, bg="#d9d9d9", bd=0)
+                lbl = tk.Label(logos_panel, image=photo, bg=C.FORM_BG, bd=0)
                 lbl.grid(row=r, column=0, padx=6, pady=3, sticky="n")
             else:
                 lbl = tk.Label(
                     logos_panel,
                     text=f"{fname}",
-                    bg="#d9d9d9",
-                    fg="#4a4a4a",
+                    bg=C.FORM_BG,
+                    fg=C.BTN_NEUTRAL_BG,
                     font=("Segoe UI", 9, "bold"),
                     justify="center",
                 )
@@ -1503,8 +1504,8 @@ class SegmentacionApp:
         hint = tk.Label(
             wrapper,
             text="Desarrollado por Ricardo Pabón Serna - PSI - Universidad del Valle",
-            bg="#d9d9d9",
-            fg="#4a4a4a",
+            bg=C.FORM_BG,
+            fg=C.BTN_NEUTRAL_BG,
             font=("Segoe UI", 9),
             anchor="w",
             justify="left",
@@ -1563,7 +1564,7 @@ class SegmentacionApp:
         raw_values = {key: var.get() for key, var in self.config_vars.items()}
         parsed = parse_config_params(raw_values)
         if parsed is None:
-            self._set_apply_status("No aplicado", bg="#e53935", active_bg="#f1625f")
+            self._set_apply_status("No aplicado", bg=C.DANGER_BG, active_bg=C.DANGER_HOVER_BG)
             return
 
         updated = actualizar_parametros_ground(parsed)
@@ -1575,11 +1576,11 @@ class SegmentacionApp:
         # Restart worker so the new parameters take effect immediately when running.
         if self._worker and self._worker.is_alive():
             self._restart_worker()
-        print("[GUI] Parametros de segmentacion actualizados.")
+        print("[GUI] Parámetros de segmentación actualizados.")
         self._set_apply_status(
             "Aplicado",
-            bg="#5ee68a",
-            active_bg="#80f0a8",
+            bg=C.SUCCESS_SOFT_BG,
+            active_bg=C.SUCCESS_SOFT_HOVER_BG,
             on_reset=lambda: self._show_mode("exec"),
         )
 
@@ -1602,11 +1603,11 @@ class SegmentacionApp:
         \brief Updates sidebar button styles based on the active page.
         """
         if active == "config":
-            self.btn_config.configure(bg="#3b3b3b")
-            self.btn_exec.configure(bg="#5c5c5c")
+            self.btn_config.configure(bg=C.SIDEBAR_ACTIVE_BG)
+            self.btn_exec.configure(bg=C.BTN_NEUTRAL_DARK_BG)
         else:
-            self.btn_exec.configure(bg="#3b3b3b")
-            self.btn_config.configure(bg="#4a4a4a")
+            self.btn_exec.configure(bg=C.SIDEBAR_ACTIVE_BG)
+            self.btn_config.configure(bg=C.BTN_NEUTRAL_BG)
         self._adjust_sidebar_rows()
 
     def _show_mode(self, mode: str) -> None:
@@ -1644,13 +1645,13 @@ class SegmentacionApp:
         """
         self.mode = mode
         if mode == "camera":
-            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg="#00b86b", activebackground="#21d087")
-            self.btn_mode_test.configure(relief=tk.RAISED, bg="#e53935", activebackground="#f1625f")
-            self.mode_label_text.set("Modo de ejecucion: Camara RGB-D")
+            self.btn_mode_cam.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
+            self.btn_mode_test.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
+            self.mode_label_text.set("Modo de ejecución: Cámara RGB-D")
         else:
-            self.btn_mode_test.configure(relief=tk.SUNKEN, bg="#00b86b", activebackground="#21d087")
-            self.btn_mode_cam.configure(relief=tk.RAISED, bg="#e53935", activebackground="#f1625f")
-            self.mode_label_text.set("Modo de ejecucion: Dataset de pruebas")
+            self.btn_mode_test.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
+            self.btn_mode_cam.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
+            self.mode_label_text.set("Modo de ejecución: Dataset de pruebas")
 
         self._update_stream_controls_state()
         self._update_sample_panel_state()
@@ -1858,9 +1859,9 @@ class SegmentacionApp:
         """
         self._stream_requested = False
         self._stop_worker()
-        self.mode_label_text.set("Transmision detenida")
+        self.mode_label_text.set("Transmisión detenida")
         if hasattr(self, "display_area"):
-            self.display_area.configure(text="Transmision detenida", image="", bg="#7f7f7f")
+            self.display_area.configure(text="Transmisión detenida", image="", bg=C.PANEL_NEUTRAL_BG)
 
     def _capture_screenshot(self) -> None:
         """
@@ -1952,14 +1953,14 @@ class SegmentacionApp:
                 self.display_area.configure(
                     text=self._loading_message(),
                     image="",
-                    bg="#7f7f7f",
+                    bg=C.PANEL_NEUTRAL_BG,
                     compound="center",
                 )
                 return
             self.display_area.configure(
                 text="Sin datos de segmentación.",
                 image="",
-                bg="#7f7f7f",
+                bg=C.PANEL_NEUTRAL_BG,
                 compound="center",
             )
             return
@@ -1968,7 +1969,7 @@ class SegmentacionApp:
             self.display_area.configure(
                 text=self._loading_message(),
                 image="",
-                bg="#7f7f7f",
+                bg=C.PANEL_NEUTRAL_BG,
                 compound="center",
             )
             return
@@ -2013,7 +2014,7 @@ class SegmentacionApp:
         self.display_area.configure(
             image=self.photo_ref,
             text=overlay_text,
-            bg="#7f7f7f",
+            bg=C.PANEL_NEUTRAL_BG,
             compound=tk.BOTTOM,
         )
 
@@ -2073,3 +2074,4 @@ if __name__ == "__main__":
     # Allow launching directly on any platform; default to dataset mode to avoid
     # camera/GPU dependencies when they are not available.
     run_app(mode="prueba")
+
