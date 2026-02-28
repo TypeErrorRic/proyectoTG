@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-# Valor fijo reportado por Jetson (evaluar_nyu_v2.py).
+# Valor fijo reportado por Jetson (evaluate_nyu_v2.py).
 REPORTED_AVG_TIME_S = 1.26
 
 try:

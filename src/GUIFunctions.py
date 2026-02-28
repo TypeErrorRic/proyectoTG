@@ -7,11 +7,11 @@ from PIL import Image, ImageDraw, ImageGrab
 
 # Optional import to fetch current configuration parameters at capture time.
 try:
-    from src.utilities.segmentar import obtener_parametros_ground
+    from src.utilities.segment import obtener_parametros_ground
 except ModuleNotFoundError:
     try:
-        from utilities.segmentar import obtener_parametros_ground  # type: ignore
-    except ModuleNotFoundError:  # pragma: no cover - fallback when segmentar is unavailable
+        from utilities.segment import obtener_parametros_ground  # type: ignore
+    except ModuleNotFoundError:  # pragma: no cover - fallback when segment is unavailable
         obtener_parametros_ground = None  # type: ignore
 
 # Optional import to toggle mask overlays from the GUI.

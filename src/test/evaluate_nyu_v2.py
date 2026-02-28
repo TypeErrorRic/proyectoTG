@@ -1,4 +1,4 @@
-"""
+﻿"""
 Evalua segmentacion de suelo y muros sobre NYU Depth V2 (MATLAB v7.3).
 
 Este script usa AlgoritmosSegmentacion en modo "prueba" y compara las
@@ -36,7 +36,7 @@ for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from src.utilities import segmentar
+from src.utilities import segment
 from src.utilities.helpers import apply_mask_to_rgb
 
 WALL_IDS = [21]
@@ -170,7 +170,7 @@ def make_dataset_loader(cache: FrameCache):
 
 def _drain_results():
     while True:
-        if segmentar.obtener_resultado() is None:
+        if segment.obtener_resultado() is None:
             break
 
 
@@ -316,7 +316,7 @@ def main() -> int:
     cache = FrameCache(reader)
 
     # Monkeypatch dataset loader used by AlgoritmosSegmentacion
-    segmentar.load_dataset_frame = make_dataset_loader(cache)
+    segment.load_dataset_frame = make_dataset_loader(cache)
 
     try:
         if args.index is not None:
@@ -363,9 +363,9 @@ def main() -> int:
         if tqdm is not None:
             iterator = tqdm(indices, desc="Evaluando", unit="frame")
 
-        segmentar.detener_hilo_secundario()
+        segment.detener_hilo_secundario()
         try:
-            segmentar._lazy_init(mode="prueba")
+            segment._lazy_init(mode="prueba")
         except Exception:
             pass
 
@@ -381,7 +381,7 @@ def main() -> int:
             if not gt_floor.any() or not gt_wall.any():
                 continue
 
-            ok = segmentar.preprocesar(mode="prueba", dataset_index=idx)
+            ok = segment.preprocesar(mode="prueba", dataset_index=idx)
             if not ok:
                 continue
 
@@ -399,8 +399,8 @@ def main() -> int:
                 pred_wall = None
                 for attempt in range(max_retries + 1):
                     try:
-                        overlay = segmentar.segmentar()
-                        masks = segmentar.obtener_mascaras(copy=True)
+                        overlay = segment.segmentar()
+                        masks = segment.obtener_mascaras(copy=True)
                     except Exception:
                         if attempt < max_retries:
                             continue
@@ -536,10 +536,11 @@ def main() -> int:
                     )
     finally:
         reader.close()
-        segmentar.liberar_recursos()
+        segment.liberar_recursos()
 
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

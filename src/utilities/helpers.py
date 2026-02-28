@@ -1,7 +1,7 @@
 """
 Helper utilities for point clouds, GPU overlays, and dataset loading.
 
-Used by viewCamera, ransacCellingGround, and segmentar to prepare geometry,
+Used by viewCamera, ransacCellingGround, and segment to prepare geometry,
 apply masks, and stream sample data.
 """
 import os
@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 """
 Helper utilities for point clouds, GPU overlays, and dataset loading.
 
-Used by viewCamera, ransacCellingGround, and segmentar to prepare geometry,
+Used by viewCamera, ransacCellingGround, and segment to prepare geometry,
 apply masks, and stream sample data.
 """
 

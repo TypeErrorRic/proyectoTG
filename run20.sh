@@ -467,11 +467,11 @@ PY
     ensure_python
     setup_cupy_env
     echo "Evaluando NYU V2 con AlgoritmosSegmentacion..."
-    if [[ -f "src/test/evaluar_nyu_v2.py" ]]; then
+    if [[ -f "src/test/evaluate_nyu_v2.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/test/evaluar_nyu_v2.py "${@:2}"
+      "$PYTHON_BIN" src/test/evaluate_nyu_v2.py "${@:2}"
     else
-      echo "ERROR: No se encontro src/test/evaluar_nyu_v2.py"
+      echo "ERROR: No se encontro src/test/evaluate_nyu_v2.py"
       exit 1
     fi
     ;;
