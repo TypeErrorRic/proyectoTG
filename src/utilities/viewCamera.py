@@ -1,7 +1,7 @@
 """
-Utilidades RealSense para obtener RGB, profundidad (m) y rayos por píxel, con opción
-de alinear DEPTH→COLOR en GPU o CPU. Incluye un demo que genera una nube de puntos
-desde rayos + profundidad y la renderiza en 2D.
+RealSense utilities to obtain RGB, depth (m), and per-pixel rays, with an option
+to align DEPTH->COLOR on GPU or CPU. Includes a demo that generates a point cloud
+from rays + depth and renders it in 2D.
 """
 
 import pyrealsense2 as rs
