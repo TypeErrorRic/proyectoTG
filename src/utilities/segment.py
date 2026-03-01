@@ -26,6 +26,7 @@ import cv2
 import threading
 import time
 import queue
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, Callable, Any, Tuple, Dict, List
 
@@ -39,6 +40,7 @@ _LABEL_DIRS = {
     "door": _DATA_DIR / "labels" / "doorGrounTruth",
 }
 _DATASET_EXTS = (".png", ".jpg", ".jpeg")
+_GT_CACHE_MAX = 64
 _REQUIRED_CONFIG_SECTIONS = (
     "groundParams",
     "wallParams",
@@ -134,6 +136,7 @@ TareaFuncion = Callable[..., Any]
 _tarea_funcion: Optional[TareaFuncion] = None
 _tarea_args: Tuple[Any, ...] = ()
 _tarea_kwargs: Dict[str, Any] = {}
+_gt_mask_cache: "OrderedDict[str, Optional[np.ndarray]]" = OrderedDict()
 
 
 def _snapshot_param_groups() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
@@ -230,6 +233,28 @@ def _resolve_label_mask_path(mask_dir: Path, filename: str) -> Optional[Path]:
     return None
 
 
+def _load_gt_mask_cached(label_key: str, filename: str) -> Optional[np.ndarray]:
+    cache_key = f"{label_key}:{filename}"
+    cached = _gt_mask_cache.get(cache_key)
+    if cache_key in _gt_mask_cache:
+        _gt_mask_cache.move_to_end(cache_key)
+        return cached
+
+    folder = _LABEL_DIRS.get(label_key)
+    if folder is None:
+        return None
+    mask_path = _resolve_label_mask_path(folder, filename)
+    if mask_path is None:
+        _gt_mask_cache[cache_key] = None
+    else:
+        gt_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        _gt_mask_cache[cache_key] = None if gt_img is None else (gt_img > 0)
+    _gt_mask_cache.move_to_end(cache_key)
+    while len(_gt_mask_cache) > _GT_CACHE_MAX:
+        _gt_mask_cache.popitem(last=False)
+    return _gt_mask_cache.get(cache_key)
+
+
 def _to_bool_mask(mask: Any, shape_hw: Optional[Tuple[int, int]] = None) -> Optional[np.ndarray]:
     if mask is None:
         return None
@@ -288,14 +313,10 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
     dice_vals: List[float] = []
     prec_vals: List[float] = []
 
-    for key, folder in _LABEL_DIRS.items():
-        mask_path = _resolve_label_mask_path(folder, filename)
-        if mask_path is None:
+    for key in _LABEL_DIRS:
+        gt_bool = _load_gt_mask_cached(key, filename)
+        if gt_bool is None:
             continue
-        gt_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-        if gt_img is None:
-            continue
-        gt_bool = gt_img > 0
         pred_mask = masks.get(key)
         if pred_mask is None:
             pred_mask = np.zeros(gt_bool.shape, dtype=np.uint8)
@@ -652,6 +673,7 @@ def _lazy_init(
         _runtime["last_dice"] = None
         _runtime["last_precision"] = None
         _runtime["dataset_filename"] = None
+        _gt_mask_cache.clear()
     _runtime["mode"] = mode
 
     if mode == "prueba":
@@ -926,6 +948,7 @@ def liberar_recursos() -> None:
     _runtime["last_dice"] = None
     _runtime["last_precision"] = None
     _runtime["dataset_filename"] = None
+    _gt_mask_cache.clear()
 
     try:
         while not _resultados.empty():

@@ -2035,9 +2035,9 @@ class SegmentacionApp:
 
         self.display_area.configure(
             image=self.photo_ref,
-            text=f"{overlay_text}\n{overlay_subtext}" if overlay_subtext else overlay_text,
+            text="",
             bg=C.PANEL_NEUTRAL_BG,
-            compound=tk.BOTTOM,
+            compound="center",
         )
 
     def _adjust_sidebar_rows(self) -> None:
