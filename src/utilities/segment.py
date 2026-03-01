@@ -107,6 +107,7 @@ _runtime: Dict[str, Any] = {
     "last_iou": None,
     "last_dice": None,
     "last_precision": None,
+    "last_class_metrics": None,
     "groundParams": dict(_loaded_config["groundParams"]),
     "wallParams": dict(_loaded_config["wallParams"]),
     "doorParams": dict(_loaded_config["doorParams"]),
@@ -268,6 +269,13 @@ def _to_bool_mask(mask: Any, shape_hw: Optional[Tuple[int, int]] = None) -> Opti
     return arr > 0
 
 
+def _empty_class_metrics() -> Dict[str, Dict[str, Optional[float]]]:
+    return {
+        key: {"iou": None, "dice": None, "precision": None}
+        for key in _LABEL_DIRS
+    }
+
+
 def calcular_iou(pred_mask: Any, gt_mask: Any) -> Optional[float]:
     gt = _to_bool_mask(gt_mask)
     pred = _to_bool_mask(pred_mask, shape_hw=gt.shape if gt is not None else None)
@@ -305,9 +313,15 @@ def calcular_precision(pred_mask: Any, gt_mask: Any) -> Optional[float]:
     return float(tp) / float(denom)
 
 
-def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Dict[str, Optional[float]]:
+def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Dict[str, Any]:
+    class_metrics = _empty_class_metrics()
     if not filename:
-        return {"iou": None, "dice": None, "precision": None}
+        return {
+            "iou": None,
+            "dice": None,
+            "precision": None,
+            "class_metrics": class_metrics,
+        }
 
     iou_vals: List[float] = []
     dice_vals: List[float] = []
@@ -323,6 +337,11 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
         iou = calcular_iou(pred_mask, gt_bool)
         dice = calcular_dice(pred_mask, gt_bool)
         prec = calcular_precision(pred_mask, gt_bool)
+        class_metrics[key] = {
+            "iou": float(iou) if iou is not None else None,
+            "dice": float(dice) if dice is not None else None,
+            "precision": float(prec) if prec is not None else None,
+        }
         if iou is not None:
             iou_vals.append(float(iou))
         if dice is not None:
@@ -331,12 +350,18 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
             prec_vals.append(float(prec))
 
     if not iou_vals:
-        return {"iou": None, "dice": None, "precision": None}
+        return {
+            "iou": None,
+            "dice": None,
+            "precision": None,
+            "class_metrics": class_metrics,
+        }
 
     return {
         "iou": float(sum(iou_vals) / len(iou_vals)),
         "dice": float(sum(dice_vals) / len(dice_vals)),
         "precision": float(sum(prec_vals) / len(prec_vals)),
+        "class_metrics": class_metrics,
     }
 
 
@@ -346,11 +371,15 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
     """
     with _runtime_lock:
         last_ms = _runtime.get("last_ransac_ms")
+        class_metrics = _runtime.get("last_class_metrics") or _empty_class_metrics()
         metrics = {
             "last_ransac_ms": last_ms,
             "iou": _runtime.get("last_iou"),
             "dice": _runtime.get("last_dice"),
             "precision": _runtime.get("last_precision"),
+            "class_metrics": {
+                key: dict(values) for key, values in class_metrics.items()
+            },
         }
     return metrics.copy() if copy else metrics
 
@@ -399,6 +428,7 @@ def segmentar() -> Any:
             _runtime["last_iou"] = None
             _runtime["last_dice"] = None
             _runtime["last_precision"] = None
+            _runtime["last_class_metrics"] = _empty_class_metrics()
         return imagenRGB
 
     depth_cp = None
@@ -526,7 +556,12 @@ def segmentar() -> Any:
         except Exception as e:
             print(f"[segmentar] Wall mask refinement failed: {e}")
 
-    stats = {"iou": None, "dice": None, "precision": None}
+    stats = {
+        "iou": None,
+        "dice": None,
+        "precision": None,
+        "class_metrics": _empty_class_metrics(),
+    }
     if _runtime.get("mode") == "prueba":
         stats = _compute_dataset_stats(
             _runtime.get("dataset_filename"),
@@ -546,6 +581,7 @@ def segmentar() -> Any:
         _runtime["last_iou"] = stats.get("iou")
         _runtime["last_dice"] = stats.get("dice")
         _runtime["last_precision"] = stats.get("precision")
+        _runtime["last_class_metrics"] = stats.get("class_metrics") or _empty_class_metrics()
 
     return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
 
@@ -672,6 +708,7 @@ def _lazy_init(
         _runtime["last_iou"] = None
         _runtime["last_dice"] = None
         _runtime["last_precision"] = None
+        _runtime["last_class_metrics"] = _empty_class_metrics()
         _runtime["dataset_filename"] = None
         _gt_mask_cache.clear()
     _runtime["mode"] = mode
@@ -746,6 +783,7 @@ def preprocesar(
             _runtime["last_iou"] = None
             _runtime["last_dice"] = None
             _runtime["last_precision"] = None
+            _runtime["last_class_metrics"] = _empty_class_metrics()
             return False
 
         # Set H, W from the actual image dimensions.
@@ -947,6 +985,7 @@ def liberar_recursos() -> None:
     _runtime["last_iou"] = None
     _runtime["last_dice"] = None
     _runtime["last_precision"] = None
+    _runtime["last_class_metrics"] = _empty_class_metrics()
     _runtime["dataset_filename"] = None
     _gt_mask_cache.clear()
 

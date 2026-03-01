@@ -1978,47 +1978,46 @@ class SegmentacionApp:
 
         now = time.perf_counter()
         delta = now - frame_ts if frame_ts else 0.0
-        overlay_text = ""
-        overlay_subtext = ""
+        overlay_lines = []
         if self.mode == "prueba":
             metrics = obtener_metricas()
             ransac_ms = None if not metrics else metrics.get("last_ransac_ms")
-            iou = None if not metrics else metrics.get("iou")
-            dice = None if not metrics else metrics.get("dice")
-            precision = None if not metrics else metrics.get("precision")
-            overlay_text = (
+            class_metrics = metrics.get("class_metrics") if metrics else {}
+            overlay_lines.append(
                 f"RANSAC: {ransac_ms:.1f} ms" if ransac_ms is not None else "RANSAC: -- ms"
             )
-            overlay_subtext = (
-                f"IoU: {iou:.2f}  Dice: {dice:.2f}  Prec: {precision:.2f}"
-                if iou is not None and dice is not None and precision is not None
-                else "IoU: --  Dice: --  Prec: --"
-            )
+
+            def _fmt(v):
+                return f"{v:.2f}" if v is not None else "--"
+
+            def _line_for(key: str, label: str) -> str:
+                cm = class_metrics.get(key) if isinstance(class_metrics, dict) else {}
+                if not isinstance(cm, dict):
+                    cm = {}
+                return (
+                    f"{label} I:{_fmt(cm.get('iou'))} "
+                    f"D:{_fmt(cm.get('dice'))} "
+                    f"P:{_fmt(cm.get('precision'))}"
+                )
+
+            overlay_lines.append(_line_for("ground", "Suelo"))
+            overlay_lines.append(_line_for("wall", "Muro"))
+            overlay_lines.append(_line_for("door", "Puerta"))
         else:
             if delta > 0:
                 self.fps = 1.0 / max(delta, 1e-3)
             self.prev_time = now
-            overlay_text = f"FPS: {self.fps:.2f}"
+            overlay_lines = [f"FPS: {self.fps:.2f}"]
 
-        cv2.putText(
-            frame,
-            overlay_text,
-            (12, 28),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 0),
-            2,
-            cv2.LINE_AA,
-        )
-        if overlay_subtext:
+        for idx, line in enumerate(overlay_lines):
             cv2.putText(
                 frame,
-                overlay_subtext,
-                (12, 50),
+                line,
+                (12, 28 + idx * 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
+                0.8 if idx == 0 else 0.5,
                 (0, 255, 0),
-                1,
+                2 if idx == 0 else 1,
                 cv2.LINE_AA,
             )
 

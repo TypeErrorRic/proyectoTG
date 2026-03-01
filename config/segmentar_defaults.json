@@ -1,6 +1,6 @@
 {
   "groundParams": {
-    "dist_thresh": 0.01,
+    "dist_thresh": 0.03,
     "max_iters": 300,
     "min_inliers": 400,
     "subsample_stride": 2,
