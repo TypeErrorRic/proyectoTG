@@ -276,6 +276,24 @@ def _empty_class_metrics() -> Dict[str, Dict[str, Optional[float]]]:
     }
 
 
+def _exclusive_masks_bool(masks: Dict[str, Any], shape_hw: Tuple[int, int]) -> Dict[str, np.ndarray]:
+    ground_raw = _to_bool_mask(masks.get("ground"), shape_hw=shape_hw)
+    wall_raw = _to_bool_mask(masks.get("wall"), shape_hw=shape_hw)
+    door_raw = _to_bool_mask(masks.get("door"), shape_hw=shape_hw)
+    if ground_raw is None:
+        ground_raw = np.zeros(shape_hw, dtype=bool)
+    if wall_raw is None:
+        wall_raw = np.zeros(shape_hw, dtype=bool)
+    if door_raw is None:
+        door_raw = np.zeros(shape_hw, dtype=bool)
+
+    # Same visual priority as overlay: ground > door > wall.
+    ground = ground_raw
+    door = np.logical_and(door_raw, ~ground_raw)
+    wall = np.logical_and(wall_raw, ~(np.logical_or(door_raw, ground_raw)))
+    return {"ground": ground, "wall": wall, "door": door}
+
+
 def calcular_iou(pred_mask: Any, gt_mask: Any) -> Optional[float]:
     gt = _to_bool_mask(gt_mask)
     pred = _to_bool_mask(pred_mask, shape_hw=gt.shape if gt is not None else None)
@@ -323,20 +341,41 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
             "class_metrics": class_metrics,
         }
 
-    iou_vals: List[float] = []
-    dice_vals: List[float] = []
-    prec_vals: List[float] = []
+    gt_raw: Dict[str, np.ndarray] = {}
+    shape_hw: Optional[Tuple[int, int]] = None
 
     for key in _LABEL_DIRS:
         gt_bool = _load_gt_mask_cached(key, filename)
         if gt_bool is None:
             continue
-        pred_mask = masks.get(key)
-        if pred_mask is None:
-            pred_mask = np.zeros(gt_bool.shape, dtype=np.uint8)
-        iou = calcular_iou(pred_mask, gt_bool)
-        dice = calcular_dice(pred_mask, gt_bool)
-        prec = calcular_precision(pred_mask, gt_bool)
+        gt_raw[key] = gt_bool
+        if shape_hw is None:
+            shape_hw = gt_bool.shape
+
+    if shape_hw is None:
+        return {
+            "iou": None,
+            "dice": None,
+            "precision": None,
+            "class_metrics": class_metrics,
+        }
+
+    pred_ex = _exclusive_masks_bool(masks, shape_hw=shape_hw)
+    gt_ex = _exclusive_masks_bool(gt_raw, shape_hw=shape_hw)
+
+    iou_vals: List[float] = []
+    dice_vals: List[float] = []
+    prec_vals: List[float] = []
+    for key in _LABEL_DIRS:
+        pred_mask = pred_ex.get(key)
+        gt_mask = gt_ex.get(key)
+        iou = calcular_iou(pred_mask, gt_mask)
+        dice = calcular_dice(pred_mask, gt_mask)
+        prec = calcular_precision(pred_mask, gt_mask)
+        if iou == 1.0 and dice == 1.0 and prec == 1.0 and (not np.any(gt_mask)) and (not np.any(pred_mask)):
+            iou = None
+            dice = None
+            prec = None
         class_metrics[key] = {
             "iou": float(iou) if iou is not None else None,
             "dice": float(dice) if dice is not None else None,
@@ -377,6 +416,7 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
             "iou": _runtime.get("last_iou"),
             "dice": _runtime.get("last_dice"),
             "precision": _runtime.get("last_precision"),
+            "dataset_filename": _runtime.get("dataset_filename"),
             "class_metrics": {
                 key: dict(values) for key, values in class_metrics.items()
             },
