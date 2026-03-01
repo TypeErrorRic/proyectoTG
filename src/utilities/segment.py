@@ -27,7 +27,7 @@ import threading
 import time
 import queue
 from pathlib import Path
-from typing import Optional, Callable, Any, Tuple, Dict
+from typing import Optional, Callable, Any, Tuple, Dict, List
 
 
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "segmentar_defaults.json"
@@ -187,7 +187,7 @@ def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any
         return merged.copy()
 
 
-def _dataset_files() -> list[str]:
+def _dataset_files() -> List[str]:
     files = _runtime.get("dataset_files")
     if files is not None:
         return files
@@ -284,9 +284,9 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
     if not filename:
         return {"iou": None, "dice": None, "precision": None}
 
-    iou_vals: list[float] = []
-    dice_vals: list[float] = []
-    prec_vals: list[float] = []
+    iou_vals: List[float] = []
+    dice_vals: List[float] = []
+    prec_vals: List[float] = []
 
     for key, folder in _LABEL_DIRS.items():
         mask_path = _resolve_label_mask_path(folder, filename)
