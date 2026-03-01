@@ -31,6 +31,14 @@ from typing import Optional, Callable, Any, Tuple, Dict
 
 
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "segmentar_defaults.json"
+_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+_DATASET_IMAGES_DIR = _DATA_DIR / "images"
+_LABEL_DIRS = {
+    "ground": _DATA_DIR / "labels" / "floorGroundTruth",
+    "wall": _DATA_DIR / "labels" / "wallGroundTruth",
+    "door": _DATA_DIR / "labels" / "doorGrounTruth",
+}
+_DATASET_EXTS = (".png", ".jpg", ".jpeg")
 _REQUIRED_CONFIG_SECTIONS = (
     "groundParams",
     "wallParams",
@@ -93,6 +101,10 @@ _runtime: Dict[str, Any] = {
     "imagenRGB": None,
     "mapaProfundidad": None,
     "last_ransac_ms": None,
+    "dataset_filename": None,
+    "last_iou": None,
+    "last_dice": None,
+    "last_precision": None,
     "groundParams": dict(_loaded_config["groundParams"]),
     "wallParams": dict(_loaded_config["wallParams"]),
     "doorParams": dict(_loaded_config["doorParams"]),
@@ -175,13 +187,150 @@ def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any
         return merged.copy()
 
 
+def _dataset_files() -> list[str]:
+    files = _runtime.get("dataset_files")
+    if files is not None:
+        return files
+    try:
+        files = sorted(
+            f.name
+            for f in _DATASET_IMAGES_DIR.iterdir()
+            if f.is_file() and f.suffix.lower() in _DATASET_EXTS
+        )
+    except Exception:
+        files = []
+    _runtime["dataset_files"] = files
+    return files
+
+
+def _resolve_dataset_filename(index: Optional[int]) -> Optional[str]:
+    files = _dataset_files()
+    if not files:
+        return None
+    if index is None:
+        return _runtime.get("dataset_filename")
+    try:
+        idx = int(index) % len(files)
+    except Exception:
+        return None
+    return files[idx]
+
+
+def _resolve_label_mask_path(mask_dir: Path, filename: str) -> Optional[Path]:
+    if not filename:
+        return None
+    direct = mask_dir / filename
+    if direct.exists():
+        return direct
+    stem = Path(filename).stem
+    for ext in _DATASET_EXTS:
+        candidate = mask_dir / f"{stem}{ext}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _to_bool_mask(mask: Any, shape_hw: Optional[Tuple[int, int]] = None) -> Optional[np.ndarray]:
+    if mask is None:
+        return None
+    arr = np.asarray(mask)
+    if arr.ndim == 3:
+        arr = arr[:, :, 0]
+    if arr.ndim != 2:
+        return None
+    if shape_hw is not None and arr.shape[:2] != shape_hw:
+        arr = cv2.resize(arr, (shape_hw[1], shape_hw[0]), interpolation=cv2.INTER_NEAREST)
+    return arr > 0
+
+
+def calcular_iou(pred_mask: Any, gt_mask: Any) -> Optional[float]:
+    gt = _to_bool_mask(gt_mask)
+    pred = _to_bool_mask(pred_mask, shape_hw=gt.shape if gt is not None else None)
+    if gt is None or pred is None:
+        return None
+    inter = int(np.logical_and(pred, gt).sum())
+    union = int(np.logical_or(pred, gt).sum())
+    if union == 0:
+        return 1.0
+    return float(inter) / float(union)
+
+
+def calcular_dice(pred_mask: Any, gt_mask: Any) -> Optional[float]:
+    gt = _to_bool_mask(gt_mask)
+    pred = _to_bool_mask(pred_mask, shape_hw=gt.shape if gt is not None else None)
+    if gt is None or pred is None:
+        return None
+    inter = int(np.logical_and(pred, gt).sum())
+    denom = int(pred.sum()) + int(gt.sum())
+    if denom == 0:
+        return 1.0
+    return float(2 * inter) / float(denom)
+
+
+def calcular_precision(pred_mask: Any, gt_mask: Any) -> Optional[float]:
+    gt = _to_bool_mask(gt_mask)
+    pred = _to_bool_mask(pred_mask, shape_hw=gt.shape if gt is not None else None)
+    if gt is None or pred is None:
+        return None
+    tp = int(np.logical_and(pred, gt).sum())
+    fp = int(np.logical_and(pred, ~gt).sum())
+    denom = tp + fp
+    if denom == 0:
+        return 1.0 if int(gt.sum()) == 0 else 0.0
+    return float(tp) / float(denom)
+
+
+def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    if not filename:
+        return {"iou": None, "dice": None, "precision": None}
+
+    iou_vals: list[float] = []
+    dice_vals: list[float] = []
+    prec_vals: list[float] = []
+
+    for key, folder in _LABEL_DIRS.items():
+        mask_path = _resolve_label_mask_path(folder, filename)
+        if mask_path is None:
+            continue
+        gt_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        if gt_img is None:
+            continue
+        gt_bool = gt_img > 0
+        pred_mask = masks.get(key)
+        if pred_mask is None:
+            pred_mask = np.zeros(gt_bool.shape, dtype=np.uint8)
+        iou = calcular_iou(pred_mask, gt_bool)
+        dice = calcular_dice(pred_mask, gt_bool)
+        prec = calcular_precision(pred_mask, gt_bool)
+        if iou is not None:
+            iou_vals.append(float(iou))
+        if dice is not None:
+            dice_vals.append(float(dice))
+        if prec is not None:
+            prec_vals.append(float(prec))
+
+    if not iou_vals:
+        return {"iou": None, "dice": None, "precision": None}
+
+    return {
+        "iou": float(sum(iou_vals) / len(iou_vals)),
+        "dice": float(sum(dice_vals) / len(dice_vals)),
+        "precision": float(sum(prec_vals) / len(prec_vals)),
+    }
+
+
 def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
     """
-    Snapshot of runtime metrics (currently RANSAC duration in ms).
+    Snapshot of runtime metrics for mode "prueba" and camera.
     """
     with _runtime_lock:
         last_ms = _runtime.get("last_ransac_ms")
-        metrics = {"last_ransac_ms": last_ms}
+        metrics = {
+            "last_ransac_ms": last_ms,
+            "iou": _runtime.get("last_iou"),
+            "dice": _runtime.get("last_dice"),
+            "precision": _runtime.get("last_precision"),
+        }
     return metrics.copy() if copy else metrics
 
 
@@ -226,6 +375,9 @@ def segmentar() -> Any:
     if imagenRGB is None or mapaProfundidad is None or rays_cp is None or H is None or W is None:
         with _runtime_lock:
             _runtime["last_ransac_ms"] = None
+            _runtime["last_iou"] = None
+            _runtime["last_dice"] = None
+            _runtime["last_precision"] = None
         return imagenRGB
 
     depth_cp = None
@@ -353,12 +505,26 @@ def segmentar() -> Any:
         except Exception as e:
             print(f"[segmentar] Wall mask refinement failed: {e}")
 
+    stats = {"iou": None, "dice": None, "precision": None}
+    if _runtime.get("mode") == "prueba":
+        stats = _compute_dataset_stats(
+            _runtime.get("dataset_filename"),
+            {
+                "ground": ground_mask,
+                "wall": wall_mask,
+                "door": door_mask,
+            },
+        )
+
     with _runtime_lock:
         _runtime["last_masks"] = {
             "ground": ground_mask,
             "wall": wall_mask,
             "door": door_mask,
         }
+        _runtime["last_iou"] = stats.get("iou")
+        _runtime["last_dice"] = stats.get("dice")
+        _runtime["last_precision"] = stats.get("precision")
 
     return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
 
@@ -482,6 +648,10 @@ def _lazy_init(
             pass
         _runtime["initialized"] = False
         _runtime["last_ransac_ms"] = None
+        _runtime["last_iou"] = None
+        _runtime["last_dice"] = None
+        _runtime["last_precision"] = None
+        _runtime["dataset_filename"] = None
     _runtime["mode"] = mode
 
     if mode == "prueba":
@@ -490,6 +660,7 @@ def _lazy_init(
         # Force recomputation of rays when entering dataset mode
         _runtime["rays_cp"] = None
         return
+    _runtime["dataset_filename"] = None
 
     # Camera mode: reuse pipeline if already created (do not stop camera).
     pipeline = _runtime.get("pipeline")
@@ -544,11 +715,15 @@ def preprocesar(
     Returns True on success and False if the current frame is invalid.
     """
     if mode == "prueba":
+        _runtime["dataset_filename"] = _resolve_dataset_filename(dataset_index)
         # Offline mode: load RGB and depth from disk.
         imagenRGB, mapaProfundidad = load_dataset_frame(index=dataset_index)
         if imagenRGB is None or mapaProfundidad is None:
             _runtime["imagenRGB"] = None
             _runtime["mapaProfundidad"] = None
+            _runtime["last_iou"] = None
+            _runtime["last_dice"] = None
+            _runtime["last_precision"] = None
             return False
 
         # Set H, W from the actual image dimensions.
@@ -568,6 +743,7 @@ def preprocesar(
         _runtime["rays_cp"] = cp.asarray(rays_np)
 
     else:
+        _runtime["dataset_filename"] = None
         # Camera mode: use RealSense pipeline and precomputed rays.
         H = _runtime["H"]
         W = _runtime["W"]
@@ -746,6 +922,10 @@ def liberar_recursos() -> None:
     _runtime["align_depth_fn"] = None
     _runtime["rays_cp"] = None
     _runtime["last_ransac_ms"] = None
+    _runtime["last_iou"] = None
+    _runtime["last_dice"] = None
+    _runtime["last_precision"] = None
+    _runtime["dataset_filename"] = None
 
     try:
         while not _resultados.empty():
