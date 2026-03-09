@@ -1464,7 +1464,10 @@ class SegmentacionApp:
         logos_panel = tk.Frame(body, bg=C.FORM_BG)
         logos_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 4), pady=(4, 0))
         logos_panel.grid_columnconfigure(0, weight=1)
-        logos_panel.grid_rowconfigure(0, weight=1)
+
+        logo_stack = tk.Frame(logos_panel, bg=C.FORM_BG)
+        logo_stack.place(relx=0.5, rely=0.5, anchor="center")
+        logo_stack.grid_columnconfigure(0, weight=1)
 
         # Mini logos panel on the configuration section
         def _load_logo(filename: str, target_w: int, target_h: int) -> Optional[ImageTk.PhotoImage]:
@@ -1482,26 +1485,46 @@ class SegmentacionApp:
 
         self.config_logo_images: list = []
         logo_layout = [
-            ("gato.png", 200, 130),
+            ("gatoHorizontal.png", 260, 130),
             ("univalle.png", 200, 130),
             ("PSI_LOGO.png", 180, 90),
         ]
-        for r, (fname, tw, th) in enumerate(logo_layout):
+        loaded_logos = []
+        for fname, tw, th in logo_layout:
             photo = _load_logo(fname, tw, th)
+            rendered_h = photo.height() if photo else th
+            loaded_logos.append((fname, photo, rendered_h))
+
+        # Keep the middle logo visually centered between top and bottom logos.
+        base_gap = 28
+        top_h = loaded_logos[0][2]
+        bottom_h = loaded_logos[2][2]
+        delta = int(round((top_h - bottom_h) / 2.0))
+        gap_top_mid = base_gap + max(0, -delta)
+        gap_mid_bottom = base_gap + max(0, delta)
+
+        for r, (fname, photo, _) in enumerate(loaded_logos):
+            if r == 0:
+                logo_pady = (0, gap_top_mid)
+            elif r == 1:
+                logo_pady = (0, gap_mid_bottom)
+            else:
+                logo_pady = 0
+
             if photo:
                 self.config_logo_images.append(photo)
-                lbl = tk.Label(logos_panel, image=photo, bg=C.FORM_BG, bd=0)
-                lbl.grid(row=r, column=0, padx=6, pady=3, sticky="n")
+                lbl = tk.Label(logo_stack, image=photo, bg=C.FORM_BG, bd=0)
+                lbl.grid(row=r, column=0, padx=6, pady=logo_pady, sticky="n")
             else:
                 lbl = tk.Label(
-                    logos_panel,
+                    logo_stack,
                     text=f"{fname}",
                     bg=C.FORM_BG,
                     fg=C.BTN_NEUTRAL_BG,
                     font=("Segoe UI", 9, "bold"),
                     justify="center",
                 )
-                lbl.grid(row=r, column=0, padx=6, pady=3, sticky="n")
+                lbl.grid(row=r, column=0, padx=6, pady=logo_pady, sticky="n")
 
         hint = tk.Label(
             wrapper,

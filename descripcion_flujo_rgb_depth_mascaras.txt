@@ -1,0 +1,118 @@
+INFORME TECNICO
+Funcionamiento del aplicativo: desde captura RGB/Depth hasta superposicion de mascaras
+======================================================================================
+
+1. Introduccion
+---------------
+El aplicativo se ejecuta a traves de una interfaz grafica (GUI), que actua como capa
+de control y visualizacion. Aunque la interaccion del usuario ocurre en la GUI, el
+procesamiento principal sigue un flujo interno de vision por computador que inicia en
+la captura de datos de la camara RealSense y finaliza con la superposicion de mascaras
+de segmentacion sobre la imagen RGB.
+
+En terminos generales, el pipeline del algoritmo es:
+
+1) Captura de imagen RGB y mapa de profundidad (Depth)
+2) Preprocesamiento para estabilizar y alinear datos
+3) Construccion de nube de puntos a partir de depth + rayos
+4) Segmentacion para obtener mascaras de suelo, pared y puerta
+5) Superposicion de mascaras sobre la imagen RGB
+
+
+2. Ejecucion desde la GUI
+-------------------------
+La GUI administra el ciclo de ejecucion continuo y la actualizacion de pantalla.
+El hilo de trabajo invoca repetidamente el modulo de segmentacion y recibe una imagen
+final procesada para mostrarla en el panel de video.
+
+En esta arquitectura:
+- La GUI no reemplaza el algoritmo.
+- La GUI orquesta el algoritmo (inicio, modo de trabajo, refresco visual y estado).
+- El algoritmo procesa cada frame en segundo plano y devuelve el resultado.
+
+
+3. Etapa 1: Captura de datos con RealSense
+------------------------------------------
+En modo camara, se inicializa el pipeline RealSense con dos streams:
+- Color: imagen BGR (RGB visual)
+- Depth: mapa de profundidad en formato nativo del sensor
+
+Para cada iteracion:
+- se obtiene el frame de color (imagenRGB)
+- se obtiene el frame de profundidad y se convierte a metros (mapaProfundidad)
+
+Adicionalmente, se prepara una funcion de alineacion depth->color para que el mapa de
+profundidad quede en el mismo sistema de coordenadas de la imagen RGB. Esto permite que
+cada pixel de profundidad corresponda espacialmente al pixel RGB equivalente.
+
+
+4. Etapa 2: Preprocesamiento y base para nube de puntos
+-------------------------------------------------------
+Antes de segmentar, se realiza un preprocesamiento orientado a mejorar calidad visual
+y consistencia geometrica:
+
+- Mejora de contraste en RGB (CLAHE sobre canal de luminancia).
+- Correccion de valores depth invalidos (relleno local por dilatacion).
+- Suavizado de depth con guided filter usando RGB como guia.
+- Ajuste de dimensiones para que RGB, Depth y rayos tengan la misma resolucion.
+
+Con depth en metros y rayos por pixel ya definidos, se tiene la base geometrica para
+obtener nube de puntos 3D:
+
+P(x,y,z) = rayo(u,v) * depth(u,v)
+
+Esta representacion 3D es la entrada espacial para los modulos de deteccion de planos
+(suelo y pared) y para refinamientos geometricos de la mascara de puerta.
+
+
+5. Etapa 3: Segmentacion y obtencion de mascaras
+------------------------------------------------
+La etapa de segmentacion genera tres mascaras binarias principales:
+
+5.1 Mascara de suelo
+- Se estima el plano de suelo con metodos tipo RANSAC sobre informacion depth + rayos.
+- Resultado: ground_mask.
+
+5.2 Mascara de pared
+- Se detectan planos verticales compatibles con pared, usando restricciones geometricas
+  y exclusion de regiones de suelo.
+- Resultado: wall_mask.
+
+5.3 Mascara de puerta
+- Se usa un modelo de inferencia (TensorRT/BiSeNetV2) para prediccion inicial.
+- Luego se aplica refinamiento por color (HSV) y filtrado adicional con criterios de consistencia espacial mediante nube de puntos utilizando algoritmos de nube de puntos.
+- Resultado: door_mask.
+
+Dependiendo de la configuracion, se aplican refinamientos adicionales para mejorar
+bordes y reducir ruido en las mascaras.
+
+
+6. Etapa 4: Superposicion de mascaras sobre RGB
+-----------------------------------------------
+Con ground_mask, wall_mask y door_mask ya calculadas, se construye la imagen final
+para visualizacion:
+
+- Se normalizan y reescalan mascaras al tamano de la imagen RGB.
+- Se aplican reglas de prioridad para evitar solapamientos no deseados.
+- Se colorean las regiones segmentadas con transparencia (alpha blending).
+
+Convencion de color usada:
+- Suelo: verde
+- Pared: azul
+- Puerta: rojo
+
+El resultado es un frame RGB con las mascaras superpuestas, listo para mostrarse
+en la GUI en tiempo real.
+
+
+7. Conclusiones
+---------------
+El aplicativo funciona como un sistema guiado por interfaz grafica, pero el nucleo
+de procesamiento responde a un pipeline tecnico bien definido:
+
+captura -> preprocesamiento -> construccion geometrica (nube de puntos) ->
+segmentacion por clases -> overlay de mascaras sobre RGB.
+
+Esta separacion entre capa de interfaz (GUI) y capa de algoritmo permite mantener una
+ejecucion interactiva para el usuario, mientras el procesamiento visual y geometrico
+se realiza en segundo plano de forma continua.
