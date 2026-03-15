@@ -52,11 +52,13 @@ try:
     from src.utilities.helpers import (
         ensure_dataset_image_config_files,
         load_dataset_image_params_by_index,
+        load_default_segment_params,
     )
 except ModuleNotFoundError:
     from utilities.helpers import (
         ensure_dataset_image_config_files,
         load_dataset_image_params_by_index,
+        load_default_segment_params,
     )
 
 # @note Adjust sys.path when executed as a script.
@@ -1643,6 +1645,19 @@ class SegmentacionApp:
         params_to_apply.update(parsed)
         self._apply_runtime_params(params_to_apply)
 
+    def _apply_default_params_for_camera(self) -> None:
+        """
+        Restore global/default params from config/segmentar_defaults.json.
+        """
+        base_params = load_default_segment_params()
+        if not base_params:
+            return
+        parsed = parse_config_params(base_params)
+        params_to_apply = dict(base_params)
+        if parsed is not None:
+            params_to_apply.update(parsed)
+        self._apply_runtime_params(params_to_apply)
+
     def _on_config_apply(self) -> None:
         """
         \brief Apply configuration values to the segmentation thread.
@@ -1747,6 +1762,7 @@ class SegmentacionApp:
             # Ejecuta una pasada de pruebas iniciando/reiniciando el hilo.
             self._restart_worker()
         elif mode == "camera":
+            self._apply_default_params_for_camera()
             if self._stream_requested:
                 # Mantener transmisión si el usuario ya la inició, sin reiniciar si ya corre.
                 if not (self._worker and self._worker.is_alive()):

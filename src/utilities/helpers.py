@@ -848,6 +848,19 @@ def _flatten_segment_params(config_payload: Dict[str, Any]) -> Dict[str, Any]:
     return merged
 
 
+def load_default_segment_params(
+    base_config_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Load flattened params from config/segmentar_defaults.json.
+    """
+    base_config_path = base_config_path or _default_segment_config_path()
+    payload = _read_json_dict(base_config_path)
+    if payload is None:
+        payload = _build_base_config_payload(base_config_path)
+    return _flatten_segment_params(payload)
+
+
 def load_dataset_image_params_by_index(
     index: int,
     images_dir: Optional[str] = None,
