@@ -283,6 +283,7 @@ def get_wall_planes(
     up_axis = wallParams.get("up_axis", (0.0, -1.0, 0.0))
     return_cpu = bool(wallParams.get("return_cpu", False))
     ground_normal = wallParams.get("ground_normal")
+    print(subsample_stride)
 
     if timing_on:
         _t_params_end = time.perf_counter()
