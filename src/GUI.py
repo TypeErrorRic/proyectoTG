@@ -1351,6 +1351,7 @@ class SegmentacionApp:
             (
                 "Puerta",
                 [
+                    ("door_hsv_enabled", "Filtro HSV puerta", "1"),
                     ("door_hue_tol", "Rango color (0-179)", "18"),
                     ("door_min_s", "Color min (0-255)", "30"),
                     ("door_min_v", "Luz min (0-255)", "20"),
@@ -1426,7 +1427,7 @@ class SegmentacionApp:
                 var = tk.StringVar(value=default)
                 self.config_vars[key] = var
                 self.config_defaults.setdefault(key, default)
-                if key in ("ground_mask_refine", "wall_mask_refine", "refine_full_res"):
+                if key in ("ground_mask_refine", "wall_mask_refine", "refine_full_res", "door_hsv_enabled"):
                     btn = tk.Button(
                         section,
                         text="Activar",

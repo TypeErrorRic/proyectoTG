@@ -583,6 +583,7 @@ def segmentar(frame_started_at: Optional[float] = None) -> Any:
     try:
         door_mask = doorDetection(
             imagenRGB,
+            use_hsv_filter=bool(door_params.get("door_hsv_enabled", True)),
             hue_tol=door_params.get("door_hue_tol"),
             min_s=door_params.get("door_min_s"),
             min_v=door_params.get("door_min_v"),

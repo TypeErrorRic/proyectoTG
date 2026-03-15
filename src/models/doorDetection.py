@@ -144,6 +144,7 @@ def _postprocess_outputs(output: np.ndarray, original_size) -> np.ndarray:
 def doorDetection(
     rgb_image: np.ndarray,
     min_area: Optional[int] = None,
+    use_hsv_filter: bool = True,
     use_roi: bool = True,
     reduce_glare: bool = True,
     hue_tol: Optional[int] = None,
@@ -166,6 +167,8 @@ def doorDetection(
         rgb_image: BGR image (H, W, 3), values 0-255.
         min_area: Minimum area (pixels) to keep in the output mask.
             Use 0 to disable filtering. If None, uses runtime default.
+        use_hsv_filter: If False, skip HSV color refinement and keep the
+            raw NN mask as the HSV mask surrogate.
         use_roi: If True, use the largest ROI to compute the dominant color
             inside the segmented component (HSV) and return a mask of ROI
             pixels that match that color.
@@ -201,19 +204,22 @@ def doorDetection(
         min_area = int(_runtime.get("min_area", 0))
     else:
         min_area = int(min_area)
-    hsv_mask = refine_door_mask_hsv(
-        rgb_image,
-        door_mask,
-        min_area=min_area,
-        use_roi=use_roi,
-        reduce_glare=reduce_glare,
-        hue_tol=hue_tol,
-        min_s=min_s,
-        min_v=min_v,
-        glare_s_max=glare_s_max,
-        glare_v_min=glare_v_min,
-        glare_v_clip=glare_v_clip,
-    )
+    if use_hsv_filter:
+        hsv_mask = refine_door_mask_hsv(
+            rgb_image,
+            door_mask,
+            min_area=min_area,
+            use_roi=use_roi,
+            reduce_glare=reduce_glare,
+            hue_tol=hue_tol,
+            min_s=min_s,
+            min_v=min_v,
+            glare_s_max=glare_s_max,
+            glare_v_min=glare_v_min,
+            glare_v_clip=glare_v_clip,
+        )
+    else:
+        hsv_mask = door_mask.copy()
     if depth_m is not None and rays is not None:
         try:
             gp_deg = 15.0 if ground_parallel_deg is None else float(ground_parallel_deg)

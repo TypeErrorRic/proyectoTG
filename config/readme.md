@@ -48,6 +48,7 @@ Per-image specialized configs are stored in:
 
 ## doorParams
 
+- `door_hsv_enabled`: Enables/disables HSV color refinement for door segmentation.
 - `door_hue_tol`: HSV hue tolerance used for door color filtering.
 - `door_min_s`: Minimum HSV saturation accepted for door candidates.
 - `door_min_v`: Minimum HSV value (brightness) accepted for door candidates.

@@ -57,6 +57,7 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "wall_parallel_deg": "10.0",
     "wall_parallel_distance_m": "0.60",
     "door_hue_tol": "18",
+    "door_hsv_enabled": "1",
     "door_min_s": "30",
     "door_min_v": "20",
     "door_glare_s_max": "35",
@@ -208,6 +209,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("wall_parallel_deg", "Paralelo paredes (grados)"),
         ("wall_parallel_distance_m", "Dist. paredes (m)"),
         ("door_hue_tol", "Rango color (0-179)"),
+        ("door_hsv_enabled", "Filtro HSV puerta (0/1)"),
         ("door_min_s", "Color min (0-255)"),
         ("door_min_v", "Luz min (0-255)"),
         ("door_glare_s_max", "Reflejo color (0-255)"),
@@ -277,7 +279,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     errors = []
 
     # Campo especial: permitir texto en campos booleanos.
-    for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine"):
+    for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine", "door_hsv_enabled"):
         if key not in values:
             continue
         raw_value = str(values.get(key, "")).strip().lower()
@@ -350,7 +352,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
     # Normalize boolean fields and practical limits
-    for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine"):
+    for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine", "door_hsv_enabled"):
         if key in parsed:
             parsed[key] = bool(int(parsed[key]))
     if "roi_expand_step" in parsed:
