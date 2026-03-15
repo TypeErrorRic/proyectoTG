@@ -55,14 +55,14 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segment_v2 import (
+from src.utilities.segment import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
     obtener_parametros_ground,
     obtener_metricas,
 )
-from src.models.doorDetection2 import is_model_loading
+from src.models.doorDetection import is_model_loading
 from src.color import GUI_COLORS as C
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
