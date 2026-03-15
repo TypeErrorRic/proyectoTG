@@ -218,8 +218,6 @@ def doorDetection(
         )
     else:
         hsv_mask = door_mask.copy()
-        cv2.imshow("door_mask_postprocess", door_mask)
-        cv2.waitKey(1)
     if depth_m is not None and rays is not None:
         try:
             gp_deg = 15.0 if ground_parallel_deg is None else float(ground_parallel_deg)
