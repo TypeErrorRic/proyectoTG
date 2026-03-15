@@ -4,10 +4,12 @@ Helper utilities for point clouds, GPU overlays, and dataset loading.
 Used by viewCamera, ransacCellingGround, and segment to prepare geometry,
 apply masks, and stream sample data.
 """
+import json
 import os
+import shutil
 import numpy as np
 import cv2
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 """
@@ -690,4 +692,168 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
     except Exception as exc:
         print(f"[helpers] Error cargando datos desde src/data: {exc}")
         return None, None
+
+
+_DATASET_IMAGE_EXTS = (".png", ".jpg", ".jpeg")
+_SEGMENT_DEFAULT_BASENAME = "segmentar_defaults.json"
+_SEGMENT_PER_IMAGE_PREFIX = "segmentar_defaults_"
+_SEGMENT_SECTIONS = ("groundParams", "wallParams", "doorParams", "wallParamsOverrides")
+
+
+def _project_root_dir() -> str:
+    """
+    Return project root directory from this module path.
+    """
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+
+
+def _config_dir() -> str:
+    return os.path.join(_project_root_dir(), "config")
+
+
+def _default_segment_config_path() -> str:
+    return os.path.join(_config_dir(), _SEGMENT_DEFAULT_BASENAME)
+
+
+def list_dataset_image_filenames(images_dir: Optional[str] = None) -> List[str]:
+    """
+    List dataset image filenames used in modo prueba (sorted).
+    """
+    if images_dir is None:
+        images_dir = os.path.join(_project_root_dir(), "src", "data", "images")
+    if not os.path.isdir(images_dir):
+        return []
+    return sorted(
+        name
+        for name in os.listdir(images_dir)
+        if os.path.isfile(os.path.join(images_dir, name))
+        and name.lower().endswith(_DATASET_IMAGE_EXTS)
+    )
+
+
+def resolve_dataset_filename_by_index(index: int, images_dir: Optional[str] = None) -> Optional[str]:
+    """
+    Resolve dataset filename by 0-based index using wrap-around semantics.
+    """
+    files = list_dataset_image_filenames(images_dir=images_dir)
+    if not files:
+        return None
+    try:
+        idx = int(index)
+    except Exception:
+        return None
+    return files[idx % len(files)]
+
+
+def resolve_image_config_path(filename: str, config_dir: Optional[str] = None) -> str:
+    """
+    Build per-image config path from a dataset filename.
+    """
+    config_dir = config_dir or _config_dir()
+    stem, _ = os.path.splitext(os.path.basename(filename))
+    return os.path.join(config_dir, f"{_SEGMENT_PER_IMAGE_PREFIX}{stem}.json")
+
+
+def ensure_dataset_image_config_files(
+    images_dir: Optional[str] = None,
+    config_dir: Optional[str] = None,
+    base_config_path: Optional[str] = None,
+) -> Dict[str, int]:
+    """
+    Ensure there is one config copy per dataset image.
+
+    Files are named as:
+      config/segmentar_defaults_<image_stem>.json
+    """
+    config_dir = config_dir or _config_dir()
+    base_config_path = base_config_path or _default_segment_config_path()
+    files = list_dataset_image_filenames(images_dir=images_dir)
+    created = 0
+
+    if not os.path.isfile(base_config_path):
+        print(f"[helpers] Config base no encontrado: {base_config_path}")
+        return {"total_images": len(files), "created": 0, "existing": 0}
+
+    os.makedirs(config_dir, exist_ok=True)
+    for filename in files:
+        target_path = resolve_image_config_path(filename, config_dir=config_dir)
+        if os.path.isfile(target_path):
+            continue
+        try:
+            shutil.copyfile(base_config_path, target_path)
+            created += 1
+        except Exception as exc:
+            print(f"[helpers] No se pudo crear config para {filename}: {exc}")
+
+    return {
+        "total_images": len(files),
+        "created": created,
+        "existing": max(0, len(files) - created),
+    }
+
+
+def _read_json_dict(path: str) -> Optional[Dict[str, Any]]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        return loaded if isinstance(loaded, dict) else None
+    except Exception:
+        return None
+
+
+def _build_base_config_payload(base_config_path: str) -> Dict[str, Dict[str, Any]]:
+    raw = _read_json_dict(base_config_path) or {}
+    payload: Dict[str, Dict[str, Any]] = {}
+    for section in _SEGMENT_SECTIONS:
+        section_data = raw.get(section)
+        payload[section] = dict(section_data) if isinstance(section_data, dict) else {}
+    return payload
+
+
+def _flatten_segment_params(config_payload: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    for section in ("groundParams", "wallParams", "doorParams"):
+        section_data = config_payload.get(section)
+        if isinstance(section_data, dict):
+            merged.update(section_data)
+    # Backward compatibility in case a per-image file stores flat keys.
+    for key, value in config_payload.items():
+        if key in _SEGMENT_SECTIONS:
+            continue
+        if isinstance(key, str):
+            merged[key] = value
+    return merged
+
+
+def load_dataset_image_params_by_index(
+    index: int,
+    images_dir: Optional[str] = None,
+    config_dir: Optional[str] = None,
+    base_config_path: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str], Dict[str, Any]]:
+    """
+    Load flattened params for a dataset image by index.
+
+    Returns:
+      (filename, config_path, flat_params_dict)
+    """
+    filename = resolve_dataset_filename_by_index(index=index, images_dir=images_dir)
+    if filename is None:
+        return None, None, {}
+
+    config_dir = config_dir or _config_dir()
+    base_config_path = base_config_path or _default_segment_config_path()
+    config_path = resolve_image_config_path(filename, config_dir=config_dir)
+
+    if not os.path.isfile(config_path) and os.path.isfile(base_config_path):
+        try:
+            os.makedirs(config_dir, exist_ok=True)
+            shutil.copyfile(base_config_path, config_path)
+        except Exception as exc:
+            print(f"[helpers] No se pudo crear config para {filename}: {exc}")
+
+    payload = _read_json_dict(config_path)
+    if payload is None:
+        payload = _build_base_config_payload(base_config_path)
+    return filename, config_path, _flatten_segment_params(payload)
 

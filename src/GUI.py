@@ -48,6 +48,17 @@ except ModuleNotFoundError:
         visualize_capture,
     )
 
+try:
+    from src.utilities.helpers import (
+        ensure_dataset_image_config_files,
+        load_dataset_image_params_by_index,
+    )
+except ModuleNotFoundError:
+    from utilities.helpers import (
+        ensure_dataset_image_config_files,
+        load_dataset_image_params_by_index,
+    )
+
 # @note Adjust sys.path when executed as a script.
 if __package__ is None or __package__ == "":
     sys.path.insert(
@@ -120,6 +131,8 @@ class SegmentacionApp:
         self.sample_controls: Dict[str, Any] = {}
         self.dataset_index: int = 0
         self.dataset_index_var: Optional[tk.IntVar] = None
+        self.dataset_filename: Optional[str] = None
+        self.dataset_config_path: Optional[str] = None
         self._updating_dataset_controls: bool = False
         self._updating_capture_controls: bool = False
         self.capture_controls: Dict[str, Any] = {}
@@ -138,6 +151,12 @@ class SegmentacionApp:
 
         self.config_defaults = init_config_defaults(runtime_params_loader=obtener_parametros_ground)
         ensure_upload_dir(UPLOAD_DIR)
+        created_summary = ensure_dataset_image_config_files()
+        if created_summary.get("created", 0) > 0:
+            print(
+                "[GUI] configs por imagen creados: "
+                f"{created_summary.get('created', 0)}/{created_summary.get('total_images', 0)}"
+            )
         self._configure_window()
         self._build_grid()
         assets = {"config": "analitica.png", "exec": "camara.png"}
@@ -1590,6 +1609,40 @@ class SegmentacionApp:
 
         self._apply_status_after_id = self.root.after(duration_ms, _reset)
 
+    def _apply_runtime_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Apply params with actualizar_parametros_ground and keep GUI fields in sync.
+        """
+        updated = actualizar_parametros_ground(params)
+        for key, val in updated.items():
+            text_val = str(int(val)) if isinstance(val, bool) else str(val)
+            if key in self.config_vars:
+                self.config_vars[key].set(text_val)
+            self.config_defaults[key] = text_val
+        self._refresh_params_summary()
+        return updated
+
+    def _apply_dataset_params_for_current_image(self) -> None:
+        """
+        Apply params for the currently selected dataset image.
+        """
+        filename, config_path, flat_params = load_dataset_image_params_by_index(self.dataset_index)
+        self.dataset_filename = filename
+        self.dataset_config_path = config_path
+        if not flat_params:
+            return
+
+        parsed = parse_config_params(flat_params)
+        if parsed is None:
+            print(
+                "[GUI] No se aplicaron parametros por imagen "
+                f"(archivo invalido): {config_path}"
+            )
+            return
+        params_to_apply = dict(flat_params)
+        params_to_apply.update(parsed)
+        self._apply_runtime_params(params_to_apply)
+
     def _on_config_apply(self) -> None:
         """
         \brief Apply configuration values to the segmentation thread.
@@ -1600,12 +1653,7 @@ class SegmentacionApp:
             self._set_apply_status("No aplicado", bg=C.DANGER_BG, active_bg=C.DANGER_HOVER_BG)
             return
 
-        updated = actualizar_parametros_ground(parsed)
-        for key, val in updated.items():
-            if key in self.config_vars:
-                self.config_vars[key].set(str(val))
-                self.config_defaults[key] = str(val)
-        self._refresh_params_summary()
+        self._apply_runtime_params(parsed)
         # Restart worker so the new parameters take effect immediately when running.
         if self._worker and self._worker.is_alive():
             self._restart_worker()
@@ -1621,15 +1669,20 @@ class SegmentacionApp:
         """
         \brief Restore last applied/default values in the UI and runtime.
         """
+        if self.mode == "prueba":
+            self._apply_dataset_params_for_current_image()
+            if self._worker and self._worker.is_alive():
+                self._restart_worker()
+            return
+
         for key, value in self.config_defaults.items():
             if key in self.config_vars:
                 self.config_vars[key].set(str(value))
 
         parsed = parse_config_params(self.config_defaults)
         if parsed:
-            actualizar_parametros_ground(parsed)
+            self._apply_runtime_params(parsed)
             self._restart_worker()
-        self._refresh_params_summary()
 
     def _update_sidebar(self, active: str) -> None:
         """
@@ -1690,6 +1743,7 @@ class SegmentacionApp:
         self._update_sample_panel_state()
 
         if mode == "prueba":
+            self._apply_dataset_params_for_current_image()
             # Ejecuta una pasada de pruebas iniciando/reiniciando el hilo.
             self._restart_worker()
         elif mode == "camera":
@@ -1746,21 +1800,23 @@ class SegmentacionApp:
         if idx < 0:
             idx = 0
         self.dataset_index = idx
-        if not update_controls:
-            return
-        self._updating_dataset_controls = True
-        try:
-            if self.dataset_index_var is not None:
-                self.dataset_index_var.set(idx + 1)
-            slider = self.sample_controls.get("slider") if hasattr(self, "sample_controls") else None
-            if slider:
-                try:
-                    slider.configure(to=max(int(slider.cget("to")), idx + 1))
-                    slider.set(idx + 1)
-                except Exception:
-                    pass
-        finally:
-            self._updating_dataset_controls = False
+        if update_controls:
+            self._updating_dataset_controls = True
+            try:
+                if self.dataset_index_var is not None:
+                    self.dataset_index_var.set(idx + 1)
+                slider = self.sample_controls.get("slider") if hasattr(self, "sample_controls") else None
+                if slider:
+                    try:
+                        slider.configure(to=max(int(slider.cget("to")), idx + 1))
+                        slider.set(idx + 1)
+                    except Exception:
+                        pass
+            finally:
+                self._updating_dataset_controls = False
+
+        if self.mode == "prueba":
+            self._apply_dataset_params_for_current_image()
 
     def _change_dataset_index(self, delta: int) -> None:
         """
