@@ -177,9 +177,13 @@ def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any
         for key, value in nuevos_params.items():
             if value is None:
                 continue
-            if key in DOOR_PARAM_KEYS:
+            if key in DOOR_PARAM_KEYS or key.startswith("door_"):
                 door_params[key] = value
-            elif key in WALL_PARAM_KEYS:
+            elif (
+                key in WALL_PARAM_KEYS
+                or key.startswith("wall_")
+                or key in ("max_up_dot", "ground_perp_deg")
+            ):
                 wall_params[key] = value
             elif key in GROUND_PARAM_KEYS:
                 ground_params[key] = value
@@ -493,18 +497,44 @@ def segmentar(frame_started_at: Optional[float] = None) -> Any:
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
 
-    # Reuse common ground params for wall RANSAC, then override wall-specific values
+    # Build wall RANSAC params from wall config (independent from ground tuning).
+    wall_defaults = dict(_loaded_config.get("wallParams", {}) or {})
     wall_params = {
-        "subsample_stride": wall_cfg.get("wall_subsample_stride", ground_params.get("subsample_stride")),
-        "min_points": wall_cfg.get("wall_min_inliers", ground_params.get("min_inliers")),
+        # Keep wall controls independent from ground controls.
+        "subsample_stride": wall_cfg.get(
+            "wall_subsample_stride",
+            wall_defaults.get("wall_subsample_stride", 2),
+        ),
+        "min_points": wall_cfg.get(
+            "wall_min_inliers",
+            wall_defaults.get("wall_min_inliers", 400),
+        ),
         "max_points": ground_params.get("max_agg_points"),
-        "dist_thresh": wall_cfg.get("wall_dist_thresh", ground_params.get("dist_thresh")),
-        "max_iters": wall_cfg.get("wall_max_iters", ground_params.get("max_iters")),
-        "score_subset": wall_cfg.get("wall_score_subset", ground_params.get("score_subset")),
-        "batch_size": wall_cfg.get("wall_batch_size", ground_params.get("batch_size")),
-        "early_stop_ratio": wall_cfg.get("wall_early_stop_ratio", ground_params.get("early_stop_ratio")),
+        "dist_thresh": wall_cfg.get(
+            "wall_dist_thresh",
+            wall_defaults.get("wall_dist_thresh", 0.03),
+        ),
+        "max_iters": wall_cfg.get(
+            "wall_max_iters",
+            wall_defaults.get("wall_max_iters", 300),
+        ),
+        "score_subset": wall_cfg.get(
+            "wall_score_subset",
+            wall_defaults.get("wall_score_subset", 2048),
+        ),
+        "batch_size": wall_cfg.get(
+            "wall_batch_size",
+            wall_defaults.get("wall_batch_size", 512),
+        ),
+        "early_stop_ratio": wall_cfg.get(
+            "wall_early_stop_ratio",
+            wall_defaults.get("wall_early_stop_ratio", 0.9),
+        ),
         "up_axis": ground_params.get("up_axis"),
-        "refine_dist_mult": wall_cfg.get("wall_refine_dist_mult", ground_params.get("refine_dist_mult")),
+        "refine_dist_mult": wall_cfg.get(
+            "wall_refine_dist_mult",
+            wall_defaults.get("wall_refine_dist_mult", 1.6),
+        ),
     }
     wall_params.update(WALL_PARAMS_OVERRIDES)
     if "wall_max_angle_deg" in wall_cfg:
@@ -655,10 +685,18 @@ def _bucle_hilo() -> None:
         return
     try:
         resultado = _tarea_funcion(*_tarea_args, **_tarea_kwargs)
-        if resultado is not None:
+        frame_started_at = None
+        payload = resultado
+        if isinstance(resultado, tuple) and len(resultado) == 2:
+            payload, frame_started_at = resultado
+        if payload is not None:
             while not _detener_evento.is_set():
                 try:
-                    _resultados.put(resultado, timeout=0.1)
+                    if frame_started_at is not None:
+                        payload_to_queue = (payload, frame_started_at, time.perf_counter())
+                    else:
+                        payload_to_queue = payload
+                    _resultados.put(payload_to_queue, timeout=0.1)
                     break
                 except queue.Full:
                     continue
@@ -957,10 +995,20 @@ def AlgoritmosSegmentacion(
         if resultado is not None:
             frame_with_masks = resultado
             frame_started_at = None
-            if isinstance(resultado, tuple) and len(resultado) == 2:
+            frame_sent_at = None
+            if isinstance(resultado, tuple) and len(resultado) == 3:
+                frame_with_masks, frame_started_at, frame_sent_at = resultado
+            elif isinstance(resultado, tuple) and len(resultado) == 2:
                 frame_with_masks, frame_started_at = resultado
             _runtime["mascara"] = frame_with_masks
-            if frame_started_at is not None:
+            if frame_started_at is not None and frame_sent_at is not None:
+                try:
+                    _runtime["last_frame_ms"] = max(
+                        0.0, (float(frame_sent_at) - float(frame_started_at)) * 1000.0
+                    )
+                except Exception:
+                    _runtime["last_frame_ms"] = None
+            elif frame_started_at is not None:
                 try:
                     _runtime["last_frame_ms"] = max(
                         0.0, (time.perf_counter() - float(frame_started_at)) * 1000.0
