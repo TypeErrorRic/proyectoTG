@@ -377,7 +377,14 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
         iou = calcular_iou(pred_mask, gt_mask)
         dice = calcular_dice(pred_mask, gt_mask)
         prec = calcular_precision(pred_mask, gt_mask)
-        if iou == 1.0 and dice == 1.0 and prec == 1.0 and (not np.any(gt_mask)) and (not np.any(pred_mask)):
+        if (
+            key != "door"
+            and iou == 1.0
+            and dice == 1.0
+            and prec == 1.0
+            and (not np.any(gt_mask))
+            and (not np.any(pred_mask))
+        ):
             iou = None
             dice = None
             prec = None
