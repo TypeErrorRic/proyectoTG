@@ -195,6 +195,7 @@ def doorDetection(
     output = _runtime["model"].infer(input_tensor)
     door_mask = _postprocess_outputs(output, original_size)
     cv2.imshow("door_mask_postprocess", door_mask)
+    cv2.waitKey(1)
     
     if min_area is None:
         min_area = int(_runtime.get("min_area", 0))
