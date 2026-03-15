@@ -2040,11 +2040,11 @@ class SegmentacionApp:
         overlay_lines = []
         if self.mode == "prueba":
             metrics = obtener_metricas()
-            ransac_ms = None if not metrics else metrics.get("last_ransac_ms")
+            frame_ms = None if not metrics else metrics.get("last_frame_ms")
             dataset_filename = None if not metrics else metrics.get("dataset_filename")
             class_metrics = metrics.get("class_metrics") if metrics else {}
             overlay_lines.append(
-                f"RANSAC: {ransac_ms:.1f} ms" if ransac_ms is not None else "RANSAC: -- ms"
+                f"Frame total: {frame_ms:.1f} ms" if frame_ms is not None else "Frame total: -- ms"
             )
             if dataset_filename:
                 overlay_lines.append(f"Frame: {dataset_filename}")

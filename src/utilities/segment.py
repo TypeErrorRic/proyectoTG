@@ -103,6 +103,7 @@ _runtime: Dict[str, Any] = {
     "imagenRGB": None,
     "mapaProfundidad": None,
     "last_ransac_ms": None,
+    "last_frame_ms": None,
     "dataset_filename": None,
     "last_iou": None,
     "last_dice": None,
@@ -413,6 +414,7 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
         class_metrics = _runtime.get("last_class_metrics") or _empty_class_metrics()
         metrics = {
             "last_ransac_ms": last_ms,
+            "last_frame_ms": _runtime.get("last_frame_ms"),
             "iou": _runtime.get("last_iou"),
             "dice": _runtime.get("last_dice"),
             "precision": _runtime.get("last_precision"),
@@ -446,7 +448,7 @@ def obtener_mascaras(copy: bool = True) -> Dict[str, Any]:
     return out
 
 
-def segmentar() -> Any:
+def segmentar(frame_started_at: Optional[float] = None) -> Any:
     """
     Segmentation worker.
 
@@ -465,6 +467,7 @@ def segmentar() -> Any:
     if imagenRGB is None or mapaProfundidad is None or rays_cp is None or H is None or W is None:
         with _runtime_lock:
             _runtime["last_ransac_ms"] = None
+            _runtime["last_frame_ms"] = None
             _runtime["last_iou"] = None
             _runtime["last_dice"] = None
             _runtime["last_precision"] = None
@@ -623,7 +626,10 @@ def segmentar() -> Any:
         _runtime["last_precision"] = stats.get("precision")
         _runtime["last_class_metrics"] = stats.get("class_metrics") or _empty_class_metrics()
 
-    return apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
+    frame_out = apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
+    if frame_started_at is None:
+        return frame_out
+    return (frame_out, frame_started_at)
 
 
 def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
@@ -745,6 +751,7 @@ def _lazy_init(
             pass
         _runtime["initialized"] = False
         _runtime["last_ransac_ms"] = None
+        _runtime["last_frame_ms"] = None
         _runtime["last_iou"] = None
         _runtime["last_dice"] = None
         _runtime["last_precision"] = None
@@ -948,7 +955,20 @@ def AlgoritmosSegmentacion(
     if resultado is not None or not _runtime["initialized"]:
         # The worker has finished; consume the result and launch a new one
         if resultado is not None:
-            _runtime["mascara"] = resultado
+            frame_with_masks = resultado
+            frame_started_at = None
+            if isinstance(resultado, tuple) and len(resultado) == 2:
+                frame_with_masks, frame_started_at = resultado
+            _runtime["mascara"] = frame_with_masks
+            if frame_started_at is not None:
+                try:
+                    _runtime["last_frame_ms"] = max(
+                        0.0, (time.perf_counter() - float(frame_started_at)) * 1000.0
+                    )
+                except Exception:
+                    _runtime["last_frame_ms"] = None
+            else:
+                _runtime["last_frame_ms"] = None
 
         # Ensure that the ground segmentation task is scheduled.
         # If there is any error (invalid frame or exception), retry
@@ -956,6 +976,7 @@ def AlgoritmosSegmentacion(
         for _ in range(60):  # ~0.6 s budget (sleep 0.01 each)
             try:
                 # Get new data for the next task and store it in _runtime
+                t_preprocess_start = time.perf_counter()
                 ok = preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
                 imagenRGB = _runtime.get("imagenRGB")
                 mapaProfundidad = _runtime.get("mapaProfundidad")
@@ -967,7 +988,7 @@ def AlgoritmosSegmentacion(
 
                 # Start ground segmentation task if we have valid frame data
                 if ok and imagenRGB is not None and mapaProfundidad is not None and rays_cp is not None:
-                    configurar_tarea(segmentar)
+                    configurar_tarea(segmentar, t_preprocess_start)
                     iniciar_hilo_secundario()
                     break
 
@@ -1022,6 +1043,7 @@ def liberar_recursos() -> None:
     _runtime["align_depth_fn"] = None
     _runtime["rays_cp"] = None
     _runtime["last_ransac_ms"] = None
+    _runtime["last_frame_ms"] = None
     _runtime["last_iou"] = None
     _runtime["last_dice"] = None
     _runtime["last_precision"] = None
