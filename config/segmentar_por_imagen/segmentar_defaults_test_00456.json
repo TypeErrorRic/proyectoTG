@@ -22,7 +22,7 @@
   },
   "wallParams": {
     "wall_subsample_stride": 2,
-    "wall_dist_thresh": 0.03,
+    "wall_dist_thresh": 0.06,
     "wall_max_iters": 300,
     "wall_min_inliers": 400,
     "wall_max_angle_deg": 20.0,

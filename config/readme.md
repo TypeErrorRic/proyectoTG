@@ -3,6 +3,9 @@
 `segmentar_defaults.json` is strict JSON and must contain data only (no inline comments).
 Parameter documentation is maintained here.
 
+Per-image specialized configs are stored in:
+`config/segmentar_por_imagen/segmentar_defaults_<image_name>.json`
+
 ## groundParams
 
 - `dist_thresh`: Maximum point-to-plane distance (meters) to count as an inlier for ground fitting.

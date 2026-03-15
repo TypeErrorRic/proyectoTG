@@ -697,6 +697,7 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
 _DATASET_IMAGE_EXTS = (".png", ".jpg", ".jpeg")
 _SEGMENT_DEFAULT_BASENAME = "segmentar_defaults.json"
 _SEGMENT_PER_IMAGE_PREFIX = "segmentar_defaults_"
+_SEGMENT_PER_IMAGE_SUBDIR = "segmentar_por_imagen"
 _SEGMENT_SECTIONS = ("groundParams", "wallParams", "doorParams", "wallParamsOverrides")
 
 
@@ -713,6 +714,17 @@ def _config_dir() -> str:
 
 def _default_segment_config_path() -> str:
     return os.path.join(_config_dir(), _SEGMENT_DEFAULT_BASENAME)
+
+
+def _per_image_config_dir(config_dir: Optional[str] = None) -> str:
+    root_config_dir = config_dir or _config_dir()
+    return os.path.join(root_config_dir, _SEGMENT_PER_IMAGE_SUBDIR)
+
+
+def _legacy_image_config_path(filename: str, config_dir: Optional[str] = None) -> str:
+    root_config_dir = config_dir or _config_dir()
+    stem, _ = os.path.splitext(os.path.basename(filename))
+    return os.path.join(root_config_dir, f"{_SEGMENT_PER_IMAGE_PREFIX}{stem}.json")
 
 
 def list_dataset_image_filenames(images_dir: Optional[str] = None) -> List[str]:
@@ -749,7 +761,7 @@ def resolve_image_config_path(filename: str, config_dir: Optional[str] = None) -
     """
     Build per-image config path from a dataset filename.
     """
-    config_dir = config_dir or _config_dir()
+    config_dir = _per_image_config_dir(config_dir=config_dir)
     stem, _ = os.path.splitext(os.path.basename(filename))
     return os.path.join(config_dir, f"{_SEGMENT_PER_IMAGE_PREFIX}{stem}.json")
 
@@ -763,22 +775,32 @@ def ensure_dataset_image_config_files(
     Ensure there is one config copy per dataset image.
 
     Files are named as:
-      config/segmentar_defaults_<image_stem>.json
+      config/segmentar_por_imagen/segmentar_defaults_<image_stem>.json
     """
     config_dir = config_dir or _config_dir()
+    image_cfg_dir = _per_image_config_dir(config_dir=config_dir)
     base_config_path = base_config_path or _default_segment_config_path()
     files = list_dataset_image_filenames(images_dir=images_dir)
     created = 0
+    migrated = 0
 
     if not os.path.isfile(base_config_path):
         print(f"[helpers] Config base no encontrado: {base_config_path}")
         return {"total_images": len(files), "created": 0, "existing": 0}
 
-    os.makedirs(config_dir, exist_ok=True)
+    os.makedirs(image_cfg_dir, exist_ok=True)
     for filename in files:
         target_path = resolve_image_config_path(filename, config_dir=config_dir)
         if os.path.isfile(target_path):
             continue
+        legacy_path = _legacy_image_config_path(filename, config_dir=config_dir)
+        if os.path.isfile(legacy_path):
+            try:
+                shutil.move(legacy_path, target_path)
+                migrated += 1
+                continue
+            except Exception as exc:
+                print(f"[helpers] No se pudo mover config legado de {filename}: {exc}")
         try:
             shutil.copyfile(base_config_path, target_path)
             created += 1
@@ -788,6 +810,7 @@ def ensure_dataset_image_config_files(
     return {
         "total_images": len(files),
         "created": created,
+        "migrated": migrated,
         "existing": max(0, len(files) - created),
     }
 
@@ -845,15 +868,22 @@ def load_dataset_image_params_by_index(
     base_config_path = base_config_path or _default_segment_config_path()
     config_path = resolve_image_config_path(filename, config_dir=config_dir)
 
-    if not os.path.isfile(config_path) and os.path.isfile(base_config_path):
-        try:
-            os.makedirs(config_dir, exist_ok=True)
-            shutil.copyfile(base_config_path, config_path)
-        except Exception as exc:
-            print(f"[helpers] No se pudo crear config para {filename}: {exc}")
+    if not os.path.isfile(config_path):
+        legacy_path = _legacy_image_config_path(filename, config_dir=config_dir)
+        if os.path.isfile(legacy_path):
+            try:
+                os.makedirs(_per_image_config_dir(config_dir=config_dir), exist_ok=True)
+                shutil.move(legacy_path, config_path)
+            except Exception as exc:
+                print(f"[helpers] No se pudo mover config legado para {filename}: {exc}")
+        elif os.path.isfile(base_config_path):
+            try:
+                os.makedirs(_per_image_config_dir(config_dir=config_dir), exist_ok=True)
+                shutil.copyfile(base_config_path, config_path)
+            except Exception as exc:
+                print(f"[helpers] No se pudo crear config para {filename}: {exc}")
 
     payload = _read_json_dict(config_path)
     if payload is None:
         payload = _build_base_config_payload(base_config_path)
     return filename, config_path, _flatten_segment_params(payload)
-
