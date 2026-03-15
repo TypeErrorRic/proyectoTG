@@ -197,8 +197,6 @@ def doorDetection(
     input_tensor = _preprocess_inputs(rgb_image)
     output = _runtime["model"].infer(input_tensor)
     door_mask = _postprocess_outputs(output, original_size)
-    cv2.imshow("door_mask_postprocess", door_mask)
-    cv2.waitKey(1)
     
     if min_area is None:
         min_area = int(_runtime.get("min_area", 0))
@@ -220,6 +218,8 @@ def doorDetection(
         )
     else:
         hsv_mask = door_mask.copy()
+        cv2.imshow("door_mask_postprocess", door_mask)
+        cv2.waitKey(1)
     if depth_m is not None and rays is not None:
         try:
             gp_deg = 15.0 if ground_parallel_deg is None else float(ground_parallel_deg)

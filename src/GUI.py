@@ -9,7 +9,7 @@ import os
 import sys
 import time
 import threading
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, Callable, List, Tuple
 
 import cv2
 import tkinter as tk
@@ -84,6 +84,14 @@ DISPLAY_MAX_H = 480
 # @note FPS limit for running AlgoritmosSegmentacion (20 fps max).
 TARGET_FRAME_TIME = 1.0 / 20.0
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "data", "uploads")
+DOOR_HSV_RELATED_KEYS = (
+    "door_hue_tol",
+    "door_min_s",
+    "door_min_v",
+    "door_glare_s_max",
+    "door_glare_v_min",
+    "door_glare_v_clip",
+)
 
 
 class SegmentacionApp:
@@ -123,6 +131,8 @@ class SegmentacionApp:
         self._indicator_images: List[ImageTk.PhotoImage] = []
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
+        self._config_field_widgets: Dict[str, Tuple[tk.Widget, tk.Widget]] = {}
+        self._door_hsv_related_keys = set(DOOR_HSV_RELATED_KEYS)
         self._config_apply_btn: Optional[tk.Button] = None
         self._apply_btn_default_text: str = "Aplicar"
         self._apply_btn_default_bg: str = C.SUCCESS_BG
@@ -941,6 +951,11 @@ class SegmentacionApp:
             if isinstance(val, bool):
                 val = int(val)
             lbl.configure(text=str(val))
+        self._apply_params_summary_filter()
+
+    @staticmethod
+    def _is_enabled_flag(value: Any) -> bool:
+        return str(value).strip().lower() in ("1", "true", "t", "si", "yes", "on")
 
     def _apply_params_summary_filter(self) -> None:
         """
@@ -952,6 +967,14 @@ class SegmentacionApp:
         group_value = group.get() if group else "Camino transitable"
         normalized = str(group_value).replace("\n", " ").strip()
         keys_to_show = set(self._params_summary_group_keys.get(normalized, []))
+        if normalized == "Puerta":
+            keys_to_show.add("door_hsv_enabled")
+            hsv_value: Any = self.config_defaults.get("door_hsv_enabled", "1")
+            door_toggle_label = self.params_summary_labels.get("door_hsv_enabled")
+            if door_toggle_label is not None:
+                hsv_value = door_toggle_label.cget("text")
+            if not self._is_enabled_flag(hsv_value):
+                keys_to_show.difference_update(self._door_hsv_related_keys)
         for key, (name_lbl, val_lbl) in self._params_summary_row_labels.items():
             if key in keys_to_show:
                 name_lbl.grid()
@@ -1367,7 +1390,7 @@ class SegmentacionApp:
         numeric_validator = (self.root.register(validate_numeric_entry), "%P")
 
         def _bool_from_var(value: str) -> bool:
-            return str(value).strip().lower() in ("1", "true", "t", "si", "yes", "on")
+            return self._is_enabled_flag(value)
 
         def _toggle_bool_var(var: tk.StringVar) -> None:
             new_state = not _bool_from_var(var.get())
@@ -1392,6 +1415,24 @@ class SegmentacionApp:
                     activeforeground=C.TEXT_LIGHT,
                 )
 
+        def _update_door_hsv_form_visibility() -> None:
+            door_hsv_var = self.config_vars.get("door_hsv_enabled")
+            if door_hsv_var is None:
+                return
+            show_related = _bool_from_var(door_hsv_var.get())
+            for field_key in self._door_hsv_related_keys:
+                widgets = self._config_field_widgets.get(field_key)
+                if widgets is None:
+                    continue
+                field_lbl, field_input = widgets
+                if show_related:
+                    field_lbl.grid()
+                    field_input.grid()
+                else:
+                    field_lbl.grid_remove()
+                    field_input.grid_remove()
+
+        self._config_field_widgets = {}
         for title_text, fields in sections:
             section = tk.LabelFrame(
                 form_fields,
@@ -1440,6 +1481,9 @@ class SegmentacionApp:
                     btn.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
                     _update_toggle_button(btn, var)
                     var.trace_add("write", lambda *_args, b=btn, v=var: _update_toggle_button(b, v))
+                    if key == "door_hsv_enabled":
+                        var.trace_add("write", lambda *_args: _update_door_hsv_form_visibility())
+                    self._config_field_widgets[key] = (lbl, btn)
                 else:
                     entry = tk.Entry(
                         section,
@@ -1449,11 +1493,13 @@ class SegmentacionApp:
                         validatecommand=numeric_validator,
                     )
                     entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
+                    self._config_field_widgets[key] = (lbl, entry)
 
         # Ensure the entries reflect the latest defaults pulled from the runtime.
         for key, value in self.config_defaults.items():
             if key in self.config_vars:
                 self.config_vars[key].set(str(value))
+        _update_door_hsv_form_visibility()
 
         # Action buttons always visible under the scrollable field list.
         actions = tk.Frame(form, bg=form.cget("bg"))

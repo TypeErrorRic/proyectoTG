@@ -38,6 +38,7 @@
     "wall_mask_refine": true
   },
   "doorParams": {
+    "door_hsv_enabled": true,
     "door_hue_tol": 18,
     "door_min_s": 50,
     "door_min_v": 20,
