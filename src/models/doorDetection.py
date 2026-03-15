@@ -194,6 +194,8 @@ def doorDetection(
     input_tensor = _preprocess_inputs(rgb_image)
     output = _runtime["model"].infer(input_tensor)
     door_mask = _postprocess_outputs(output, original_size)
+    cv2.imshow("door_mask_postprocess", door_mask)
+    
     if min_area is None:
         min_area = int(_runtime.get("min_area", 0))
     else:
