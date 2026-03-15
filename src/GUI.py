@@ -55,14 +55,14 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segment import (
+from src.utilities.segment_v2 import (
     AlgoritmosSegmentacion,
     actualizar_parametros_ground,
     liberar_recursos,
     obtener_parametros_ground,
     obtener_metricas,
 )
-from src.models.doorDetection import is_model_loading
+from src.models.doorDetection2 import is_model_loading
 from src.color import GUI_COLORS as C
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
@@ -433,6 +433,7 @@ class SegmentacionApp:
             text="Iniciar Transmisión",
             bg=C.SUCCESS_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             activebackground=C.SUCCESS_HOVER_BG,
             activeforeground=C.TEXT_LIGHT,
             bd=0,
@@ -448,6 +449,7 @@ class SegmentacionApp:
             text="Detener Transmisión",
             bg=C.DANGER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             activebackground=C.DANGER_HOVER_BG,
             activeforeground=C.TEXT_LIGHT,
             bd=0,
@@ -985,6 +987,7 @@ class SegmentacionApp:
             bg=C.WARNING_BG,
             activebackground=C.WARNING_HOVER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             activeforeground=C.TEXT_LIGHT,
             bd=0,
             width=12,
@@ -1018,6 +1021,7 @@ class SegmentacionApp:
             bg=C.DANGER_BG,
             activebackground=C.DANGER_HOVER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             bd=0,
             padx=12,
             pady=6,
@@ -1031,6 +1035,7 @@ class SegmentacionApp:
             bg=C.SUCCESS_BG,
             activebackground=C.SUCCESS_HOVER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             bd=0,
             padx=12,
             pady=6,
@@ -1094,6 +1099,7 @@ class SegmentacionApp:
             bg=C.WARNING_BG,
             activebackground=C.WARNING_HOVER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             activeforeground=C.TEXT_LIGHT,
             bd=0,
             width=12,
@@ -1127,6 +1133,7 @@ class SegmentacionApp:
             bg=C.DANGER_BG,
             activebackground=C.DANGER_HOVER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             bd=0,
             padx=12,
             pady=6,
@@ -1139,6 +1146,7 @@ class SegmentacionApp:
             bg=C.SUCCESS_BG,
             activebackground=C.SUCCESS_HOVER_BG,
             fg=C.TEXT_LIGHT,
+            disabledforeground=C.TEXT_MUTED,
             bd=0,
             padx=12,
             pady=6,
@@ -1147,9 +1155,9 @@ class SegmentacionApp:
         )
         btn_siguiente.pack(side="left", expand=True, fill="x", padx=(10, 0))
         entry_numero.configure(state=tk.DISABLED)
-        btn_aplicar.configure(state=tk.DISABLED)
+        btn_aplicar.configure(state=tk.DISABLED, fg=C.TEXT_MUTED, disabledforeground=C.TEXT_MUTED)
         slider.configure(state=tk.DISABLED)
-        btn_atras.configure(state=tk.DISABLED)
+        btn_atras.configure(state=tk.DISABLED, fg=C.TEXT_MUTED, disabledforeground=C.TEXT_MUTED)
         self.btn_capturas = btn_siguiente
         if self._capturas_default_bg is None:
             self._capturas_default_bg = btn_siguiente.cget("bg")
@@ -1700,7 +1708,11 @@ class SegmentacionApp:
         state = tk.NORMAL if self.mode == "camera" else tk.DISABLED
         for btn in (getattr(self, "btn_start_stream", None), getattr(self, "btn_stop_stream", None)):
             if btn:
-                btn.configure(state=state)
+                btn.configure(
+                    state=state,
+                    fg=C.TEXT_LIGHT if state == tk.NORMAL else C.TEXT_MUTED,
+                    disabledforeground=C.TEXT_MUTED,
+                )
 
     def _update_sample_panel_state(self) -> None:
         """
@@ -1712,7 +1724,14 @@ class SegmentacionApp:
         state = tk.NORMAL if self.mode == "prueba" else tk.DISABLED
         for widget in controls.values():
             try:
-                widget.configure(state=state)
+                if isinstance(widget, tk.Button):
+                    widget.configure(
+                        state=state,
+                        fg=C.TEXT_LIGHT if state == tk.NORMAL else C.TEXT_MUTED,
+                        disabledforeground=C.TEXT_MUTED,
+                    )
+                else:
+                    widget.configure(state=state)
             except Exception:
                 pass
 
@@ -1783,25 +1802,37 @@ class SegmentacionApp:
 
         for widget in self.capture_controls.values():
             try:
-                widget.configure(state=tk.NORMAL)
+                if isinstance(widget, tk.Button):
+                    widget.configure(state=tk.NORMAL, fg=C.TEXT_LIGHT, disabledforeground=C.TEXT_MUTED)
+                else:
+                    widget.configure(state=tk.NORMAL)
             except Exception:
                 pass
         for btn in (getattr(self, "btn_start_stream", None), getattr(self, "btn_stop_stream", None)):
             if btn:
                 try:
-                    btn.configure(state=tk.DISABLED)
+                    btn.configure(state=tk.DISABLED, fg=C.TEXT_MUTED, disabledforeground=C.TEXT_MUTED)
                 except Exception:
                     pass
         for widget in self.sample_controls.values():
             try:
-                widget.configure(state=tk.DISABLED)
+                if isinstance(widget, tk.Button):
+                    widget.configure(state=tk.DISABLED, fg=C.TEXT_MUTED, disabledforeground=C.TEXT_MUTED)
+                else:
+                    widget.configure(state=tk.DISABLED)
             except Exception:
                 pass
 
         if hasattr(self, "btn_capturas") and self.btn_capturas:
             default_bg = self._capturas_default_bg or self.btn_capturas.cget("bg")
             default_active = self._capturas_default_activebg or self.btn_capturas.cget("activebackground")
-            self.btn_capturas.configure(state=tk.NORMAL, bg=default_bg, activebackground=default_active)
+            self.btn_capturas.configure(
+                state=tk.NORMAL,
+                bg=default_bg,
+                activebackground=default_active,
+                fg=C.TEXT_LIGHT,
+                disabledforeground=C.TEXT_MUTED,
+            )
         if getattr(self, "btn_capturar", None):
             try:
                 self.btn_capturar.configure(state=tk.DISABLED)
@@ -1822,11 +1853,16 @@ class SegmentacionApp:
                 state=tk.NORMAL,
                 bg=self._capturas_default_bg,
                 activebackground=self._capturas_default_activebg,
+                fg=C.TEXT_LIGHT,
+                disabledforeground=C.TEXT_MUTED,
             )
 
         for widget in self.capture_controls.values():
             try:
-                widget.configure(state=tk.DISABLED)
+                if isinstance(widget, tk.Button):
+                    widget.configure(state=tk.DISABLED, fg=C.TEXT_MUTED, disabledforeground=C.TEXT_MUTED)
+                else:
+                    widget.configure(state=tk.DISABLED)
             except Exception:
                 pass
         if getattr(self, "btn_capturar", None):
