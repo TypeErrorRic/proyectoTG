@@ -38,7 +38,7 @@
     "wall_mask_refine": true
   },
   "doorParams": {
-    "door_hsv_enabled": true,
+    "door_hsv_enabled": false,
     "door_hue_tol": 18,
     "door_min_s": 50,
     "door_min_v": 20,
@@ -46,7 +46,7 @@
     "door_glare_v_min": 210,
     "door_glare_v_clip": 200,
     "door_ground_parallel_deg": 15.0,
-    "door_plane_inlier_ratio": 0.4
+    "door_plane_inlier_ratio": 0.2
   },
   "wallParamsOverrides": {
     "max_angle_deg": 20.0,
