@@ -30,8 +30,10 @@ from pathlib import Path
 from typing import Optional, Callable, Any, Tuple, Dict, List
 
 
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "segmentar_defaults.json"
-_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_SRC_ROOT = Path(__file__).resolve().parents[2]
+_CONFIG_PATH = _PROJECT_ROOT / "config" / "segmentar_defaults.json"
+_DATA_DIR = _SRC_ROOT / "data"
 _DATASET_IMAGES_DIR = _DATA_DIR / "images"
 _LABEL_DIRS = {
     "ground": _DATA_DIR / "labels" / "floorGroundTruth",

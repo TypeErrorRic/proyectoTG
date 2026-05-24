@@ -6,42 +6,57 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
-_HELPER_PATH = Path(__file__).resolve().parent / "helpers" / "GroundDetection.py"
-_HELPER_SPEC = importlib.util.spec_from_file_location(
-    "src.utilities.helpers_ground_detection",
-    _HELPER_PATH,
-)
-if _HELPER_SPEC is None or _HELPER_SPEC.loader is None:
-    raise ImportError(f"No se pudo cargar helper de camino transitable: {_HELPER_PATH}")
-ground_helpers = importlib.util.module_from_spec(_HELPER_SPEC)
-_HELPER_SPEC.loader.exec_module(ground_helpers)
-
-
 class CaminoTransitable:
     """Encapsula deteccion de suelo/camino transitable y su estado."""
 
     def __init__(self) -> None:
-        self._sincronizar_estado()
+        self._helper = None
+        self.debug_timing = False
+        self.last_ransac_ms = None
+        self.last_n_cp = None
+        self.last_d_cp = None
+        self.debug_ransac_times = []
+        self.debug_ransac_counter = 0
+
+    def _obtener_helper(self):
+        if self._helper is None:
+            helper_path = Path(__file__).resolve().parent / "helpers" / "GroundDetection.py"
+            spec = importlib.util.spec_from_file_location(
+                "src.utilities.helpers_ground_detection",
+                helper_path,
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError(f"No se pudo cargar helper de camino transitable: {helper_path}")
+            helper = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(helper)
+            self._helper = helper
+            self._sincronizar_estado()
+        return self._helper
 
     def _sincronizar_estado(self) -> None:
-        self.debug_timing = ground_helpers.DEBUG_TIMING
-        self.last_ransac_ms = ground_helpers._last_ransac_ms
-        self.last_n_cp = ground_helpers.last_n_cp
-        self.last_d_cp = ground_helpers.last_d_cp
-        self.debug_ransac_times = ground_helpers._debug_ransac_times
-        self.debug_ransac_counter = ground_helpers._debug_ransac_counter
+        if self._helper is None:
+            return
+        self.debug_timing = self._helper.DEBUG_TIMING
+        self.last_ransac_ms = self._helper._last_ransac_ms
+        self.last_n_cp = self._helper.last_n_cp
+        self.last_d_cp = self._helper.last_d_cp
+        self.debug_ransac_times = self._helper._debug_ransac_times
+        self.debug_ransac_counter = self._helper._debug_ransac_counter
 
     def detectar(self, *args: Any, **kwargs: Any) -> Any:
+        ground_helpers = self._obtener_helper()
         resultado = ground_helpers.get_ground(*args, **kwargs)
         self._sincronizar_estado()
         return resultado
 
     def ajustar_plano_ransac(self, *args: Any, **kwargs: Any) -> Any:
+        ground_helpers = self._obtener_helper()
         resultado = ground_helpers.ransac_plane_gpu(*args, **kwargs)
         self._sincronizar_estado()
         return resultado
 
     def refinar_plano(self, *args: Any, **kwargs: Any) -> Any:
+        ground_helpers = self._obtener_helper()
         resultado = ground_helpers._refine_plane(*args, **kwargs)
         self._sincronizar_estado()
         return resultado

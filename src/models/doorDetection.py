@@ -6,19 +6,33 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
-from src.models.helpers import doorDetection as door_helpers
-
 
 class Puerta:
     """Encapsula deteccion de puertas y su estado de runtime."""
 
     def __init__(self) -> None:
-        self.img_mean = door_helpers.IMG_MEAN
-        self.img_std = door_helpers.IMG_STD
-        self._sincronizar_estado()
+        self._helper = None
+        self.img_mean = (0.485, 0.456, 0.406)
+        self.img_std = (0.229, 0.224, 0.225)
+        self.model = None
+        self.engine_path = None
+        self.input_size = (256, 256)
+        self.min_area = 300
+        self.model_loading = True
+
+    def _obtener_helper(self):
+        if self._helper is None:
+            from src.models.helpers import doorDetection as door_helpers
+            self._helper = door_helpers
+            self.img_mean = door_helpers.IMG_MEAN
+            self.img_std = door_helpers.IMG_STD
+            self._sincronizar_estado()
+        return self._helper
 
     def _sincronizar_estado(self) -> None:
-        runtime = door_helpers._runtime
+        if self._helper is None:
+            return
+        runtime = self._helper._runtime
         self.model = runtime.get("model")
         self.engine_path = runtime.get("engine_path")
         self.input_size = runtime.get("input_size")
@@ -26,17 +40,21 @@ class Puerta:
         self.model_loading = runtime.get("model_loading")
 
     def inicializar(self, engine_path: Optional[str] = None) -> bool:
+        door_helpers = self._obtener_helper()
         listo = door_helpers._lazy_init(engine_path=engine_path)
         self._sincronizar_estado()
         return listo
 
     def preprocesar(self, rgb_image: np.ndarray) -> np.ndarray:
+        door_helpers = self._obtener_helper()
         return door_helpers._preprocess_inputs(rgb_image)
 
     def postprocesar(self, output: np.ndarray, original_size: Any) -> np.ndarray:
+        door_helpers = self._obtener_helper()
         return door_helpers._postprocess_outputs(output, original_size)
 
     def detectar(self, *args: Any, **kwargs: Any) -> np.ndarray:
+        door_helpers = self._obtener_helper()
         resultado = door_helpers.doorDetection(*args, **kwargs)
         self._sincronizar_estado()
         return resultado
