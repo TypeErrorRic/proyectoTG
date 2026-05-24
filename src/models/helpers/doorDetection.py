@@ -3,6 +3,7 @@
 Door Detection using a TensorRT model.
 """
 import os
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 import cv2
@@ -48,8 +49,8 @@ def _lazy_init(engine_path: Optional[str] = None) -> bool:
         engine_path = _runtime.get("engine_path")
 
     if engine_path is None:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        engine_path = os.path.join(script_dir, "doors", "bisenetv2.engine")
+        models_dir = Path(__file__).resolve().parents[1]
+        engine_path = str(models_dir / "doors" / "bisenetv2.engine")
 
     if not os.path.exists(engine_path):
         print(f"[doorDetection] Engine file not found: {engine_path}")
