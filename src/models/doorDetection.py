@@ -238,3 +238,19 @@ def doorDetection(
             print(f"[doorDetection] door_deep filtering failed: {exc}")
     return hsv_mask
 
+
+class Puerta:
+    """Fachada simple para la deteccion de puertas."""
+
+    def detectar(self, *args, **kwargs) -> np.ndarray:
+        return doorDetection(*args, **kwargs)
+
+    def modelo_cargando(self) -> bool:
+        return is_model_loading()
+
+    def obtener_estado_global(self) -> Dict[str, Any]:
+        return _runtime
+
+
+puerta = Puerta()
+

@@ -559,3 +559,24 @@ def get_last_ransac_ms(copy: bool = True) -> Optional[float]:
     if _last_ransac_ms is None:
         return None
     return float(_last_ransac_ms)
+
+
+class CaminoTransitable:
+    """Fachada simple para deteccion de suelo/camino transitable."""
+
+    def detectar(self, *args: Any, **kwargs: Any) -> Any:
+        return get_ground(*args, **kwargs)
+
+    def obtener_tiempo_ransac_ms(self) -> Optional[float]:
+        return get_last_ransac_ms()
+
+    def obtener_estado_global(self) -> Dict[str, Any]:
+        return {
+            "params": _params,
+            "last_ransac_ms": _last_ransac_ms,
+            "last_n_cp": last_n_cp,
+            "last_d_cp": last_d_cp,
+        }
+
+
+camino_transitable = CaminoTransitable()

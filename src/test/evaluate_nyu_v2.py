@@ -170,7 +170,7 @@ def make_dataset_loader(cache: FrameCache):
 
 def _drain_results():
     while True:
-        if segment.obtener_resultado() is None:
+        if segment.segmentacion.obtener_resultado() is None:
             break
 
 
@@ -363,9 +363,9 @@ def main() -> int:
         if tqdm is not None:
             iterator = tqdm(indices, desc="Evaluando", unit="frame")
 
-        segment.detener_hilo_secundario()
+        segment.segmentacion.detener_hilo_secundario()
         try:
-            segment._lazy_init(mode="prueba")
+            segment.segmentacion.inicializar(mode="prueba")
         except Exception:
             pass
 
@@ -381,7 +381,7 @@ def main() -> int:
             if not gt_floor.any() or not gt_wall.any():
                 continue
 
-            ok = segment.preprocesar(mode="prueba", dataset_index=idx)
+            ok = segment.segmentacion.preprocesar(mode="prueba", dataset_index=idx)
             if not ok:
                 continue
 
@@ -399,8 +399,8 @@ def main() -> int:
                 pred_wall = None
                 for attempt in range(max_retries + 1):
                     try:
-                        overlay = segment.segmentar()
-                        masks = segment.obtener_mascaras(copy=True)
+                        overlay = segment.segmentacion.segmentar()
+                        masks = segment.segmentacion.obtener_mascaras(copy=True)
                     except Exception:
                         if attempt < max_retries:
                             continue
@@ -536,7 +536,7 @@ def main() -> int:
                     )
     finally:
         reader.close()
-        segment.liberar_recursos()
+        segment.segmentacion.liberar_recursos()
 
     return 0
 

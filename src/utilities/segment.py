@@ -7,7 +7,11 @@ and shares its result with the main thread through a small queue.
 
 # Project libraries
 import src.utilities.viewCamera as viewCamera
-from utilities.GroundDetection import get_ground, get_last_ransac_ms
+from utilities.GroundDetection import (
+    get_ground,
+    get_last_ransac_ms,
+    camino_transitable as camino_transitable_detector,
+)
 import utilities.GroundDetection as ground_utils
 from src.utilities.helpers import (
     apply_mask_to_rgb,
@@ -15,8 +19,15 @@ from src.utilities.helpers import (
     mejorar_mascara_pared,
     mejorar_mascara_suelo,
 )
-from utilities.WallPlaneDetection import get_wall_planes
-from src.models.doorDetection import doorDetection
+from utilities.WallPlaneDetection import (
+    get_wall_planes,
+    muro as muro_detector,
+)
+from src.models.doorDetection import (
+    doorDetection,
+    puerta as puerta_detector,
+)
+import src.models.doorDetection as door_detection_module
 
 # Runtime libraries
 import json
@@ -91,36 +102,6 @@ def _load_segmentation_config() -> Dict[str, Dict[str, Any]]:
 
 _loaded_config = _load_segmentation_config()
 
-# Centralized state dictionary to avoid loose globals
-_runtime: Dict[str, Any] = {
-    "initialized": False,
-    "mode": None,
-    "pipeline": None,
-    "rays_cp": None,
-    "H": None,
-    "W": None,
-    "align_depth_fn": None,
-    "imagenRGB": None,
-    "mapaProfundidad": None,
-    "last_ransac_ms": None,
-    "last_frame_ms": None,
-    "dataset_filename": None,
-    "last_iou": None,
-    "last_dice": None,
-    "last_precision": None,
-    "last_class_metrics": None,
-    "groundParams": dict(_loaded_config["groundParams"]),
-    "wallParams": dict(_loaded_config["wallParams"]),
-    "doorParams": dict(_loaded_config["doorParams"]),
-}
-
-GROUND_PARAM_KEYS = set(_loaded_config["groundParams"].keys())
-WALL_PARAM_KEYS = set(_loaded_config["wallParams"].keys())
-DOOR_PARAM_KEYS = set(_loaded_config["doorParams"].keys())
-
-# Wall-plane overrides applied on top of ground parameters.
-WALL_PARAMS_OVERRIDES: Dict[str, Any] = dict(_loaded_config["wallParamsOverrides"])
-
 # Protect shared runtime parameters updated from the GUI while the worker runs.
 _runtime_lock = threading.Lock()
 
@@ -146,13 +127,13 @@ def _snapshot_param_groups() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, 
     Return copies of ground, wall, and door parameters.
     """
     with _runtime_lock:
-        ground_params = dict(_runtime.get("groundParams", {}) or {})
-        wall_params = dict(_runtime.get("wallParams", {}) or {})
-        door_params = dict(_runtime.get("doorParams", {}) or {})
+        ground_params = dict(_runtime.ground_params)
+        wall_params = dict(_runtime.wall_params)
+        door_params = dict(_runtime.door_params)
     return ground_params, wall_params, door_params
 
 
-def obtener_parametros_ground(copy: bool = True) -> Dict[str, Any]:
+def _obtener_parametros_impl(copy: bool = True) -> Dict[str, Any]:
     """
     Snapshot of the current segmentation parameters (ground + wall + door).
     """
@@ -161,37 +142,37 @@ def obtener_parametros_ground(copy: bool = True) -> Dict[str, Any]:
     return merged.copy() if copy else merged
 
 
-def actualizar_parametros_ground(nuevos_params: Dict[str, Any]) -> Dict[str, Any]:
+def _actualizar_parametros_impl(nuevos_params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Merge new parameter values into the runtime dictionary.
 
     Returns the updated parameter dict.
     """
     if not nuevos_params:
-        return obtener_parametros_ground()
+        return _obtener_parametros_impl()
 
     with _runtime_lock:
-        ground_params = dict(_runtime.get("groundParams", {}) or {})
-        wall_params = dict(_runtime.get("wallParams", {}) or {})
-        door_params = dict(_runtime.get("doorParams", {}) or {})
+        ground_params = dict(_runtime.ground_params)
+        wall_params = dict(_runtime.wall_params)
+        door_params = dict(_runtime.door_params)
         for key, value in nuevos_params.items():
             if value is None:
                 continue
-            if key in DOOR_PARAM_KEYS or key.startswith("door_"):
+            if key in _runtime.door_param_keys or key.startswith("door_"):
                 door_params[key] = value
             elif (
-                key in WALL_PARAM_KEYS
+                key in _runtime.wall_param_keys
                 or key.startswith("wall_")
                 or key in ("max_up_dot", "ground_perp_deg")
             ):
                 wall_params[key] = value
-            elif key in GROUND_PARAM_KEYS:
+            elif key in _runtime.ground_param_keys:
                 ground_params[key] = value
             else:
                 ground_params[key] = value
-        _runtime["groundParams"] = ground_params
-        _runtime["wallParams"] = wall_params
-        _runtime["doorParams"] = door_params
+        _runtime.ground_params = ground_params
+        _runtime.wall_params = wall_params
+        _runtime.door_params = door_params
         merged = {**ground_params, **wall_params, **door_params}
         return merged.copy()
 
@@ -416,7 +397,7 @@ def _compute_dataset_stats(filename: Optional[str], masks: Dict[str, Any]) -> Di
     }
 
 
-def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
+def _obtener_metricas_impl(copy: bool = True) -> Dict[str, Any]:
     """
     Snapshot of runtime metrics for mode "prueba" and camera.
     """
@@ -437,7 +418,7 @@ def obtener_metricas(copy: bool = True) -> Dict[str, Any]:
     return metrics.copy() if copy else metrics
 
 
-def obtener_mascaras(copy: bool = True) -> Dict[str, Any]:
+def _obtener_mascaras_impl(copy: bool = True) -> Dict[str, Any]:
     """
     Snapshot of the latest raw masks (ground, wall, door).
 
@@ -459,7 +440,7 @@ def obtener_mascaras(copy: bool = True) -> Dict[str, Any]:
     return out
 
 
-def segmentar(frame_started_at: Optional[float] = None) -> Any:
+def _segmentar_impl(frame_started_at: Optional[float] = None) -> Any:
     """
     Segmentation worker.
 
@@ -504,67 +485,7 @@ def segmentar(frame_started_at: Optional[float] = None) -> Any:
     with _runtime_lock:
         _runtime["last_ransac_ms"] = get_last_ransac_ms()
 
-    # Build wall RANSAC params from wall config (independent from ground tuning).
-    wall_defaults = dict(_loaded_config.get("wallParams", {}) or {})
-    wall_params = {
-        # Keep wall controls independent from ground controls.
-        "subsample_stride": wall_cfg.get(
-            "wall_subsample_stride",
-            wall_defaults.get("wall_subsample_stride", 2),
-        ),
-        "min_points": wall_cfg.get(
-            "wall_min_inliers",
-            wall_defaults.get("wall_min_inliers", 400),
-        ),
-        "max_points": ground_params.get("max_agg_points"),
-        "dist_thresh": wall_cfg.get(
-            "wall_dist_thresh",
-            wall_defaults.get("wall_dist_thresh", 0.03),
-        ),
-        "max_iters": wall_cfg.get(
-            "wall_max_iters",
-            wall_defaults.get("wall_max_iters", 300),
-        ),
-        "score_subset": wall_cfg.get(
-            "wall_score_subset",
-            wall_defaults.get("wall_score_subset", 2048),
-        ),
-        "batch_size": wall_cfg.get(
-            "wall_batch_size",
-            wall_defaults.get("wall_batch_size", 512),
-        ),
-        "early_stop_ratio": wall_cfg.get(
-            "wall_early_stop_ratio",
-            wall_defaults.get("wall_early_stop_ratio", 0.9),
-        ),
-        "up_axis": ground_params.get("up_axis"),
-        "refine_dist_mult": wall_cfg.get(
-            "wall_refine_dist_mult",
-            wall_defaults.get("wall_refine_dist_mult", 1.6),
-        ),
-    }
-    wall_params.update(WALL_PARAMS_OVERRIDES)
-    if "wall_max_angle_deg" in wall_cfg:
-        wall_params["max_angle_deg"] = wall_cfg["wall_max_angle_deg"]
-    if "wall_refine_dist_mult" in wall_cfg:
-        wall_params["refine_dist_mult"] = wall_cfg["wall_refine_dist_mult"]
-    wall_params["max_up_dot"] = wall_cfg.get(
-        "max_up_dot",
-        WALL_PARAMS_OVERRIDES.get("max_up_dot", 0.35),
-    )
-    for key in (
-        "ground_perp_deg",
-        "wall_ortho_deg",
-        "wall_parallel_deg",
-        "wall_parallel_distance_m",
-    ):
-        if key in wall_cfg:
-            wall_params[key] = wall_cfg[key]
-    try:
-        if ground_utils.last_n_cp is not None:
-            wall_params["ground_normal"] = ground_utils.last_n_cp
-    except Exception:
-        pass
+    wall_params = _runtime.construir_parametros_muro(ground_params, wall_cfg)
 
     # Get wall planes using the fast plane fitter (no TensorRT)
     wall_mask = None
@@ -670,7 +591,7 @@ def segmentar(frame_started_at: Optional[float] = None) -> Any:
     return (frame_out, frame_started_at)
 
 
-def configurar_tarea(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
+def _configurar_tarea_impl(funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
     """
     Configure the function that will be executed in the worker thread.
     """
@@ -717,7 +638,7 @@ def _bucle_hilo() -> None:
         _hilo_trabajador = None
 
 
-def obtener_resultado(
+def _obtener_resultado_impl(
     bloqueante: bool = False, timeout: Optional[float] = None
 ) -> Any:
     """
@@ -737,7 +658,7 @@ def obtener_resultado(
         return None
 
 
-def iniciar_hilo_secundario(daemon: bool = True) -> None:
+def _iniciar_hilo_secundario_impl(daemon: bool = True) -> None:
     """
     Create and start the worker thread (if it is not already running).
     """
@@ -754,7 +675,7 @@ def iniciar_hilo_secundario(daemon: bool = True) -> None:
     _hilo_trabajador.start()
 
 
-def detener_hilo_secundario(timeout: Optional[float] = 2.0) -> None:
+def _detener_hilo_secundario_impl(timeout: Optional[float] = 2.0) -> None:
     """
     Request the worker thread to stop and wait for it to finish.
     """
@@ -789,7 +710,7 @@ def _lazy_init(
     last_mode = _runtime.get("mode")
     if last_mode != mode:
         # Stop any running worker thread and clear pending results
-        detener_hilo_secundario()
+        _detener_hilo_secundario_impl()
         try:
             while not _resultados.empty():
                 _resultados.get_nowait()
@@ -855,7 +776,7 @@ def _resize_gpu(img, size, interpolation=cv2.INTER_NEAREST):
     return cv2.cuda.resize(gpu, size, interpolation=interpolation).download()
 
 
-def preprocesar(
+def _preprocesar_impl(
     pipeline=None, mode: str = "camera", dataset_index: Optional[int] = None
 ) -> bool:
     """
@@ -963,7 +884,7 @@ def preprocesar(
     return True
 
 
-def AlgoritmosSegmentacion(
+def _algoritmos_segmentacion_impl(
     color_width: int = 640,
     color_height: int = 480,
     depth_width: int = 640,
@@ -992,12 +913,12 @@ def AlgoritmosSegmentacion(
     """
 
     if ground_params:
-        actualizar_parametros_ground(ground_params)
+        _runtime.actualizar_parametros(ground_params)
 
-    _lazy_init(color_width, color_height, depth_width, depth_height, fps, stride, mode=mode)
+    _runtime.inicializar(color_width, color_height, depth_width, depth_height, fps, stride, mode=mode)
 
     # Try to obtain a recent result from the worker thread
-    resultado = obtener_resultado()
+    resultado = _runtime.obtener_resultado()
     if resultado is not None or not _runtime["initialized"]:
         # The worker has finished; consume the result and launch a new one
         if resultado is not None:
@@ -1033,7 +954,7 @@ def AlgoritmosSegmentacion(
             try:
                 # Get new data for the next task and store it in _runtime
                 t_preprocess_start = time.perf_counter()
-                ok = preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
+                ok = _runtime.preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
                 imagenRGB = _runtime.get("imagenRGB")
                 mapaProfundidad = _runtime.get("mapaProfundidad")
                 rays_cp = _runtime.get("rays_cp")
@@ -1044,8 +965,8 @@ def AlgoritmosSegmentacion(
 
                 # Start ground segmentation task if we have valid frame data
                 if ok and imagenRGB is not None and mapaProfundidad is not None and rays_cp is not None:
-                    configurar_tarea(segmentar, t_preprocess_start)
-                    iniciar_hilo_secundario()
+                    _runtime.configurar_tarea(_runtime.segmentar, t_preprocess_start)
+                    _runtime.iniciar_hilo_secundario()
                     break
 
                 # If data is not valid yet, wait a bit and retry
@@ -1069,7 +990,7 @@ def AlgoritmosSegmentacion(
 
     if mode == "prueba":
         # In dataset mode, just return the latest RGB frame from disk
-        ok = preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
+        ok = _runtime.preprocesar(_runtime["pipeline"], mode=mode, dataset_index=dataset_index)
         if ok and _runtime.get("imagenRGB") is not None:
             return _runtime["imagenRGB"]
     else:
@@ -1080,11 +1001,11 @@ def AlgoritmosSegmentacion(
 
     return None
 
-def liberar_recursos() -> None:
+def _liberar_recursos_impl() -> None:
     """
     Stop worker thread and camera pipeline (if any) for a clean shutdown.
     """
-    detener_hilo_secundario()
+    _detener_hilo_secundario_impl()
 
     pipeline = _runtime.get("pipeline")
     if pipeline is not None:
@@ -1112,4 +1033,205 @@ def liberar_recursos() -> None:
             _resultados.get_nowait()
     except queue.Empty:
         pass
+
+
+class Segmentacion:
+    """
+    Orquestador de segmentacion y contenedor del estado de ejecucion.
+    """
+
+    def __init__(self) -> None:
+        self.puerta = puerta_detector
+        self.camino_transitable = camino_transitable_detector
+        self.muro = muro_detector
+        self.loaded_config = _loaded_config
+        self.ground_params = dict(self.loaded_config["groundParams"])
+        self.wall_params = dict(self.loaded_config["wallParams"])
+        self.door_params = dict(self.loaded_config["doorParams"])
+        self.ground_param_keys = set(self.loaded_config["groundParams"].keys())
+        self.wall_param_keys = set(self.loaded_config["wallParams"].keys())
+        self.door_param_keys = set(self.loaded_config["doorParams"].keys())
+        self.wall_params_overrides = dict(self.loaded_config["wallParamsOverrides"])
+        self.initialized = False
+        self.mode = None
+        self.pipeline = None
+        self.rays_cp = None
+        self.H = None
+        self.W = None
+        self.align_depth_fn = None
+        self.imagenRGB = None
+        self.mapaProfundidad = None
+        self.last_ransac_ms = None
+        self.last_frame_ms = None
+        self.dataset_filename = None
+        self.last_iou = None
+        self.last_dice = None
+        self.last_precision = None
+        self.last_class_metrics = None
+        self.dataset_files = None
+        self.mascara = None
+        self.last_masks = {}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        setattr(self, key, value)
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        if not hasattr(self, key):
+            setattr(self, key, default)
+        return getattr(self, key)
+
+    def obtener_estado_global(self) -> Dict[str, Any]:
+        return {
+            "segment_runtime": self,
+            "segment_runtime_lock": _runtime_lock,
+            "segment_loaded_config": self.loaded_config,
+            "segment_wall_overrides": self.wall_params_overrides,
+            "ground_module": ground_utils,
+            "door_module_runtime": getattr(door_detection_module, "_runtime", None),
+            "view_camera_module": viewCamera,
+        }
+
+    def algoritmos_segmentacion(self, *args: Any, **kwargs: Any) -> Any:
+        return _algoritmos_segmentacion_impl(*args, **kwargs)
+
+    def segmentar(self, frame_started_at: Optional[float] = None) -> Any:
+        return _segmentar_impl(frame_started_at=frame_started_at)
+
+    def preprocesar(
+        self,
+        pipeline=None,
+        mode: str = "camera",
+        dataset_index: Optional[int] = None,
+    ) -> bool:
+        return _preprocesar_impl(pipeline=pipeline, mode=mode, dataset_index=dataset_index)
+
+    def configurar_tarea(self, funcion: TareaFuncion, *args: Any, **kwargs: Any) -> None:
+        _configurar_tarea_impl(funcion, *args, **kwargs)
+
+    def obtener_resultado(
+        self,
+        bloqueante: bool = False,
+        timeout: Optional[float] = None,
+    ) -> Any:
+        return _obtener_resultado_impl(bloqueante=bloqueante, timeout=timeout)
+
+    def iniciar_hilo_secundario(self, daemon: bool = True) -> None:
+        _iniciar_hilo_secundario_impl(daemon=daemon)
+
+    def detener_hilo_secundario(self, timeout: Optional[float] = 2.0) -> None:
+        _detener_hilo_secundario_impl(timeout=timeout)
+
+    def inicializar(
+        self,
+        color_width: int = 640,
+        color_height: int = 480,
+        depth_width: int = 640,
+        depth_height: int = 480,
+        fps: int = 30,
+        stride: int = 2,
+        mode: str = "camera",
+    ) -> None:
+        _lazy_init(
+            color_width=color_width,
+            color_height=color_height,
+            depth_width=depth_width,
+            depth_height=depth_height,
+            fps=fps,
+            stride=stride,
+            mode=mode,
+        )
+
+    def actualizar_parametros(self, nuevos_params: Dict[str, Any]) -> Dict[str, Any]:
+        return _actualizar_parametros_impl(nuevos_params)
+
+    def obtener_parametros(self, copy: bool = True) -> Dict[str, Any]:
+        return _obtener_parametros_impl(copy=copy)
+
+    def obtener_metricas(self, copy: bool = True) -> Dict[str, Any]:
+        return _obtener_metricas_impl(copy=copy)
+
+    def obtener_mascaras(self, copy: bool = True) -> Dict[str, Any]:
+        return _obtener_mascaras_impl(copy=copy)
+
+    def liberar_recursos(self) -> None:
+        _liberar_recursos_impl()
+
+    def esta_cargando_modelo_puerta(self) -> bool:
+        return self.puerta.modelo_cargando()
+
+    def construir_parametros_muro(
+        self,
+        ground_params: Dict[str, Any],
+        wall_cfg: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        wall_defaults = dict(self.loaded_config.get("wallParams", {}) or {})
+        wall_params = {
+            "subsample_stride": wall_cfg.get(
+                "wall_subsample_stride",
+                wall_defaults.get("wall_subsample_stride", 2),
+            ),
+            "min_points": wall_cfg.get(
+                "wall_min_inliers",
+                wall_defaults.get("wall_min_inliers", 400),
+            ),
+            "max_points": ground_params.get("max_agg_points"),
+            "dist_thresh": wall_cfg.get(
+                "wall_dist_thresh",
+                wall_defaults.get("wall_dist_thresh", 0.03),
+            ),
+            "max_iters": wall_cfg.get(
+                "wall_max_iters",
+                wall_defaults.get("wall_max_iters", 300),
+            ),
+            "score_subset": wall_cfg.get(
+                "wall_score_subset",
+                wall_defaults.get("wall_score_subset", 2048),
+            ),
+            "batch_size": wall_cfg.get(
+                "wall_batch_size",
+                wall_defaults.get("wall_batch_size", 512),
+            ),
+            "early_stop_ratio": wall_cfg.get(
+                "wall_early_stop_ratio",
+                wall_defaults.get("wall_early_stop_ratio", 0.9),
+            ),
+            "up_axis": ground_params.get("up_axis"),
+            "refine_dist_mult": wall_cfg.get(
+                "wall_refine_dist_mult",
+                wall_defaults.get("wall_refine_dist_mult", 1.6),
+            ),
+        }
+        wall_params.update(self.wall_params_overrides)
+        if "wall_max_angle_deg" in wall_cfg:
+            wall_params["max_angle_deg"] = wall_cfg["wall_max_angle_deg"]
+        if "wall_refine_dist_mult" in wall_cfg:
+            wall_params["refine_dist_mult"] = wall_cfg["wall_refine_dist_mult"]
+        wall_params["max_up_dot"] = wall_cfg.get(
+            "max_up_dot",
+            self.wall_params_overrides.get("max_up_dot", 0.35),
+        )
+        for key in (
+            "ground_perp_deg",
+            "wall_ortho_deg",
+            "wall_parallel_deg",
+            "wall_parallel_distance_m",
+        ):
+            if key in wall_cfg:
+                wall_params[key] = wall_cfg[key]
+        try:
+            if ground_utils.last_n_cp is not None:
+                wall_params["ground_normal"] = ground_utils.last_n_cp
+        except Exception:
+            pass
+        return wall_params
+
+
+_runtime = Segmentacion()
+segmentacion = _runtime
 

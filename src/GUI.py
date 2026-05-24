@@ -68,14 +68,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segment import (
-    AlgoritmosSegmentacion,
-    actualizar_parametros_ground,
-    liberar_recursos,
-    obtener_parametros_ground,
-    obtener_metricas,
-)
-from src.models.doorDetection import is_model_loading
+from src.utilities.segment import segmentacion
 from src.color import GUI_COLORS as C
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
@@ -161,7 +154,7 @@ class SegmentacionApp:
         self.gallery_next_btn: Optional[tk.Button] = None
         self._gallery_active: bool = False
 
-        self.config_defaults = init_config_defaults(runtime_params_loader=obtener_parametros_ground)
+        self.config_defaults = init_config_defaults(runtime_params_loader=segmentacion.obtener_parametros)
         ensure_upload_dir(UPLOAD_DIR)
         created_summary = ensure_dataset_image_config_files()
         if created_summary.get("created", 0) > 0:
@@ -943,7 +936,7 @@ class SegmentacionApp:
         if not getattr(self, "params_summary_labels", None):
             return
         try:
-            runtime_params = obtener_parametros_ground()
+            runtime_params = segmentacion.obtener_parametros()
         except Exception:
             runtime_params = {}
         for key, lbl in self.params_summary_labels.items():
@@ -1662,7 +1655,7 @@ class SegmentacionApp:
         """
         Apply params with actualizar_parametros_ground and keep GUI fields in sync.
         """
-        updated = actualizar_parametros_ground(params)
+        updated = segmentacion.actualizar_parametros(params)
         for key, val in updated.items():
             text_val = str(int(val)) if isinstance(val, bool) else str(val)
             if key in self.config_vars:
@@ -2078,7 +2071,7 @@ class SegmentacionApp:
         while not self._stop_event.is_set():
             loop_start = time.perf_counter()
             try:
-                frame = AlgoritmosSegmentacion(mode=self.mode, dataset_index=self.dataset_index)
+                frame = segmentacion.algoritmos_segmentacion(mode=self.mode, dataset_index=self.dataset_index)
                 if frame is not None:
                     with self._frame_lock:
                         self.last_frame = frame
@@ -2126,7 +2119,7 @@ class SegmentacionApp:
         segmentation_active = self.mode == "prueba" or (
             self.mode == "camera" and self._stream_requested
         )
-        show_loading = segmentation_active and is_model_loading()
+        show_loading = segmentation_active and segmentacion.esta_cargando_modelo_puerta()
 
         if frame is None:
             if show_loading:
@@ -2158,7 +2151,7 @@ class SegmentacionApp:
         delta = now - frame_ts if frame_ts else 0.0
         overlay_lines = []
         if self.mode == "prueba":
-            metrics = obtener_metricas()
+            metrics = segmentacion.obtener_metricas()
             frame_ms = None if not metrics else metrics.get("last_frame_ms")
             dataset_filename = None if not metrics else metrics.get("dataset_filename")
             class_metrics = metrics.get("class_metrics") if metrics else {}
@@ -2255,7 +2248,7 @@ class SegmentacionApp:
         except Exception:
             pass
         try:
-            liberar_recursos()
+            segmentacion.liberar_recursos()
         finally:
             self._stop_event.set()
             if self._worker and self._worker.is_alive():

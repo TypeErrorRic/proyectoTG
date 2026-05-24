@@ -494,3 +494,13 @@ def get_wall_planes(
         )
 
     return {"planes": planes, "wall_mask": wall_mask}
+
+
+class Muro:
+    """Fachada simple para deteccion de muros."""
+
+    def detectar(self, *args: Any, **kwargs: Any) -> Any:
+        return get_wall_planes(*args, **kwargs)
+
+
+muro = Muro()

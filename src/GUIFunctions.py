@@ -7,12 +7,12 @@ from PIL import Image, ImageDraw, ImageGrab
 
 # Optional import to fetch current configuration parameters at capture time.
 try:
-    from src.utilities.segment import obtener_parametros_ground
+    from src.utilities.segment import segmentacion
 except ModuleNotFoundError:
     try:
-        from utilities.segment import obtener_parametros_ground  # type: ignore
+        from utilities.segment import segmentacion  # type: ignore
     except ModuleNotFoundError:  # pragma: no cover - fallback when segment is unavailable
-        obtener_parametros_ground = None  # type: ignore
+        segmentacion = None  # type: ignore
 
 # Optional import to toggle mask overlays from the GUI.
 try:
@@ -407,9 +407,9 @@ def capture_panel_screenshot(panel: Optional[tk.Widget], upload_dir: str) -> Opt
         print(f"[GUI] captura guardada en {filepath}")
 
         config_params: Dict[str, Any] = {}
-        if obtener_parametros_ground:
+        if segmentacion:
             try:
-                config_params = obtener_parametros_ground()
+                config_params = segmentacion.obtener_parametros()
             except Exception as exc:
                 print(f"[GUI] no se pudieron leer parametros de configuracion: {exc}")
 
