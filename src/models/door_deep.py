@@ -12,7 +12,7 @@ import time
 import cv2
 import numpy as np
 
-from src.utilities.helpers import points_from_rays_and_depth
+from src.utilities.pipeline_utils import geometria
 
 DEBUG_DOOR_DEEP = False
 
@@ -374,7 +374,7 @@ def door_roi_pointclouds(
         roi_combined = cv2.bitwise_and(combined_mask_raw, roi_mask)
         depth_roi = depth_np.copy()
         depth_roi[roi_combined == 0] = 0
-        points_xyz = points_from_rays_and_depth(rays_np, depth_roi, stride=stride)
+        points_xyz = geometria.points_from_rays_and_depth(rays_np, depth_roi, stride=stride)
         plane_n = None
         plane_d = None
         pts_all = None

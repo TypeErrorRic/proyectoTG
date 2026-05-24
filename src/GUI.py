@@ -49,17 +49,9 @@ except ModuleNotFoundError:
     )
 
 try:
-    from src.utilities.helpers import (
-        ensure_dataset_image_config_files,
-        load_dataset_image_params_by_index,
-        load_default_segment_params,
-    )
+    from src.utilities.pipeline_utils import configuracion_dataset
 except ModuleNotFoundError:
-    from utilities.helpers import (
-        ensure_dataset_image_config_files,
-        load_dataset_image_params_by_index,
-        load_default_segment_params,
-    )
+    from utilities.pipeline_utils import configuracion_dataset
 
 # @note Adjust sys.path when executed as a script.
 if __package__ is None or __package__ == "":
@@ -156,7 +148,7 @@ class SegmentacionApp:
 
         self.config_defaults = init_config_defaults(runtime_params_loader=segmentacion.obtener_parametros)
         ensure_upload_dir(UPLOAD_DIR)
-        created_summary = ensure_dataset_image_config_files()
+        created_summary = configuracion_dataset.ensure_dataset_image_config_files()
         if created_summary.get("created", 0) > 0:
             print(
                 "[GUI] configs por imagen creados: "
@@ -1668,7 +1660,7 @@ class SegmentacionApp:
         """
         Apply params for the currently selected dataset image.
         """
-        filename, config_path, flat_params = load_dataset_image_params_by_index(self.dataset_index)
+        filename, config_path, flat_params = configuracion_dataset.load_dataset_image_params_by_index(self.dataset_index)
         self.dataset_filename = filename
         self.dataset_config_path = config_path
         if not flat_params:
@@ -1689,7 +1681,7 @@ class SegmentacionApp:
         """
         Restore global/default params from config/segmentar_defaults.json.
         """
-        base_params = load_default_segment_params()
+        base_params = configuracion_dataset.load_default_segment_params()
         if not base_params:
             return
         parsed = parse_config_params(base_params)

@@ -37,7 +37,7 @@ for path in (REPO_ROOT, SRC_DIR):
         sys.path.insert(0, path)
 
 from src.utilities import segment
-from src.utilities.helpers import apply_mask_to_rgb
+from src.utilities.pipeline_utils import mascaras
 
 WALL_IDS = [21]
 FLOOR_IDS = [11, 143, 891]
@@ -443,7 +443,7 @@ def main() -> int:
 
             if overlay is None:
                 try:
-                    overlay = apply_mask_to_rgb(
+                    overlay = mascaras.apply_mask_to_rgb(
                         bgr,
                         pred_floor.astype(np.uint8) * 255,
                         pred_wall.astype(np.uint8) * 255,

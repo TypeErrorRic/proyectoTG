@@ -8,12 +8,7 @@ and shares its result with the main thread through a small queue.
 # Project libraries
 import src.utilities.viewCamera as viewCamera
 from utilities.GroundDetection import CaminoTransitable
-from src.utilities.helpers import (
-    apply_mask_to_rgb,
-    load_dataset_frame,
-    mejorar_mascara_pared,
-    mejorar_mascara_suelo,
-)
+from src.utilities.pipeline_utils import dataset_frames, mascaras
 from utilities.WallPlaneDetection import Muro
 from src.models.doorDetection import Puerta
 
@@ -521,7 +516,7 @@ def _segmentar_impl(frame_started_at: Optional[float] = None) -> Any:
     # Optional: refine/improve masks (after door segmentation)
     if ground_params.get("ground_mask_refine") and ground_mask is not None and np.any(ground_mask):
         try:
-            ground_mask = mejorar_mascara_suelo(
+            ground_mask = mascaras.mejorar_mascara_suelo(
                 ground_mask,
                 imagen_rgb=imagenRGB,
                 depth_m=mapaProfundidad,
@@ -536,7 +531,7 @@ def _segmentar_impl(frame_started_at: Optional[float] = None) -> Any:
 
     if wall_cfg.get("wall_mask_refine") and wall_mask is not None and np.any(wall_mask):
         try:
-            wall_mask = mejorar_mascara_pared(
+            wall_mask = mascaras.mejorar_mascara_pared(
                 wall_mask,
                 imagen_rgb=imagenRGB,
                 depth_m=mapaProfundidad,
@@ -575,7 +570,7 @@ def _segmentar_impl(frame_started_at: Optional[float] = None) -> Any:
         _runtime["last_precision"] = stats.get("precision")
         _runtime["last_class_metrics"] = stats.get("class_metrics") or _empty_class_metrics()
 
-    frame_out = apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
+    frame_out = mascaras.apply_mask_to_rgb(imagenRGB, ground_mask, wall_mask, door_mask)
     if frame_started_at is None:
         return frame_out
     return (frame_out, frame_started_at)
@@ -780,7 +775,7 @@ def _preprocesar_impl(
     if mode == "prueba":
         _runtime["dataset_filename"] = _resolve_dataset_filename(dataset_index)
         # Offline mode: load RGB and depth from disk.
-        imagenRGB, mapaProfundidad = load_dataset_frame(index=dataset_index)
+        imagenRGB, mapaProfundidad = dataset_frames.load_dataset_frame(index=dataset_index)
         if imagenRGB is None or mapaProfundidad is None:
             _runtime["imagenRGB"] = None
             _runtime["mapaProfundidad"] = None

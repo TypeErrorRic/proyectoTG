@@ -16,10 +16,10 @@ except ModuleNotFoundError:
 
 # Optional import to toggle mask overlays from the GUI.
 try:
-    from src.utilities import helpers as helpers_mod
+    from src.utilities.pipeline_utils import mascaras as helpers_mod
 except ModuleNotFoundError:
     try:
-        from utilities import helpers as helpers_mod  # type: ignore
+        from utilities.pipeline_utils import mascaras as helpers_mod  # type: ignore
     except ModuleNotFoundError:  # pragma: no cover - fallback when helpers is unavailable
         helpers_mod = None  # type: ignore
 
