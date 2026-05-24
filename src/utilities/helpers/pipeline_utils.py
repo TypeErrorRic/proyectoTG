@@ -11,6 +11,8 @@ import numpy as np
 import cv2
 from typing import Any, Dict, List, Optional, Tuple
 
+_SRC_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_SRC_ROOT, os.pardir))
 
 """
 Helper utilities for point clouds, GPU overlays, and dataset loading.
@@ -621,10 +623,7 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
     """
     global _DATASET_IMAGE_FILES, _DATASET_INDEX
     try:
-        base_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "data",
-        )
+        base_dir = os.path.join(_SRC_ROOT, "data")
         images_dir = os.path.join(base_dir, "images")
         depths_dir = os.path.join(base_dir, "depths")
 
@@ -705,7 +704,7 @@ def _project_root_dir() -> str:
     """
     Return project root directory from this module path.
     """
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+    return _PROJECT_ROOT
 
 
 def _config_dir() -> str:
