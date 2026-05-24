@@ -1,256 +1,58 @@
 #!/usr/bin/env python3
 """
-Door Detection using a TensorRT model.
+Class facade for door detection.
 """
-import os
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-import cv2
 import numpy as np
 
-from .trt_inference import TRTInference
-from .door_hsv import refine_door_mask_hsv
-from .door_deep import door_points_from_masks
-
-
-IMG_MEAN = (0.485, 0.456, 0.406)
-IMG_STD = (0.229, 0.224, 0.225)
-
-
-# Centralized state for lazy initialization
-_runtime: Dict[str, Any] = {
-    "model": None,
-    "engine_path": None,
-    "input_size": (256, 256),  # (width, height) - must match TensorRT engine
-    "min_area": 300,  # Minimum connected-component area (pixels) to keep
-    "model_loading": True,
-}
-
-
-def is_model_loading() -> bool:
-    """
-    Returns whether the door model is still loading/not ready.
-    """
-    return bool(_runtime.get("model_loading", True))
-
-
-def _lazy_init(engine_path: Optional[str] = None) -> bool:
-    """
-    Lazy initialization of the TensorRT model.
-
-    Returns True if model is ready, False otherwise.
-    """
-    if _runtime["model"] is not None:
-        _runtime["model_loading"] = False
-        return True
-
-    if engine_path is None:
-        engine_path = _runtime.get("engine_path")
-
-    if engine_path is None:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        engine_path = os.path.join(script_dir, "doors", "bisenetv2.engine")
-
-    if not os.path.exists(engine_path):
-        print(f"[doorDetection] Engine file not found: {engine_path}")
-        return False
-
-    try:
-        _runtime["model_loading"] = True
-        print(f"[doorDetection] Loading TensorRT engine from: {engine_path}")
-        _runtime["model"] = TRTInference(engine_path)
-        _runtime["engine_path"] = engine_path
-        print("[doorDetection] Model loaded successfully")
-        _runtime["model_loading"] = False
-        return True
-    except Exception as exc:
-        print(f"[doorDetection] Failed to load model: {exc}")
-        return False
-
-
-def _preprocess_inputs(rgb_image: np.ndarray) -> np.ndarray:
-    """
-    Preprocess RGB input for the door model.
-
-    Args:
-        rgb_image: BGR image (H, W, 3) as returned by OpenCV/RealSense.
-
-    Returns:
-        Input tensor of shape (1, 3, 256, 256), float32 in [0, 1].
-    """
-    input_size = _runtime["input_size"]
-
-    if rgb_image.ndim == 2:
-        rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
-    elif rgb_image.ndim == 3 and rgb_image.shape[2] > 3:
-        rgb_image = rgb_image[:, :, :3]
-
-    # Match training pipeline: PIL loads RGB, so convert BGR -> RGB here.
-    rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
-    resized = cv2.resize(rgb_image, input_size, interpolation=cv2.INTER_LINEAR)
-    normalized = resized.astype(np.float32) / 255.0
-    normalized = (normalized - np.array(IMG_MEAN, dtype=np.float32)) / np.array(
-        IMG_STD, dtype=np.float32
-    )
-
-    # HWC -> CHW and add batch dimension
-    input_tensor = normalized.transpose(2, 0, 1)[None, ...]
-    return np.ascontiguousarray(input_tensor, dtype=np.float32)
-
-
-def _postprocess_outputs(output: np.ndarray, original_size) -> np.ndarray:
-    """
-    Postprocess model outputs into a binary door mask.
-    """
-    output = np.asarray(output)
-
-    if output.ndim == 4:
-        # (N, C, H, W)
-        output = output[0]
-        if output.shape[0] == 1:
-            mask_raw = output[0]
-        else:
-            mask_raw = np.argmax(output, axis=0)
-    elif output.ndim == 3:
-        # (C, H, W) or (1, H, W)
-        if output.shape[0] == 1:
-            mask_raw = output[0]
-        else:
-            mask_raw = np.argmax(output, axis=0)
-    elif output.ndim == 2:
-        mask_raw = output
-    else:
-        raise ValueError(f"Unexpected output shape: {output.shape}")
-
-    if mask_raw.dtype.kind in ("f", "b"):
-        max_val = float(np.nanmax(mask_raw)) if mask_raw.size else 0.0
-        min_val = float(np.nanmin(mask_raw)) if mask_raw.size else 0.0
-        if 0.0 <= min_val and max_val <= 1.0:
-            mask = mask_raw > 0.5
-        else:
-            mask = mask_raw > 0.0
-    else:
-        mask = mask_raw > 0
-
-    door_mask = mask.astype(np.uint8) * 255
-    door_mask = cv2.resize(
-        door_mask,
-        (original_size[1], original_size[0]),
-        interpolation=cv2.INTER_NEAREST,
-    )
-    return door_mask
-
-
-def doorDetection(
-    rgb_image: np.ndarray,
-    min_area: Optional[int] = None,
-    use_hsv_filter: bool = True,
-    use_roi: bool = True,
-    reduce_glare: bool = True,
-    hue_tol: Optional[int] = None,
-    min_s: Optional[int] = None,
-    min_v: Optional[int] = None,
-    glare_s_max: Optional[int] = None,
-    glare_v_min: Optional[int] = None,
-    glare_v_clip: Optional[int] = None,
-    depth_m: Optional[np.ndarray] = None,
-    rays=None,
-    ground_normal=None,
-    ground_parallel_deg: Optional[float] = None,
-    plane_inlier_dist: float = 0.02,
-    plane_inlier_ratio: float = 0.70,
-) -> np.ndarray:
-    """
-    Detect doors from an RGB image using TensorRT.
-
-    Args:
-        rgb_image: BGR image (H, W, 3), values 0-255.
-        min_area: Minimum area (pixels) to keep in the output mask.
-            Use 0 to disable filtering. If None, uses runtime default.
-        use_hsv_filter: If False, skip HSV color refinement and keep the
-            raw NN mask as the HSV mask surrogate.
-        use_roi: If True, use the largest ROI to compute the dominant color
-            inside the segmented component (HSV) and return a mask of ROI
-            pixels that match that color.
-        reduce_glare: If True, clip very bright low-saturation pixels before
-            HSV-based color selection.
-        hue_tol: Hue tolerance around the dominant hue (0-179).
-        min_s: Minimum saturation threshold for HSV selection (0-255).
-        min_v: Minimum value threshold for HSV selection (0-255).
-        glare_s_max: Maximum saturation to classify glare (0-255).
-        glare_v_min: Minimum value to classify glare (0-255).
-        glare_v_clip: Value used to clip glare pixels (0-255).
-        depth_m: Depth map aligned to rgb_image (H, W), in meters.
-        rays: Rays array (H, W, 3) aligned to rgb_image.
-        ground_normal: Ground plane normal for filtering ROIs.
-        ground_parallel_deg: Allowed deviation (deg) from perpendicular to ground.
-        plane_inlier_dist: Max distance to consider point in-plane.
-        plane_inlier_ratio: Min ratio of inliers to keep ROI.
-
-    Returns:
-        door_mask: Binary mask (H, W) with doors marked as 255.
-    """
-    if not _lazy_init():
-        raise RuntimeError("Model not initialized. Cannot run doorDetection.")
-
-    original_size = rgb_image.shape[:2]
-    input_tensor = _preprocess_inputs(rgb_image)
-    output = _runtime["model"].infer(input_tensor)
-    door_mask = _postprocess_outputs(output, original_size)
-    
-    if min_area is None:
-        min_area = int(_runtime.get("min_area", 0))
-    else:
-        min_area = int(min_area)
-    if use_hsv_filter:
-        hsv_mask = refine_door_mask_hsv(
-            rgb_image,
-            door_mask,
-            min_area=min_area,
-            use_roi=use_roi,
-            reduce_glare=reduce_glare,
-            hue_tol=hue_tol,
-            min_s=min_s,
-            min_v=min_v,
-            glare_s_max=glare_s_max,
-            glare_v_min=glare_v_min,
-            glare_v_clip=glare_v_clip,
-        )
-    else:
-        hsv_mask = door_mask.copy()
-    if depth_m is not None and rays is not None:
-        try:
-            gp_deg = 15.0 if ground_parallel_deg is None else float(ground_parallel_deg)
-            deep_res = door_points_from_masks(
-                door_mask,
-                hsv_mask,
-                depth_m,
-                rays,
-                ground_normal=ground_normal,
-                ground_parallel_deg=gp_deg,
-                plane_inlier_dist=plane_inlier_dist,
-                plane_inlier_ratio=plane_inlier_ratio,
-            )
-            hsv_filtered = deep_res.get("hsv_mask")
-            if isinstance(hsv_filtered, np.ndarray) and hsv_filtered.size > 0:
-                hsv_mask = hsv_filtered
-        except Exception as exc:
-            print(f"[doorDetection] door_deep filtering failed: {exc}")
-    return hsv_mask
+from src.models.helpers import doorDetection as door_helpers
 
 
 class Puerta:
-    """Fachada simple para la deteccion de puertas."""
+    """Encapsula deteccion de puertas y su estado de runtime."""
 
-    def detectar(self, *args, **kwargs) -> np.ndarray:
-        return doorDetection(*args, **kwargs)
+    def __init__(self) -> None:
+        self.img_mean = door_helpers.IMG_MEAN
+        self.img_std = door_helpers.IMG_STD
+        self._sincronizar_estado()
+
+    def _sincronizar_estado(self) -> None:
+        runtime = door_helpers._runtime
+        self.model = runtime.get("model")
+        self.engine_path = runtime.get("engine_path")
+        self.input_size = runtime.get("input_size")
+        self.min_area = runtime.get("min_area")
+        self.model_loading = runtime.get("model_loading")
+
+    def inicializar(self, engine_path: Optional[str] = None) -> bool:
+        listo = door_helpers._lazy_init(engine_path=engine_path)
+        self._sincronizar_estado()
+        return listo
+
+    def preprocesar(self, rgb_image: np.ndarray) -> np.ndarray:
+        return door_helpers._preprocess_inputs(rgb_image)
+
+    def postprocesar(self, output: np.ndarray, original_size: Any) -> np.ndarray:
+        return door_helpers._postprocess_outputs(output, original_size)
+
+    def detectar(self, *args: Any, **kwargs: Any) -> np.ndarray:
+        resultado = door_helpers.doorDetection(*args, **kwargs)
+        self._sincronizar_estado()
+        return resultado
 
     def modelo_cargando(self) -> bool:
-        return is_model_loading()
+        self._sincronizar_estado()
+        return bool(self.model_loading)
 
     def obtener_estado_global(self) -> Dict[str, Any]:
-        return _runtime
-
-
-puerta = Puerta()
-
+        self._sincronizar_estado()
+        return {
+            "img_mean": self.img_mean,
+            "img_std": self.img_std,
+            "model": self.model,
+            "engine_path": self.engine_path,
+            "input_size": self.input_size,
+            "min_area": self.min_area,
+            "model_loading": self.model_loading,
+        }
