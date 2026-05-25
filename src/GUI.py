@@ -1,4 +1,4 @@
-r"""
+﻿r"""
 \brief Interface with a sidebar, video display, parameter controls, database
 header, and logo panel.
 \details Execution mode shows segmented frames with buttons to switch between
@@ -17,36 +17,10 @@ from PIL import Image, ImageTk, ImageDraw
 
 try:
     # Preferred import when running as a package/module.
-    from src.GUIFunctions import (
-        capture_panel_screenshot,
-        ensure_upload_dir,
-        init_config_defaults,
-        load_sidebar_icons,
-        load_upload_images,
-        on_indicator_door,
-        on_indicator_floor,
-        on_indicator_wall,
-        param_summary_fields,
-        parse_config_params,
-        validate_numeric_entry,
-        visualize_capture,
-    )
+    from src.GUIFunctions import FuncionesGUI
 except ModuleNotFoundError:
     # Fallback for direct script execution from the src directory.
-    from GUIFunctions import (
-        capture_panel_screenshot,
-        ensure_upload_dir,
-        init_config_defaults,
-        load_sidebar_icons,
-        load_upload_images,
-        on_indicator_door,
-        on_indicator_floor,
-        on_indicator_wall,
-        param_summary_fields,
-        parse_config_params,
-        validate_numeric_entry,
-        visualize_capture,
-    )
+    from GUIFunctions import FuncionesGUI
 
 try:
     from src.utilities.pipeline_utils import configuracion_dataset
@@ -62,6 +36,8 @@ if __package__ is None or __package__ == "":
 
 from src.utilities.segment import segmentacion
 from src.color import GUI_COLORS as C
+
+funciones_gui = FuncionesGUI()
 
 # @note Limit display size to reduce rescale cost (match camera feed 640x480).
 DISPLAY_MAX_W = 640
@@ -146,8 +122,8 @@ class SegmentacionApp:
         self.gallery_next_btn: Optional[tk.Button] = None
         self._gallery_active: bool = False
 
-        self.config_defaults = init_config_defaults(runtime_params_loader=segmentacion.obtener_parametros)
-        ensure_upload_dir(UPLOAD_DIR)
+        self.config_defaults = funciones_gui.init_config_defaults(runtime_params_loader=segmentacion.obtener_parametros)
+        funciones_gui.ensure_upload_dir(UPLOAD_DIR)
         created_summary = configuracion_dataset.ensure_dataset_image_config_files()
         if created_summary.get("created", 0) > 0:
             print(
@@ -158,14 +134,14 @@ class SegmentacionApp:
         self._build_grid()
         assets = {"config": "analitica.png", "exec": "camara.png"}
         base_path = os.path.join(os.path.dirname(__file__), "images")
-        self.sidebar_icons_raw = load_sidebar_icons(base_path, assets)
+        self.sidebar_icons_raw = funciones_gui.load_sidebar_icons(base_path, assets)
         self._build_panels()
         self.root.after(30, self._update_sidebar_icons)
         self.root.bind("<Configure>", self._on_resize)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._show_mode("config")
-        # Do not auto-iniciar transmisión; arranca solo al presionar el botón.
+        # Do not auto-iniciar transmisiÃ³n; arranca solo al presionar el botÃ³n.
         self._set_mode(self.mode, update_header=False)
         self._heartbeat()
 
@@ -173,7 +149,7 @@ class SegmentacionApp:
         r"""
         \brief Sets up the base window properties (title, size, and style flags).
         """
-        self.root.title("Segmentación")
+        self.root.title("SegmentaciÃ³n")
         self.root.geometry("1250x600")
         self.root.resizable(False, False)
         self.root.configure(bg=C.ROOT_BG)
@@ -315,7 +291,7 @@ class SegmentacionApp:
         self.btn_exec = tk.Button(
             bottom_wrapper,
             image=exec_icon,
-            text="" if exec_icon else "Ejecución",
+            text="" if exec_icon else "EjecuciÃ³n",
             bg=C.BTN_NEUTRAL_DARK_BG,
             fg=C.TEXT_LIGHT,
             bd=0,
@@ -446,7 +422,7 @@ class SegmentacionApp:
 
         self.btn_start_stream = tk.Button(
             buttons_panel,
-            text="Iniciar Transmisión",
+            text="Iniciar TransmisiÃ³n",
             bg=C.SUCCESS_BG,
             fg=C.TEXT_LIGHT,
             disabledforeground=C.TEXT_MUTED,
@@ -462,7 +438,7 @@ class SegmentacionApp:
 
         self.btn_stop_stream = tk.Button(
             buttons_panel,
-            text="Detener Transmisión",
+            text="Detener TransmisiÃ³n",
             bg=C.DANGER_BG,
             fg=C.TEXT_LIGHT,
             disabledforeground=C.TEXT_MUTED,
@@ -497,7 +473,7 @@ class SegmentacionApp:
         mode_content.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=(4, 6))
 
         self.mode_label_text = tk.StringVar(
-            value="Modo de ejecución: Cámara RGB-D" if self.mode == "camera" else "Modo de ejecución: Dataset de pruebas"
+            value="Modo de ejecuciÃ³n: CÃ¡mara RGB-D" if self.mode == "camera" else "Modo de ejecuciÃ³n: Dataset de pruebas"
         )
         mode_label = tk.Label(
             mode_content,
@@ -511,9 +487,9 @@ class SegmentacionApp:
         indicators = tk.Frame(mode_content, bg=C.PANEL_NEUTRAL_BG)
         indicators.pack(side="top", pady=(0, 6), anchor="w")
         for color, text, handler in (
-            (C.SUCCESS_BG, "Suelo", on_indicator_floor),
-            (C.INFO_BG, "Muro", on_indicator_wall),
-            (C.DANGER_BG, "Puerta", on_indicator_door),
+            (C.SUCCESS_BG, "Suelo", funciones_gui.on_indicator_floor),
+            (C.INFO_BG, "Muro", funciones_gui.on_indicator_wall),
+            (C.DANGER_BG, "Puerta", funciones_gui.on_indicator_door),
         ):
             item = tk.Frame(indicators, bg=C.PANEL_NEUTRAL_BG)
             item.pack(side="left", padx=8)
@@ -611,7 +587,7 @@ class SegmentacionApp:
         Load the list of captures from the uploads folder.
         """
         try:
-            self.gallery_paths = load_upload_images(UPLOAD_DIR)
+            self.gallery_paths = funciones_gui.load_upload_images(UPLOAD_DIR)
         except Exception as exc:
             print(f"[GUI] no se pudieron listar capturas: {exc}")
             self.gallery_paths = []
@@ -721,7 +697,7 @@ class SegmentacionApp:
         """
         Visualize the capture corresponding to the entered index.
         """
-        visualize_capture(self)
+        funciones_gui.visualize_capture(self)
     def _build_exec_controls(self, container: tk.Frame) -> None:
         """
         \brief Builds execution-mode controls and parameter placeholder panel.
@@ -747,7 +723,7 @@ class SegmentacionApp:
 
         self.btn_mode_cam = tk.Button(
             row_holder,
-            text="Transmisión",
+            text="TransmisiÃ³n",
             bg=C.DANGER_BG,
             fg=C.TEXT_LIGHT,
             bd=0,
@@ -772,7 +748,7 @@ class SegmentacionApp:
 
         params_title = tk.Label(
             params_panel,
-            text="Panel de Parámetros",
+            text="Panel de ParÃ¡metros",
             bg=C.CARD_BG,
             fg=C.TEXT_DARK,
             font=("Segoe UI", 11, "bold"),
@@ -797,7 +773,7 @@ class SegmentacionApp:
 
         title_lbl = tk.Label(
             summary_header,
-            text="Parámetros\nactuales",
+            text="ParÃ¡metros\nactuales",
             bg=params_body.cget("bg"),
             fg=C.TEXT_DARK,
             font=("Segoe UI", 10, "bold italic"),
@@ -872,7 +848,7 @@ class SegmentacionApp:
         summary_frame.columnconfigure(0, weight=1)
         summary_frame.columnconfigure(1, weight=0, minsize=70)
 
-        all_fields = param_summary_fields()
+        all_fields = funciones_gui.param_summary_fields()
         self._params_summary_group_keys = {
             "Camino transitable": [],
             "Muros": [],
@@ -997,7 +973,7 @@ class SegmentacionApp:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=0)
 
-        numeric_validator = (self.root.register(validate_numeric_entry), "%P")
+        numeric_validator = (self.root.register(funciones_gui.validate_numeric_entry), "%P")
 
         self.dataset_index_var = tk.IntVar(value=self.dataset_index + 1)
         entry_numero = tk.Entry(
@@ -1046,7 +1022,7 @@ class SegmentacionApp:
         nav_row.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
         btn_atras = tk.Button(
             nav_row,
-            text="Atrás",
+            text="AtrÃ¡s",
             bg=C.DANGER_BG,
             activebackground=C.DANGER_HOVER_BG,
             fg=C.TEXT_LIGHT,
@@ -1108,7 +1084,7 @@ class SegmentacionApp:
         body.grid_rowconfigure(0, weight=0)
         body.grid_rowconfigure(1, weight=0)
 
-        numeric_validator = (self.root.register(validate_numeric_entry), "%P")
+        numeric_validator = (self.root.register(funciones_gui.validate_numeric_entry), "%P")
 
         self.capture_index_var = tk.IntVar(value=1)
         entry_numero = tk.Entry(
@@ -1264,7 +1240,7 @@ class SegmentacionApp:
 
         title = tk.Label(
             wrapper,
-            text="Panel de Configuración",
+            text="Panel de ConfiguraciÃ³n",
             bg=C.FORM_BG,
             fg=C.TEXT_DARK,
             font=("Segoe UI", 16, "bold"),
@@ -1274,7 +1250,7 @@ class SegmentacionApp:
 
         subtitle = tk.Label(
             wrapper,
-            text="Ajusta los parámetros usados por la aplicación de segmentación.",
+            text="Ajusta los parÃ¡metros usados por la aplicaciÃ³n de segmentaciÃ³n.",
             bg=C.FORM_BG,
             fg=C.SIDEBAR_BG,
             font=("Segoe UI", 10),
@@ -1323,16 +1299,16 @@ class SegmentacionApp:
                 [
                     ("subsample_stride", "Submuestreo (stride px)", "2"),
                     ("dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
-                    ("max_iters", "Iteraciones máx. (RANSAC)", "900"),
-                    ("min_inliers", "Mín. inliers (pts)", "400"),
-                    ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
+                    ("max_iters", "Iteraciones mÃ¡x. (RANSAC)", "900"),
+                    ("min_inliers", "MÃ­n. inliers (pts)", "400"),
+                    ("max_angle_deg", "Ãngulo mÃ¡ximo (grados)", "60.0"),
                     ("score_subset", "Subconjunto para puntuar (pts)", "4096"),
                     ("early_stop_ratio", "Ratio corte temprano (0-1)", "0.92"),
-                    ("batch_size", "Tamaño de lote (modelos)", "256"),
+                    ("batch_size", "TamaÃ±o de lote (modelos)", "256"),
                     ("low_height_pct", "Percentil bajo de altura (%)", "25.0"),
-                    ("roi_bottom_fraction", "Fracción inferior ROI (0-1)", "0.34"),
+                    ("roi_bottom_fraction", "FracciÃ³n inferior ROI (0-1)", "0.34"),
                     ("refine_full_res", "Refinar full-res", "1"),
-                    ("ground_mask_refine", "Mejorar máscara suelo", "0"),
+                    ("ground_mask_refine", "Mejorar mÃ¡scara suelo", "0"),
                     ("refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
                 ],
             ),
@@ -1341,19 +1317,19 @@ class SegmentacionApp:
                 [
                     ("wall_subsample_stride", "Submuestreo (stride px)", "2"),
                     ("wall_dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
-                    ("wall_max_iters", "Iteraciones máx. (RANSAC)", "300"),
-                    ("wall_min_inliers", "Mín. inliers (pts)", "400"),
-                    ("wall_max_angle_deg", "Ángulo máximo (grados)", "20.0"),
+                    ("wall_max_iters", "Iteraciones mÃ¡x. (RANSAC)", "300"),
+                    ("wall_min_inliers", "MÃ­n. inliers (pts)", "400"),
+                    ("wall_max_angle_deg", "Ãngulo mÃ¡ximo (grados)", "20.0"),
                     ("wall_score_subset", "Subconjunto para puntuar (pts)", "4096"),
                     ("wall_early_stop_ratio", "Ratio corte temprano (0-1)", "0.90"),
-                    ("wall_batch_size", "Tamaño de lote (modelos)", "1024"),
+                    ("wall_batch_size", "TamaÃ±o de lote (modelos)", "1024"),
                     ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
                     ("max_up_dot", "Max up dot (0-1)", "0.35"),
                     ("ground_perp_deg", "Perp. suelo (grados)", "20.0"),
                     ("wall_ortho_deg", "Orto paredes (grados)", "20.0"),
                     ("wall_parallel_deg", "Paralelo paredes (grados)", "10.0"),
                     ("wall_parallel_distance_m", "Dist. paredes (m)", "0.60"),
-                    ("wall_mask_refine", "Mejorar máscara pared", "0"),
+                    ("wall_mask_refine", "Mejorar mÃ¡scara pared", "0"),
                 ],
             ),
             (
@@ -1366,13 +1342,13 @@ class SegmentacionApp:
                     ("door_glare_s_max", "Reflejo color (0-255)", "35"),
                     ("door_glare_v_min", "Reflejo luz (0-255)", "210"),
                     ("door_glare_v_clip", "Bajar reflejo (0-255)", "200"),
-                    ("door_ground_parallel_deg", "Inclinación máx. (grados)", "15.0"),
+                    ("door_ground_parallel_deg", "InclinaciÃ³n mÃ¡x. (grados)", "15.0"),
                     ("door_plane_inlier_ratio", "Min puntos en plano (0-1)", "0.40"),
                 ],
             ),
         ]
 
-        numeric_validator = (self.root.register(validate_numeric_entry), "%P")
+        numeric_validator = (self.root.register(funciones_gui.validate_numeric_entry), "%P")
 
         def _bool_from_var(value: str) -> bool:
             return self._is_enabled_flag(value)
@@ -1589,7 +1565,7 @@ class SegmentacionApp:
 
         hint = tk.Label(
             wrapper,
-            text="Desarrollado por Ricardo Pabón Serna - PSI - Universidad del Valle",
+            text="Desarrollado por Ricardo PabÃ³n Serna - PSI - Universidad del Valle",
             bg=C.FORM_BG,
             fg=C.BTN_NEUTRAL_BG,
             font=("Segoe UI", 9),
@@ -1666,7 +1642,7 @@ class SegmentacionApp:
         if not flat_params:
             return
 
-        parsed = parse_config_params(flat_params)
+        parsed = funciones_gui.parse_config_params(flat_params)
         if parsed is None:
             print(
                 "[GUI] No se aplicaron parametros por imagen "
@@ -1684,7 +1660,7 @@ class SegmentacionApp:
         base_params = configuracion_dataset.load_default_segment_params()
         if not base_params:
             return
-        parsed = parse_config_params(base_params)
+        parsed = funciones_gui.parse_config_params(base_params)
         params_to_apply = dict(base_params)
         if parsed is not None:
             params_to_apply.update(parsed)
@@ -1695,7 +1671,7 @@ class SegmentacionApp:
         \brief Apply configuration values to the segmentation thread.
         """
         raw_values = {key: var.get() for key, var in self.config_vars.items()}
-        parsed = parse_config_params(raw_values)
+        parsed = funciones_gui.parse_config_params(raw_values)
         if parsed is None:
             self._set_apply_status("No aplicado", bg=C.DANGER_BG, active_bg=C.DANGER_HOVER_BG)
             return
@@ -1704,7 +1680,7 @@ class SegmentacionApp:
         # Restart worker so the new parameters take effect immediately when running.
         if self._worker and self._worker.is_alive():
             self._restart_worker()
-        print("[GUI] Parámetros de segmentación actualizados.")
+        print("[GUI] ParÃ¡metros de segmentaciÃ³n actualizados.")
         self._set_apply_status(
             "Aplicado",
             bg=C.SUCCESS_SOFT_BG,
@@ -1726,7 +1702,7 @@ class SegmentacionApp:
             if key in self.config_vars:
                 self.config_vars[key].set(str(value))
 
-        parsed = parse_config_params(self.config_defaults)
+        parsed = funciones_gui.parse_config_params(self.config_defaults)
         if parsed:
             self._apply_runtime_params(parsed)
             self._restart_worker()
@@ -1767,7 +1743,7 @@ class SegmentacionApp:
 
     def _on_mode_transmision_pressed(self) -> None:
         """
-        Handle user tap on the Transmisión mode button.
+        Handle user tap on the TransmisiÃ³n mode button.
         """
         self._disable_capturas_button()
         self._set_mode("camera")
@@ -1780,11 +1756,11 @@ class SegmentacionApp:
         if mode == "camera":
             self.btn_mode_cam.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
             self.btn_mode_test.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
-            self.mode_label_text.set("Modo de ejecución: Cámara RGB-D")
+            self.mode_label_text.set("Modo de ejecuciÃ³n: CÃ¡mara RGB-D")
         else:
             self.btn_mode_test.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
             self.btn_mode_cam.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
-            self.mode_label_text.set("Modo de ejecución: Dataset de pruebas")
+            self.mode_label_text.set("Modo de ejecuciÃ³n: Dataset de pruebas")
 
         self._update_stream_controls_state()
         self._update_sample_panel_state()
@@ -1796,11 +1772,11 @@ class SegmentacionApp:
         elif mode == "camera":
             self._apply_default_params_for_camera()
             if self._stream_requested:
-                # Mantener transmisión si el usuario ya la inició, sin reiniciar si ya corre.
+                # Mantener transmisiÃ³n si el usuario ya la iniciÃ³, sin reiniciar si ya corre.
                 if not (self._worker and self._worker.is_alive()):
                     self._start_worker()
             else:
-                # Si no se ha iniciado transmisión, detiene el hilo.
+                # Si no se ha iniciado transmisiÃ³n, detiene el hilo.
                 self._stop_stream()
 
     def _update_stream_controls_state(self) -> None:
@@ -2024,9 +2000,9 @@ class SegmentacionApp:
         """
         self._stream_requested = False
         self._stop_worker()
-        self.mode_label_text.set("Transmisión detenida")
+        self.mode_label_text.set("TransmisiÃ³n detenida")
         if hasattr(self, "display_area"):
-            self.display_area.configure(text="Transmisión detenida", image="", bg=C.PANEL_NEUTRAL_BG)
+            self.display_area.configure(text="TransmisiÃ³n detenida", image="", bg=C.PANEL_NEUTRAL_BG)
 
     def _capture_screenshot(self) -> None:
         """
@@ -2040,7 +2016,7 @@ class SegmentacionApp:
             try:
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 image = Image.fromarray(frame_rgb)
-                ensure_upload_dir(UPLOAD_DIR)
+                funciones_gui.ensure_upload_dir(UPLOAD_DIR)
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 filepath = os.path.join(UPLOAD_DIR, f"captura_{timestamp}.png")
                 image.save(filepath)
@@ -2052,7 +2028,7 @@ class SegmentacionApp:
                 print(f"[GUI] no se pudo guardar captura desde frame: {exc}")
 
         # Fallback: widget screenshot if no frame is available.
-        capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
+        funciones_gui.capture_panel_screenshot(getattr(self, "frame_video_inner", None), UPLOAD_DIR)
 
     def _worker_loop(self) -> None:
         r"""
@@ -2123,7 +2099,7 @@ class SegmentacionApp:
                 )
                 return
             self.display_area.configure(
-                text="Sin datos de segmentación.",
+                text="Sin datos de segmentaciÃ³n.",
                 image="",
                 bg=C.PANEL_NEUTRAL_BG,
                 compound="center",
@@ -2261,4 +2237,5 @@ if __name__ == "__main__":
     # Allow launching directly on any platform; default to dataset mode to avoid
     # camera/GPU dependencies when they are not available.
     run_app(mode="prueba")
+
 
