@@ -25,12 +25,7 @@ for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from src.utilities.viewCamera import (  # noqa: E402
-    extract_depth_meters,
-    extract_rgb,
-    init_camera,
-    make_depth_to_color_aligner,
-)
+from src.utilities.viewCamera import camara  # noqa: E402
 
 
 def depth_to_grayscale(depth_m: np.ndarray) -> np.ndarray:
@@ -67,14 +62,14 @@ def depth_to_colormap(depth_m: np.ndarray) -> np.ndarray:
 def main() -> int:
     pipeline = None
     try:
-        pipeline, _ = init_camera(
+        pipeline, _ = camara.init_camera(
             color_width=FRAME_WIDTH,
             color_height=FRAME_HEIGHT,
             depth_width=FRAME_WIDTH,
             depth_height=FRAME_HEIGHT,
             fps=30,
         )
-        align_depth_to_color = make_depth_to_color_aligner(pipeline)
+        align_depth_to_color = camara.make_depth_to_color_aligner(pipeline)
 
         cv2.namedWindow("RGB", cv2.WINDOW_AUTOSIZE)
         cv2.namedWindow("Depth", cv2.WINDOW_AUTOSIZE)
@@ -83,11 +78,11 @@ def main() -> int:
 
         while True:
             frames = pipeline.wait_for_frames()
-            rgb = extract_rgb(frames, copy=False)
+            rgb = camara.extract_rgb(frames, copy=False)
             depth_m = (
                 align_depth_to_color(frames)
                 if align_depth_to_color is not None
-                else extract_depth_meters(frames, pipeline=pipeline)
+                else camara.extract_depth_meters(frames, pipeline=pipeline)
             )
 
             if rgb is None or depth_m is None:

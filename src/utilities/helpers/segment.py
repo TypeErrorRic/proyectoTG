@@ -6,10 +6,10 @@ and shares its result with the main thread through a small queue.
 """
 
 # Project libraries
-import src.utilities.viewCamera as viewCamera
-from utilities.GroundDetection import CaminoTransitable
+from src.utilities.viewCamera import camara
+from src.utilities.GroundDetection import CaminoTransitable
 from src.utilities.pipeline_utils import dataset_frames, mascaras
-from utilities.WallPlaneDetection import Muro
+from src.utilities.WallPlaneDetection import Muro
 from src.models.doorDetection import Puerta
 
 # Runtime libraries
@@ -724,7 +724,7 @@ def _lazy_init(
     pipeline = _runtime.get("pipeline")
     if pipeline is None:
         print("Initializing RealSense camera...")
-        pipeline, _ = viewCamera.init_camera(
+        pipeline, _ = camara.init_camera(
             color_width,
             color_height,
             depth_width,
@@ -742,8 +742,8 @@ def _lazy_init(
     # If coming from dataset mode or rays are not ready, recompute rays
     # and the depth->color aligner for the camera.
     if last_mode != "camera" or _runtime.get("rays_cp") is None:
-        rays_np, H, W, align_depth_fn = viewCamera.precompute_rays_for_stream(
-            pipeline, viewCamera.rs.stream.color
+        rays_np, H, W, align_depth_fn = camara.precompute_rays_for_stream(
+            pipeline, camara.rs.stream.color
         )
         _runtime["rays_cp"] = cp.asarray(rays_np)
         _runtime["H"] = H
@@ -798,7 +798,7 @@ def _preprocesar_impl(
 
         # In dataset mode we always use "normalized" rays that are independent
         # of real intrinsics and consistent with a simple Z-up camera model.
-        rays_np = viewCamera.compute_normalized_rays(H, W)
+        rays_np = camara.compute_normalized_rays(H, W)
         _runtime["rays_cp"] = cp.asarray(rays_np)
 
     else:
@@ -816,11 +816,11 @@ def _preprocesar_impl(
         align_depth_fn = _runtime["align_depth_fn"]
 
         # Extract native RGB and depth from the camera
-        imagenRGB = viewCamera.extract_rgb(frames)
+        imagenRGB = camara.extract_rgb(frames)
         mapaProfundidad = (
             align_depth_fn(frames)
             if align_depth_fn is not None
-            else viewCamera.extract_depth_meters(frames)
+            else camara.extract_depth_meters(frames)
         )
 
         if imagenRGB is None or mapaProfundidad is None:
@@ -980,7 +980,7 @@ def _algoritmos_segmentacion_impl(
             return _runtime["imagenRGB"]
     else:
         if _runtime["pipeline"] is not None:
-            imagenRGB = viewCamera.extract_rgb(_runtime["pipeline"].wait_for_frames())
+            imagenRGB = camara.extract_rgb(_runtime["pipeline"].wait_for_frames())
             if imagenRGB is not None:
                 return imagenRGB
 
@@ -1080,7 +1080,7 @@ class Segmentacion:
             "camino_transitable": self.camino_transitable.obtener_estado_global(),
             "muro": self.muro.obtener_estado_global(),
             "puerta": self.puerta.obtener_estado_global(),
-            "view_camera_module": viewCamera,
+            "camara": camara,
         }
 
     def algoritmos_segmentacion(self, *args: Any, **kwargs: Any) -> Any:

@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 
 from src.models.trt_inference import TRTInference
-from src.models.door_hsv import refine_door_mask_hsv
-from src.models.door_deep import door_points_from_masks
+from src.models.door_hsv import PuertaHSV
+from src.models.door_deep import PuertaDeep
 
 
 IMG_MEAN = (0.485, 0.456, 0.406)
@@ -26,6 +26,9 @@ _runtime: Dict[str, Any] = {
     "min_area": 300,  # Minimum connected-component area (pixels) to keep
     "model_loading": True,
 }
+
+_puerta_hsv = PuertaHSV()
+_puerta_deep = PuertaDeep()
 
 
 def is_model_loading() -> bool:
@@ -204,7 +207,7 @@ def doorDetection(
     else:
         min_area = int(min_area)
     if use_hsv_filter:
-        hsv_mask = refine_door_mask_hsv(
+        hsv_mask = _puerta_hsv.refinar_mascara(
             rgb_image,
             door_mask,
             min_area=min_area,
@@ -222,7 +225,7 @@ def doorDetection(
     if depth_m is not None and rays is not None:
         try:
             gp_deg = 15.0 if ground_parallel_deg is None else float(ground_parallel_deg)
-            deep_res = door_points_from_masks(
+            deep_res = _puerta_deep.puntos_desde_mascaras(
                 door_mask,
                 hsv_mask,
                 depth_m,
@@ -238,46 +241,4 @@ def doorDetection(
         except Exception as exc:
             print(f"[doorDetection] door_deep filtering failed: {exc}")
     return hsv_mask
-
-
-class Puerta:
-    """Fachada simple para la deteccion de puertas."""
-
-    def __init__(self) -> None:
-        self.img_mean = IMG_MEAN
-        self.img_std = IMG_STD
-        self.model = _runtime.get("model")
-        self.engine_path = _runtime.get("engine_path")
-        self.input_size = _runtime.get("input_size")
-        self.min_area = _runtime.get("min_area")
-        self.model_loading = _runtime.get("model_loading")
-
-    def _sincronizar_estado(self) -> None:
-        self.model = _runtime.get("model")
-        self.engine_path = _runtime.get("engine_path")
-        self.input_size = _runtime.get("input_size")
-        self.min_area = _runtime.get("min_area")
-        self.model_loading = _runtime.get("model_loading")
-
-    def detectar(self, *args, **kwargs) -> np.ndarray:
-        resultado = doorDetection(*args, **kwargs)
-        self._sincronizar_estado()
-        return resultado
-
-    def modelo_cargando(self) -> bool:
-        self._sincronizar_estado()
-        return bool(self.model_loading)
-
-    def obtener_estado_global(self) -> Dict[str, Any]:
-        self._sincronizar_estado()
-        return {
-            "model": self.model,
-            "engine_path": self.engine_path,
-            "input_size": self.input_size,
-            "min_area": self.min_area,
-            "model_loading": self.model_loading,
-        }
-
-
-puerta = Puerta()
 

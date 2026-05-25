@@ -37,7 +37,7 @@ for path in (REPO_ROOT, SRC_DIR):
         sys.path.insert(0, path)
 
 from src.utilities import segment
-from src.utilities.pipeline_utils import mascaras
+from src.utilities.pipeline_utils import dataset_frames, mascaras
 
 WALL_IDS = [21]
 FLOOR_IDS = [11, 143, 891]
@@ -315,8 +315,8 @@ def main() -> int:
     reader = NYUV2Mat(mat_path)
     cache = FrameCache(reader)
 
-    # Monkeypatch dataset loader used by AlgoritmosSegmentacion
-    segment.load_dataset_frame = make_dataset_loader(cache)
+    # Monkeypatch dataset loader used by the segmentation pipeline.
+    dataset_frames.load_dataset_frame = make_dataset_loader(cache)
 
     try:
         if args.index is not None:
