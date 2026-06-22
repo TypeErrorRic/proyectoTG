@@ -141,7 +141,7 @@ class SegmentacionApp:
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._show_mode("config")
-        # Do not auto-iniciar transmisiÃ³n; arranca solo al presionar el botÃ³n.
+        # Do not auto-iniciar transmisión; arranca solo al presionar el botón.
         self._set_mode(self.mode, update_header=False)
         self._heartbeat()
 
@@ -149,7 +149,7 @@ class SegmentacionApp:
         r"""
         \brief Sets up the base window properties (title, size, and style flags).
         """
-        self.root.title("SegmentaciÃ³n")
+        self.root.title("Segmentación")
         self.root.geometry("1250x600")
         self.root.resizable(False, False)
         self.root.configure(bg=C.ROOT_BG)
@@ -291,7 +291,7 @@ class SegmentacionApp:
         self.btn_exec = tk.Button(
             bottom_wrapper,
             image=exec_icon,
-            text="" if exec_icon else "EjecuciÃ³n",
+            text="" if exec_icon else "Ejecución",
             bg=C.BTN_NEUTRAL_DARK_BG,
             fg=C.TEXT_LIGHT,
             bd=0,
@@ -422,7 +422,7 @@ class SegmentacionApp:
 
         self.btn_start_stream = tk.Button(
             buttons_panel,
-            text="Iniciar TransmisiÃ³n",
+            text="Iniciar Transmisión",
             bg=C.SUCCESS_BG,
             fg=C.TEXT_LIGHT,
             disabledforeground=C.TEXT_MUTED,
@@ -438,7 +438,7 @@ class SegmentacionApp:
 
         self.btn_stop_stream = tk.Button(
             buttons_panel,
-            text="Detener TransmisiÃ³n",
+            text="Detener Transmisión",
             bg=C.DANGER_BG,
             fg=C.TEXT_LIGHT,
             disabledforeground=C.TEXT_MUTED,
@@ -473,7 +473,7 @@ class SegmentacionApp:
         mode_content.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=(4, 6))
 
         self.mode_label_text = tk.StringVar(
-            value="Modo de ejecuciÃ³n: CÃ¡mara RGB-D" if self.mode == "camera" else "Modo de ejecuciÃ³n: Dataset de pruebas"
+            value="Modo de ejecución: Cámara RGB-D" if self.mode == "camera" else "Modo de ejecución: Dataset de pruebas"
         )
         mode_label = tk.Label(
             mode_content,
@@ -723,7 +723,7 @@ class SegmentacionApp:
 
         self.btn_mode_cam = tk.Button(
             row_holder,
-            text="TransmisiÃ³n",
+            text="Transmisión",
             bg=C.DANGER_BG,
             fg=C.TEXT_LIGHT,
             bd=0,
@@ -748,7 +748,7 @@ class SegmentacionApp:
 
         params_title = tk.Label(
             params_panel,
-            text="Panel de ParÃ¡metros",
+            text="Panel de Parámetros",
             bg=C.CARD_BG,
             fg=C.TEXT_DARK,
             font=("Segoe UI", 11, "bold"),
@@ -773,7 +773,7 @@ class SegmentacionApp:
 
         title_lbl = tk.Label(
             summary_header,
-            text="ParÃ¡metros\nactuales",
+            text="Parámetros\nactuales",
             bg=params_body.cget("bg"),
             fg=C.TEXT_DARK,
             font=("Segoe UI", 10, "bold italic"),
@@ -1022,7 +1022,7 @@ class SegmentacionApp:
         nav_row.pack(side="bottom", fill="x", padx=10, pady=(4, 8))
         btn_atras = tk.Button(
             nav_row,
-            text="AtrÃ¡s",
+            text="Atrás",
             bg=C.DANGER_BG,
             activebackground=C.DANGER_HOVER_BG,
             fg=C.TEXT_LIGHT,
@@ -1240,7 +1240,7 @@ class SegmentacionApp:
 
         title = tk.Label(
             wrapper,
-            text="Panel de ConfiguraciÃ³n",
+            text="Panel de Configuración",
             bg=C.FORM_BG,
             fg=C.TEXT_DARK,
             font=("Segoe UI", 16, "bold"),
@@ -1250,7 +1250,7 @@ class SegmentacionApp:
 
         subtitle = tk.Label(
             wrapper,
-            text="Ajusta los parÃ¡metros usados por la aplicaciÃ³n de segmentaciÃ³n.",
+            text="Ajusta los parámetros usados por la aplicación de segmentación.",
             bg=C.FORM_BG,
             fg=C.SIDEBAR_BG,
             font=("Segoe UI", 10),
@@ -1299,16 +1299,16 @@ class SegmentacionApp:
                 [
                     ("subsample_stride", "Submuestreo (stride px)", "2"),
                     ("dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
-                    ("max_iters", "Iteraciones mÃ¡x. (RANSAC)", "900"),
-                    ("min_inliers", "MÃ­n. inliers (pts)", "400"),
-                    ("max_angle_deg", "Ãngulo mÃ¡ximo (grados)", "60.0"),
+                    ("max_iters", "Iteraciones máx. (RANSAC)", "900"),
+                    ("min_inliers", "Mín. inliers (pts)", "400"),
+                    ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
                     ("score_subset", "Subconjunto para puntuar (pts)", "4096"),
                     ("early_stop_ratio", "Ratio corte temprano (0-1)", "0.92"),
-                    ("batch_size", "TamaÃ±o de lote (modelos)", "256"),
+                    ("batch_size", "Tamaño de lote (modelos)", "256"),
                     ("low_height_pct", "Percentil bajo de altura (%)", "25.0"),
-                    ("roi_bottom_fraction", "FracciÃ³n inferior ROI (0-1)", "0.34"),
+                    ("roi_bottom_fraction", "Fracción inferior ROI (0-1)", "0.34"),
                     ("refine_full_res", "Refinar full-res", "1"),
-                    ("ground_mask_refine", "Mejorar mÃ¡scara suelo", "0"),
+                    ("ground_mask_refine", "Mejorar máscara suelo", "0"),
                     ("refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
                 ],
             ),
@@ -1317,19 +1317,19 @@ class SegmentacionApp:
                 [
                     ("wall_subsample_stride", "Submuestreo (stride px)", "2"),
                     ("wall_dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
-                    ("wall_max_iters", "Iteraciones mÃ¡x. (RANSAC)", "300"),
-                    ("wall_min_inliers", "MÃ­n. inliers (pts)", "400"),
-                    ("wall_max_angle_deg", "Ãngulo mÃ¡ximo (grados)", "20.0"),
+                    ("wall_max_iters", "Iteraciones máx. (RANSAC)", "300"),
+                    ("wall_min_inliers", "Mín. inliers (pts)", "400"),
+                    ("wall_max_angle_deg", "Ángulo máximo (grados)", "20.0"),
                     ("wall_score_subset", "Subconjunto para puntuar (pts)", "4096"),
                     ("wall_early_stop_ratio", "Ratio corte temprano (0-1)", "0.90"),
-                    ("wall_batch_size", "TamaÃ±o de lote (modelos)", "1024"),
+                    ("wall_batch_size", "Tamaño de lote (modelos)", "1024"),
                     ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
                     ("max_up_dot", "Max up dot (0-1)", "0.35"),
                     ("ground_perp_deg", "Perp. suelo (grados)", "20.0"),
                     ("wall_ortho_deg", "Orto paredes (grados)", "20.0"),
                     ("wall_parallel_deg", "Paralelo paredes (grados)", "10.0"),
                     ("wall_parallel_distance_m", "Dist. paredes (m)", "0.60"),
-                    ("wall_mask_refine", "Mejorar mÃ¡scara pared", "0"),
+                    ("wall_mask_refine", "Mejorar máscara pared", "0"),
                 ],
             ),
             (
@@ -1342,7 +1342,7 @@ class SegmentacionApp:
                     ("door_glare_s_max", "Reflejo color (0-255)", "35"),
                     ("door_glare_v_min", "Reflejo luz (0-255)", "210"),
                     ("door_glare_v_clip", "Bajar reflejo (0-255)", "200"),
-                    ("door_ground_parallel_deg", "InclinaciÃ³n mÃ¡x. (grados)", "15.0"),
+                    ("door_ground_parallel_deg", "Inclinación máx. (grados)", "15.0"),
                     ("door_plane_inlier_ratio", "Min puntos en plano (0-1)", "0.40"),
                 ],
             ),
@@ -1565,7 +1565,7 @@ class SegmentacionApp:
 
         hint = tk.Label(
             wrapper,
-            text="Desarrollado por Ricardo PabÃ³n Serna - PSI - Universidad del Valle",
+            text="Desarrollado por Ricardo Pabón Serna - PSI - Universidad del Valle",
             bg=C.FORM_BG,
             fg=C.BTN_NEUTRAL_BG,
             font=("Segoe UI", 9),
@@ -1680,7 +1680,7 @@ class SegmentacionApp:
         # Restart worker so the new parameters take effect immediately when running.
         if self._worker and self._worker.is_alive():
             self._restart_worker()
-        print("[GUI] ParÃ¡metros de segmentaciÃ³n actualizados.")
+        print("[GUI] Parámetros de segmentación actualizados.")
         self._set_apply_status(
             "Aplicado",
             bg=C.SUCCESS_SOFT_BG,
@@ -1743,7 +1743,7 @@ class SegmentacionApp:
 
     def _on_mode_transmision_pressed(self) -> None:
         """
-        Handle user tap on the TransmisiÃ³n mode button.
+        Handle user tap on the Transmisión mode button.
         """
         self._disable_capturas_button()
         self._set_mode("camera")
@@ -1756,11 +1756,11 @@ class SegmentacionApp:
         if mode == "camera":
             self.btn_mode_cam.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
             self.btn_mode_test.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
-            self.mode_label_text.set("Modo de ejecuciÃ³n: CÃ¡mara RGB-D")
+            self.mode_label_text.set("Modo de ejecución: Cámara RGB-D")
         else:
             self.btn_mode_test.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
             self.btn_mode_cam.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
-            self.mode_label_text.set("Modo de ejecuciÃ³n: Dataset de pruebas")
+            self.mode_label_text.set("Modo de ejecución: Dataset de pruebas")
 
         self._update_stream_controls_state()
         self._update_sample_panel_state()
@@ -1772,11 +1772,11 @@ class SegmentacionApp:
         elif mode == "camera":
             self._apply_default_params_for_camera()
             if self._stream_requested:
-                # Mantener transmisiÃ³n si el usuario ya la iniciÃ³, sin reiniciar si ya corre.
+                # Mantener transmisión si el usuario ya la inició, sin reiniciar si ya corre.
                 if not (self._worker and self._worker.is_alive()):
                     self._start_worker()
             else:
-                # Si no se ha iniciado transmisiÃ³n, detiene el hilo.
+                # Si no se ha iniciado transmisión, detiene el hilo.
                 self._stop_stream()
 
     def _update_stream_controls_state(self) -> None:
@@ -2000,9 +2000,9 @@ class SegmentacionApp:
         """
         self._stream_requested = False
         self._stop_worker()
-        self.mode_label_text.set("TransmisiÃ³n detenida")
+        self.mode_label_text.set("Transmisión detenida")
         if hasattr(self, "display_area"):
-            self.display_area.configure(text="TransmisiÃ³n detenida", image="", bg=C.PANEL_NEUTRAL_BG)
+            self.display_area.configure(text="Transmisión detenida", image="", bg=C.PANEL_NEUTRAL_BG)
 
     def _capture_screenshot(self) -> None:
         """
@@ -2099,7 +2099,7 @@ class SegmentacionApp:
                 )
                 return
             self.display_area.configure(
-                text="Sin datos de segmentaciÃ³n.",
+                text="Sin datos de segmentación.",
                 image="",
                 bg=C.PANEL_NEUTRAL_BG,
                 compound="center",
