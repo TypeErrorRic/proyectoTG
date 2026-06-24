@@ -34,7 +34,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segment import segmentacion
+from src.utilities.segment_v2 import segmentacion
 from src.color import GUI_COLORS as C
 
 funciones_gui = FuncionesGUI()
@@ -93,6 +93,7 @@ class SegmentacionApp:
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
         self._config_field_widgets: Dict[str, Tuple[tk.Widget, tk.Widget]] = {}
+        self._config_description_popup: Optional[tk.Toplevel] = None
         self._door_hsv_related_keys = set(DOOR_HSV_RELATED_KEYS)
         self._config_apply_btn: Optional[tk.Button] = None
         self._apply_btn_default_text: str = "Aplicar"
@@ -719,7 +720,6 @@ class SegmentacionApp:
             pady=10,
             command=self._on_mode_prueba_pressed,
         )
-        self.btn_mode_test.pack(side="left", padx=4, expand=True, fill="x")
 
         self.btn_mode_cam = tk.Button(
             row_holder,
@@ -733,6 +733,7 @@ class SegmentacionApp:
             command=self._on_mode_transmision_pressed,
         )
         self.btn_mode_cam.pack(side="left", padx=4, expand=True, fill="x")
+        self.btn_mode_test.pack(side="left", padx=4, expand=True, fill="x")
 
         params_panel = tk.Frame(
             container,
@@ -1230,6 +1231,83 @@ class SegmentacionApp:
                 )
                 fallback.grid(row=row, column=col, columnspan=span, padx=12, pady=pady, sticky="n")
 
+    def _show_config_description(self, title: str, description: str) -> None:
+        """
+        Show a small help popup for a configuration parameter.
+        """
+        if self._config_description_popup is not None:
+            try:
+                self._config_description_popup.destroy()
+            except Exception:
+                pass
+            self._config_description_popup = None
+
+        popup = tk.Toplevel(self.root)
+        self._config_description_popup = popup
+        popup.title(title)
+        popup.configure(bg=C.LIGHT_BG)
+        popup.resizable(False, False)
+        popup.transient(self.root)
+
+        content = tk.Frame(popup, bg=C.LIGHT_BG, padx=14, pady=12)
+        content.grid(row=0, column=0, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+
+        title_lbl = tk.Label(
+            content,
+            text=title,
+            bg=C.LIGHT_BG,
+            fg=C.TEXT_DARK,
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+            justify="left",
+            wraplength=280,
+        )
+        title_lbl.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        body_lbl = tk.Label(
+            content,
+            text=description,
+            bg=C.LIGHT_BG,
+            fg=C.TEXT_MEDIUM,
+            font=("Segoe UI", 10),
+            anchor="w",
+            justify="left",
+            wraplength=300,
+        )
+        body_lbl.grid(row=1, column=0, sticky="ew")
+
+        def _clear_popup_ref() -> None:
+            if self._config_description_popup is popup:
+                self._config_description_popup = None
+            popup.destroy()
+
+        btn_close = tk.Button(
+            content,
+            text="Cerrar",
+            bg=C.BTN_NEUTRAL_BG,
+            fg=C.TEXT_LIGHT,
+            activebackground=C.BTN_NEUTRAL_DARK_BG,
+            activeforeground=C.TEXT_LIGHT,
+            bd=0,
+            padx=10,
+            pady=5,
+            font=("Segoe UI", 9, "bold"),
+            command=_clear_popup_ref,
+        )
+        btn_close.grid(row=2, column=0, sticky="e", pady=(12, 0))
+
+        popup.protocol("WM_DELETE_WINDOW", _clear_popup_ref)
+        popup.update_idletasks()
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        max_x = root_x + self.root.winfo_width() - popup.winfo_width() - 8
+        max_y = root_y + self.root.winfo_height() - popup.winfo_height() - 8
+        x = min(self.root.winfo_pointerx() + 12, max_x)
+        y = min(self.root.winfo_pointery() + 12, max_y)
+        popup.geometry(f"+{max(x, root_x + 8)}+{max(y, root_y + 8)}")
+        popup.lift()
+
     def _build_config_placeholder(self, container: tk.Frame) -> None:
         """
         \brief Configuration panel for RANSAC parameters.
@@ -1347,6 +1425,7 @@ class SegmentacionApp:
                 ],
             ),
         ]
+        field_descriptions = funciones_gui.config_field_descriptions()
 
         numeric_validator = (self.root.register(funciones_gui.validate_numeric_entry), "%P")
 
@@ -1393,6 +1472,42 @@ class SegmentacionApp:
                     field_lbl.grid_remove()
                     field_input.grid_remove()
 
+        def _show_config_description(title_text: str, description: str) -> None:
+            self._show_config_description(title_text, description)
+
+        def _build_label_with_info(parent: tk.Widget, label_text: str, description: str) -> tk.Frame:
+            label_box = tk.Frame(parent, bg=parent.cget("bg"))
+            text_lbl = tk.Label(
+                label_box,
+                text=label_text,
+                bg=parent.cget("bg"),
+                fg=C.TEXT_DARK,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+                justify="left",
+                wraplength=195,
+                pady=4,
+            )
+            text_lbl.pack(side="left", fill="x", expand=True)
+            if description:
+                info_icon = tk.Canvas(
+                    label_box,
+                    width=17,
+                    height=17,
+                    bg=parent.cget("bg"),
+                    bd=0,
+                    highlightthickness=0,
+                    cursor="hand2",
+                )
+                info_icon.create_oval(1, 1, 16, 16, fill="#9AA1AA", outline="#9AA1AA")
+                info_icon.create_text(8.5, 8.5, text="i", fill="white", font=("Segoe UI", 8, "bold"))
+                info_icon.pack(side="left", padx=(4, 0))
+                info_icon.bind(
+                    "<Button-1>",
+                    lambda _event, t=label_text, d=description: _show_config_description(t, d),
+                )
+            return label_box
+
         self._config_field_widgets = {}
         for title_text, fields in sections:
             section = tk.LabelFrame(
@@ -1413,16 +1528,10 @@ class SegmentacionApp:
             for idx, (key, label_text, default) in enumerate(fields):
                 row = idx // 2
                 col_offset = 2 * (idx % 2)
-                lbl = tk.Label(
+                lbl = _build_label_with_info(
                     section,
-                    text=label_text,
-                    bg=section.cget("bg"),
-                    fg=C.TEXT_DARK,
-                    font=("Segoe UI", 10, "bold"),
-                    anchor="w",
-                    justify="left",
-                    wraplength=220,
-                    pady=4,
+                    label_text,
+                    field_descriptions.get(key, ""),
                 )
                 lbl.grid(row=row, column=col_offset, sticky="w", padx=(2, 8))
 

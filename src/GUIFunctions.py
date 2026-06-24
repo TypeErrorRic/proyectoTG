@@ -104,6 +104,9 @@ class FuncionesGUI:
     def validate_numeric_entry(self, proposed: str) -> bool:
         return self._obtener_helper().validate_numeric_entry(proposed)
 
+    def config_field_descriptions(self, descriptions_path: Optional[str] = None) -> Dict[str, str]:
+        return self._obtener_helper().config_field_descriptions(descriptions_path)
+
     def parse_config_params(self, values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return self._obtener_helper().parse_config_params(values)
 

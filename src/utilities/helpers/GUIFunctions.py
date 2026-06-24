@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -7,10 +8,10 @@ from PIL import Image, ImageDraw, ImageGrab
 
 # Optional import to fetch current configuration parameters at capture time.
 try:
-    from src.utilities.segment import segmentacion
+    from src.utilities.segment_v2 import segmentacion
 except ModuleNotFoundError:
     try:
-        from utilities.segment import segmentacion  # type: ignore
+        from utilities.segment_v2 import segmentacion  # type: ignore
     except ModuleNotFoundError:  # pragma: no cover - fallback when segment is unavailable
         segmentacion = None  # type: ignore
 
@@ -66,6 +67,41 @@ DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
     "door_ground_parallel_deg": "15.0",
     "door_plane_inlier_ratio": "0.40",
 }
+
+
+def _project_root_dir() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+def config_field_descriptions(
+    descriptions_path: Optional[str] = None,
+) -> Dict[str, str]:
+    """
+    Load optional configuration field descriptions from config/*.json.
+    """
+    path = descriptions_path or os.path.join(
+        _project_root_dir(),
+        "config",
+        "config_field_descriptions.json",
+    )
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        print(f"[GUI] no se pudieron leer descripciones de configuracion: {exc}")
+        return {}
+
+    if not isinstance(loaded, dict):
+        print(f"[GUI] archivo de descripciones invalido: {path}")
+        return {}
+
+    descriptions: Dict[str, str] = {}
+    for key, value in loaded.items():
+        if isinstance(key, str) and isinstance(value, str) and value.strip():
+            descriptions[key] = value.strip()
+    return descriptions
 
 
 def ensure_upload_dir(upload_dir: str) -> None:
