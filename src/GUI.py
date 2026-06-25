@@ -34,7 +34,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.utilities.segment_v2 import segmentacion
+from src.utilities.segment import segmentacion
 from src.color import GUI_COLORS as C
 
 funciones_gui = FuncionesGUI()

@@ -8,10 +8,10 @@ from PIL import Image, ImageDraw, ImageGrab
 
 # Optional import to fetch current configuration parameters at capture time.
 try:
-    from src.utilities.segment_v2 import segmentacion
+    from src.utilities.segment import segmentacion
 except ModuleNotFoundError:
     try:
-        from utilities.segment_v2 import segmentacion  # type: ignore
+        from utilities.segment import segmentacion  # type: ignore
     except ModuleNotFoundError:  # pragma: no cover - fallback when segment is unavailable
         segmentacion = None  # type: ignore
 
