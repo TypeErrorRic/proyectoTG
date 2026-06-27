@@ -54,7 +54,7 @@ class CaminoTransitable(DetectorClase):
 
     def detectar(self, *args: Any, **kwargs: Any) -> Any:
         ground_helpers = self._obtener_helper()
-        if len(args) >= 5:
+        if len(args) >= 5 or (len(args) >= 4 and not isinstance(args[3], dict)):
             call_args = args
         elif len(args) >= 3:
             _imagen_rgb, mapa_profundidad, rayos = args[:3]
