@@ -73,8 +73,8 @@ PY
 
 compile_align_ptx_if_missing() {
   # Genera align_depth_to_color.ptx si no existe (para acelerar el arranque de CuPy RawModule).
-  local cu="src/utilities/kernels/align_depth_to_color.cu"
-  local ptx="src/utilities/kernels/align_depth_to_color.ptx"
+  local cu="src/application/kernels/align_depth_to_color.cu"
+  local ptx="src/application/kernels/align_depth_to_color.ptx"
   [[ -f "$ptx" ]] && return 0
   if ! is_cmd nvcc; then
     echo "Aviso: nvcc no encontrado, se omitira la compilacion del PTX ($ptx)."
@@ -386,11 +386,11 @@ PY
     setup_cupy_env
     compile_align_ptx_if_missing
     echo "Iniciando prueba de camara con pyrealsense2..."
-    if [[ -f "src/utilities/viewCamera.py" ]]; then
+    if [[ -f "src/application/viewCamera.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/utilities/viewCamera.py
+      "$PYTHON_BIN" src/application/viewCamera.py
     else
-      echo "ERROR: No se encontro src/utilities/viewCamera.py"
+      echo "ERROR: No se encontro src/application/viewCamera.py"
       exit 1
     fi
     ;;
@@ -414,11 +414,11 @@ PY
     setup_cupy_env
     compile_align_ptx_if_missing
     echo "Iniciando prueba de camara (test-2)..."
-    if [[ -f "src/utilities/viewCamera.py" ]]; then
+    if [[ -f "src/application/viewCamera.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/utilities/viewCamera.py
+      "$PYTHON_BIN" src/application/viewCamera.py
     else
-      echo "ERROR: No se encontro src/utilities/viewCamera.py"
+      echo "ERROR: No se encontro src/application/viewCamera.py"
       exit 1
     fi
     ;;
@@ -454,11 +454,11 @@ PY
     setup_cupy_env
     compile_align_ptx_if_missing
     echo "Iniciando visor RGB + Depth..."
-    if [[ -f "src/data/RGB_DEPTH.py" ]]; then
+    if [[ -f "src/infrastructure/datasets/RGB_DEPTH.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/data/RGB_DEPTH.py
+      "$PYTHON_BIN" src/infrastructure/datasets/RGB_DEPTH.py
     else
-      echo "ERROR: No se encontro src/data/RGB_DEPTH.py"
+      echo "ERROR: No se encontro src/infrastructure/datasets/RGB_DEPTH.py"
       exit 1
     fi
     ;;
@@ -467,11 +467,11 @@ PY
     ensure_python
     setup_cupy_env
     echo "Evaluando NYU V2 con AlgoritmosSegmentacion..."
-    if [[ -f "src/test/evaluate_nyu_v2.py" ]]; then
+    if [[ -f "tests/evaluate_nyu_v2.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/test/evaluate_nyu_v2.py "${@:2}"
+      "$PYTHON_BIN" tests/evaluate_nyu_v2.py "${@:2}"
     else
-      echo "ERROR: No se encontro src/test/evaluate_nyu_v2.py"
+      echo "ERROR: No se encontro tests/evaluate_nyu_v2.py"
       exit 1
     fi
     ;;
@@ -479,12 +479,12 @@ PY
     require_jetson
     ensure_python
     setup_cupy_env
-    echo "Evaluando metricas con AlgoritmosSegmentacion (dataset PNG en src/test/data)..."
-    if [[ -f "src/test/metrics.py" ]]; then
+    echo "Evaluando metricas con AlgoritmosSegmentacion (dataset PNG en tests/data)..."
+    if [[ -f "tests/metrics.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/test/metrics.py "${@:2}"
+      "$PYTHON_BIN" tests/metrics.py "${@:2}"
     else
-      echo "ERROR: No se encontro src/test/metrics.py"
+      echo "ERROR: No se encontro tests/metrics.py"
       exit 1
     fi
     ;;
@@ -493,11 +493,11 @@ PY
     ensure_python
     echo "Convirtiendo ONNX a TensorRT engine..."
     echo "Este proceso puede tardar 5-15 minutos en Jetson Nano. Por favor, espera..."
-    if [[ -f "src/models/onnx_to_engine.py" ]]; then
+    if [[ -f "src/infrastructure/inference/onnx_to_engine.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/models/onnx_to_engine.py
+      "$PYTHON_BIN" src/infrastructure/inference/onnx_to_engine.py
     else
-      echo "ERROR: No se encontro src/models/onnx_to_engine.py"
+      echo "ERROR: No se encontro src/infrastructure/inference/onnx_to_engine.py"
       exit 1
     fi
     ;;
@@ -505,16 +505,16 @@ PY
     require_jetson
     ensure_python
     echo "Iniciando prueba de inferencia TensorRT..."
-    if [[ -f "src/models/trt_inference.py" ]]; then
-      if [[ ! -f "src/models/mobilenetv2_unet_jetson.engine" ]]; then
+    if [[ -f "src/infrastructure/inference/trt_inference.py" ]]; then
+      if [[ ! -f "src/infrastructure/inference/doors/bisenetv2.engine" ]]; then
         echo "ERROR: No se encontro el archivo .engine"
         echo "Ejecuta primero: ./run20.sh build-engine"
         exit 1
       fi
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/models/trt_inference.py
+      "$PYTHON_BIN" src/infrastructure/inference/trt_inference.py
     else
-      echo "ERROR: No se encontro src/models/trt_inference.py"
+      echo "ERROR: No se encontro src/infrastructure/inference/trt_inference.py"
       exit 1
     fi
     ;;
