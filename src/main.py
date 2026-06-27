@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 
 if __package__ is None or __package__ == "":
@@ -7,7 +7,7 @@ if __package__ is None or __package__ == "":
         os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     )
 
-from src.GUI import run_app
+from src.presentation.gui import run_app
 
 
 def main() -> None:
