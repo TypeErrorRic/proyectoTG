@@ -7,7 +7,10 @@ for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from src.presentation.GUI import run_app
+try:
+    from src.presentation.gui import run_app
+except ModuleNotFoundError:
+    from src.presentation.GUI import run_app
 
 
 def main() -> None:
