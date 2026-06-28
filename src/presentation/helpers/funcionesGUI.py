@@ -199,7 +199,7 @@ def init_config_defaults(
     try:
         runtime_params = runtime_params_loader()
     except Exception as exc:
-        print(f"[GUI] no se pudieron leer los parÃ¡metros actuales: {exc}")
+        print(f"[GUI] no se pudieron leer los parametros actuales: {exc}")
         runtime_params = {}
 
     config_defaults: Dict[str, str] = {}
@@ -218,28 +218,28 @@ def param_summary_fields() -> List[Tuple[str, str]]:
     return [
         ("subsample_stride", "Submuestreo (stride px)"),
         ("dist_thresh", "Umbral distancia al plano (m)"),
-        ("max_iters", "Iteraciones mÃ¡x. (RANSAC)"),
-        ("min_inliers", "MÃ­n. inliers (pts)"),
-        ("max_angle_deg", "Ãngulo mÃ¡x. (grados)"),
+        ("max_iters", "Iteraciones max. (RANSAC)"),
+        ("min_inliers", "Min. inliers (pts)"),
+        ("max_angle_deg", "Angulo max. (grados)"),
         ("max_up_dot", "Max up dot (0-1)"),
         ("score_subset", "Subconjunto para puntuar (pts)"),
         ("early_stop_ratio", "Ratio corte temprano (0-1)"),
-        ("batch_size", "TamaÃ±o de lote (modelos)"),
+        ("batch_size", "Tamano de lote (modelos)"),
         ("low_height_pct", "Percentil bajo de altura (%)"),
-        ("roi_bottom_fraction", "FracciÃ³n inferior ROI (0-1)"),
+        ("roi_bottom_fraction", "Fraccion inferior ROI (0-1)"),
         ("refine_full_res", "Refinar full-res"),
         ("refine_dist_mult", "Tolerancia refino (dist_mult)"),
-        ("ground_mask_refine", "Mejorar mÃ¡scara suelo (0/1)"),
+        ("ground_mask_refine", "Mejorar mascara suelo (0/1)"),
         ("wall_subsample_stride", "Submuestreo (stride px)"),
         ("wall_dist_thresh", "Umbral distancia al plano (m)"),
-        ("wall_max_iters", "Iteraciones mÃ¡x. (RANSAC)"),
-        ("wall_min_inliers", "MÃ­n. inliers (pts)"),
-        ("wall_max_angle_deg", "Ãngulo mÃ¡x. (grados)"),
+        ("wall_max_iters", "Iteraciones max. (RANSAC)"),
+        ("wall_min_inliers", "Min. inliers (pts)"),
+        ("wall_max_angle_deg", "Angulo max. (grados)"),
         ("wall_score_subset", "Subconjunto para puntuar (pts)"),
         ("wall_early_stop_ratio", "Ratio corte temprano (0-1)"),
-        ("wall_batch_size", "TamaÃ±o de lote (modelos)"),
+        ("wall_batch_size", "Tamano de lote (modelos)"),
         ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)"),
-        ("wall_mask_refine", "Mejorar mÃ¡scara pared (0/1)"),
+        ("wall_mask_refine", "Mejorar mascara pared (0/1)"),
         ("ground_perp_deg", "Perp. suelo (grados)"),
         ("wall_ortho_deg", "Orto paredes (grados)"),
         ("wall_parallel_deg", "Paralelo paredes (grados)"),
@@ -251,7 +251,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("door_glare_s_max", "Reflejo color (0-255)"),
         ("door_glare_v_min", "Reflejo luz (0-255)"),
         ("door_glare_v_clip", "Bajar reflejo (0-255)"),
-        ("door_ground_parallel_deg", "InclinaciÃ³n mÃ¡x. (grados)"),
+        ("door_ground_parallel_deg", "Inclinacion max. (grados)"),
         ("door_plane_inlier_ratio", "Min puntos en plano (0-1)"),
     ]
 
@@ -384,7 +384,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         parsed[key] = val
 
     if errors:
-        print(f"[GUI] ParÃ¡metros invÃ¡lidos: {', '.join(errors)}")
+        print(f"[GUI] Parametros invalidos: {', '.join(errors)}")
         return None
 
     # Normalize boolean fields and practical limits
@@ -494,12 +494,12 @@ def toggle_mask_flag(name: str) -> Optional[bool]:
     Toggle a mask visibility flag in helpers and return the new state.
     """
     if helpers_mod is None:
-        print("[GUI] helpers no disponibles para alternar mÃ¡scaras.")
+        print("[GUI] helpers no disponibles para alternar mascaras.")
         return None
     try:
         return helpers_mod.toggle_mask_visibility(name)
     except Exception as exc:
-        print(f"[GUI] no se pudo alternar mÃ¡scara {name}: {exc}")
+        print(f"[GUI] no se pudo alternar mascara {name}: {exc}")
         return None
 
 
