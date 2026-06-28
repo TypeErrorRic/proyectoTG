@@ -5,7 +5,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.application.detector import DetectorClase
+from application.detectorClase import DetectorClase
 
 
 class CaminoTransitable(DetectorClase):
@@ -23,7 +23,7 @@ class CaminoTransitable(DetectorClase):
 
     def _obtener_helper(self):
         if self._helper is None:
-            helper_path = Path(__file__).resolve().parent / "helpers" / "GroundDetection.py"
+            helper_path = Path(__file__).resolve().parent / "helpers" / "caminoTransitable.py"
             spec = importlib.util.spec_from_file_location(
                 "src.application.helpers_ground_detection",
                 helper_path,

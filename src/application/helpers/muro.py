@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, List, Tuple
 import cupy as cp
 import numpy as np
 
-_GROUND_HELPER_PATH = Path(__file__).resolve().parent / "GroundDetection.py"
+_GROUND_HELPER_PATH = Path(__file__).resolve().parent / "caminoTransitable.py"
 _GROUND_HELPER_SPEC = importlib.util.spec_from_file_location(
     "src.application.helpers_ground_detection_for_wall",
     _GROUND_HELPER_PATH,

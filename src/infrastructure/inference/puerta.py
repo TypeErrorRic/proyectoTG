@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
-from src.application.detector import DetectorClase
+from application.detectorClase import DetectorClase
 
 
 class Puerta(DetectorClase):
@@ -25,7 +25,7 @@ class Puerta(DetectorClase):
 
     def _obtener_helper(self):
         if self._helper is None:
-            from src.infrastructure.inference.helpers import doorDetection as door_helpers
+            from infrastructure.inference.helpers import puerta as door_helpers
             self._helper = door_helpers
             self.img_mean = door_helpers.IMG_MEAN
             self.img_std = door_helpers.IMG_STD

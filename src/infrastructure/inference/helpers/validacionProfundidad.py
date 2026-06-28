@@ -12,7 +12,7 @@ import time
 import cv2
 import numpy as np
 
-from src.application.pipeline_utils import geometria
+from application.gestorFotogramas import geometria
 
 DEBUG_DOOR_DEEP = False
 

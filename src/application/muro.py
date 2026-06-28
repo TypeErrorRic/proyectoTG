@@ -5,7 +5,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any, Dict
 
-from src.application.detector import DetectorClase
+from application.detectorClase import DetectorClase
 
 
 class Muro(DetectorClase):
@@ -20,7 +20,7 @@ class Muro(DetectorClase):
 
     def _obtener_helper(self):
         if self._helper is None:
-            helper_path = Path(__file__).resolve().parent / "helpers" / "WallPlaneDetection.py"
+            helper_path = Path(__file__).resolve().parent / "helpers" / "muro.py"
             spec = importlib.util.spec_from_file_location(
                 "src.application.helpers_wall_plane_detection",
                 helper_path,

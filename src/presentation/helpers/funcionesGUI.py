@@ -8,19 +8,19 @@ from PIL import Image, ImageDraw, ImageGrab
 
 # Optional import to fetch current configuration parameters at capture time.
 try:
-    from src.application.segment import segmentacion
+    from application.segmentacion import segmentacion
 except ModuleNotFoundError:
     try:
-        from application.segment import segmentacion  # type: ignore
+        from application.segmentacion import segmentacion  # type: ignore
     except ModuleNotFoundError:  # pragma: no cover - fallback when segment is unavailable
         segmentacion = None  # type: ignore
 
 # Optional import to toggle mask overlays from the GUI.
 try:
-    from src.application.pipeline_utils import mascaras as helpers_mod
+    from application.gestorFotogramas import mascaras as helpers_mod
 except ModuleNotFoundError:
     try:
-        from application.pipeline_utils import mascaras as helpers_mod  # type: ignore
+        from application.gestorFotogramas import mascaras as helpers_mod  # type: ignore
     except ModuleNotFoundError:  # pragma: no cover - fallback when helpers is unavailable
         helpers_mod = None  # type: ignore
 

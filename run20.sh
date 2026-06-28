@@ -386,11 +386,11 @@ PY
     setup_cupy_env
     compile_align_ptx_if_missing
     echo "Iniciando prueba de camara con pyrealsense2..."
-    if [[ -f "src/application/viewCamera.py" ]]; then
+    if [[ -f "src/application/helpers/camara.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/application/viewCamera.py
+      "$PYTHON_BIN" src/application/helpers/camara.py
     else
-      echo "ERROR: No se encontro src/application/viewCamera.py"
+      echo "ERROR: No se encontro src/application/helpers/camara.py"
       exit 1
     fi
     ;;
@@ -414,37 +414,11 @@ PY
     setup_cupy_env
     compile_align_ptx_if_missing
     echo "Iniciando prueba de camara (test-2)..."
-    if [[ -f "src/application/viewCamera.py" ]]; then
+    if [[ -f "src/application/helpers/camara.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/application/viewCamera.py
+      "$PYTHON_BIN" src/application/helpers/camara.py
     else
-      echo "ERROR: No se encontro src/application/viewCamera.py"
-      exit 1
-    fi
-    ;;
-    test-v1)
-    require_jetson
-    ensure_python
-    setup_cupy_env
-    echo "Iniciando prueba de algoritmo v1..."
-    if [[ -f "src/test/RANSACenhanced.py" ]]; then
-      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/test/RANSACenhanced.py
-    else
-      echo "ERROR: No se encontro src/test/RANSACenhanced.py"
-      exit 1
-    fi
-    ;;
-  test-v2)
-    require_jetson
-    ensure_python
-    setup_cupy_env
-    echo "Iniciando prueba de algoritmo v2..."
-    if [[ -f "src/test/ransacCellingGround.py" ]]; then
-      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" src/test/ransacCellingGround.py
-    else
-      echo "ERROR: No se encontro src/test/ransacCellingGround.py"
+      echo "ERROR: No se encontro src/application/helpers/camara.py"
       exit 1
     fi
     ;;
@@ -519,6 +493,6 @@ PY
     fi
     ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|test-v1|test-v2|rgb-depth|eval-nyu|metrics|build-engine|test-trt}"
+    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|rgb-depth|eval-nyu|metrics|build-engine|test-trt}"
     ;;
 esac

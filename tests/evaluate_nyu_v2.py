@@ -30,14 +30,14 @@ except Exception as exc:
 
 # Ensure repo root and src are in sys.path so "src.*" and "utilities.*" imports work.
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(os.path.dirname(THIS_DIR))
+REPO_ROOT = os.path.dirname(THIS_DIR)
 SRC_DIR = os.path.join(REPO_ROOT, "src")
 for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from src.application import segment
-from src.application.pipeline_utils import dataset_frames, mascaras
+from application.segmentacion import segmentacion
+from application.gestorFotogramas import dataset_frames, mascaras
 
 WALL_IDS = [21]
 FLOOR_IDS = [11, 143, 891]
@@ -170,7 +170,7 @@ def make_dataset_loader(cache: FrameCache):
 
 def _drain_results():
     while True:
-        if segment.segmentacion.obtener_resultado() is None:
+        if segmentacion.obtener_resultado() is None:
             break
 
 
@@ -363,9 +363,9 @@ def main() -> int:
         if tqdm is not None:
             iterator = tqdm(indices, desc="Evaluando", unit="frame")
 
-        segment.segmentacion.detener_hilo_secundario()
+        segmentacion.detener_hilo_secundario()
         try:
-            segment.segmentacion.inicializar(mode="prueba")
+            segmentacion.inicializar(mode="prueba")
         except Exception:
             pass
 
@@ -381,7 +381,7 @@ def main() -> int:
             if not gt_floor.any() or not gt_wall.any():
                 continue
 
-            ok = segment.segmentacion.preprocesar(mode="prueba", dataset_index=idx)
+            ok = segmentacion.preprocesar(mode="prueba", dataset_index=idx)
             if not ok:
                 continue
 
@@ -399,8 +399,8 @@ def main() -> int:
                 pred_wall = None
                 for attempt in range(max_retries + 1):
                     try:
-                        overlay = segment.segmentacion.segmentar()
-                        masks = segment.segmentacion.obtener_mascaras(copy=True)
+                        overlay = segmentacion.segmentar()
+                        masks = segmentacion.obtener_mascaras(copy=True)
                     except Exception:
                         if attempt < max_retries:
                             continue
@@ -536,7 +536,7 @@ def main() -> int:
                     )
     finally:
         reader.close()
-        segment.segmentacion.liberar_recursos()
+        segmentacion.liberar_recursos()
 
     return 0
 

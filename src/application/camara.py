@@ -14,7 +14,7 @@ class ViewCameraHelperMixin:
     @classmethod
     def helper(cls):
         if cls._helper is None:
-            helper_path = Path(__file__).resolve().parent / "helpers" / "viewCamera.py"
+            helper_path = Path(__file__).resolve().parent / "helpers" / "camara.py"
             spec = importlib.util.spec_from_file_location(
                 "src.application.helpers_view_camera",
                 helper_path,

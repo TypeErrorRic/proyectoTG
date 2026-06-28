@@ -1,13 +1,13 @@
 ﻿import os
 import sys
 
-if __package__ is None or __package__ == "":
-    sys.path.insert(
-        0,
-        os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
-    )
+SRC_DIR = os.path.abspath(os.path.dirname(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SRC_DIR, os.pardir))
+for path in (REPO_ROOT, SRC_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
-from src.presentation.gui import run_app
+from src.presentation.GUI import run_app
 
 
 def main() -> None:

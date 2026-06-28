@@ -362,8 +362,6 @@ def init_camera(
 # =========================================================
 
 if __name__ == "__main__":
-    from helpers import *
-    
     # Config en init_camera
     pipeline, params = init_camera(
         color_width=640,

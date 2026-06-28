@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 
 from src.infrastructure.inference.trt_inference import TRTInference
-from src.infrastructure.inference.door_hsv import PuertaHSV
-from src.infrastructure.inference.door_deep import PuertaDeep
+from infrastructure.inference.refinamientoHSV import PuertaHSV
+from src.infrastructure.inference.validacionProfundidad import PuertaDeep
 
 
 IMG_MEAN = (0.485, 0.456, 0.406)

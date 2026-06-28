@@ -6,11 +6,11 @@ and shares its result with the main thread through a small queue.
 """
 
 # Project libraries
-from src.application.viewCamera import camara
-from src.application.GroundDetection import CaminoTransitable
-from src.application.pipeline_utils import dataset_frames, mascaras
-from src.application.WallPlaneDetection import Muro
-from src.infrastructure.inference.doorDetection import Puerta
+from application.camara import camara
+from application.caminoTransitable import CaminoTransitable
+from application.gestorFotogramas import dataset_frames, mascaras
+from application.muro import Muro
+from infrastructure.inference.puerta import Puerta
 
 # Runtime libraries
 import json

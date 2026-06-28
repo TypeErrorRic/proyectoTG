@@ -15,27 +15,26 @@ import cv2
 import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
 
+# @note Make top-level packages such as application/ and infrastructure/
+# importable when the GUI is loaded as src.presentation.GUI.
+SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
 try:
     # Preferred import when running as a package/module.
-    from src.presentation.gui_functions import FuncionesGUI
+    from presentation.funcionesGUI import FuncionesGUI
 except ModuleNotFoundError:
     # Fallback for direct script execution from the src directory.
-    from gui_functions import FuncionesGUI
+    from presentation.funcionesGUI import FuncionesGUI
 
 try:
-    from src.application.pipeline_utils import configuracion_dataset
+    from application.gestorFotogramas import configuracion_dataset
 except ModuleNotFoundError:
-    from application.pipeline_utils import configuracion_dataset
+    from application.gestorFotogramas import configuracion_dataset
 
-# @note Adjust sys.path when executed as a script.
-if __package__ is None or __package__ == "":
-    sys.path.insert(
-        0,
-        os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
-    )
-
-from src.application.segment import segmentacion
-from src.presentation.theme import GUI_COLORS as C
+from application.segmentacion import segmentacion
+from presentation.theme import GUI_COLORS as C
 
 funciones_gui = FuncionesGUI()
 
@@ -44,7 +43,6 @@ DISPLAY_MAX_W = 640
 DISPLAY_MAX_H = 480
 # @note FPS limit for running AlgoritmosSegmentacion (20 fps max).
 TARGET_FRAME_TIME = 1.0 / 20.0
-SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 ASSETS_IMAGES_DIR = os.path.join(SRC_DIR, "assets", "images")
 UPLOAD_DIR = os.path.join(SRC_DIR, "infrastructure", "datasets", "uploads")
 DOOR_HSV_RELATED_KEYS = (

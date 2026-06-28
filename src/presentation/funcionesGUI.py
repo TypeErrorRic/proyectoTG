@@ -60,9 +60,9 @@ class FuncionesGUI:
     def _obtener_helper(self):
         if self._helper is None:
             try:
-                from src.presentation.helpers import GUIFunctions as gui_helpers
+                from presentation.helpers import funcionesGUI as gui_helpers
             except ModuleNotFoundError:
-                from presentation.helpers import GUIFunctions as gui_helpers  # type: ignore
+                from presentation.helpers import funcionesGUI as gui_helpers  # type: ignore
 
             self._helper = gui_helpers
             self.segmentacion = getattr(gui_helpers, "segmentacion", None)

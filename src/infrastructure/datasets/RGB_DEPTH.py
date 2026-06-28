@@ -25,7 +25,7 @@ for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from src.application.viewCamera import camara  # noqa: E402
+from application.camara import camara  # noqa: E402
 
 
 def depth_to_grayscale(depth_m: np.ndarray) -> np.ndarray:

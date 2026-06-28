@@ -14,7 +14,7 @@ class PipelineHelperMixin:
     @classmethod
     def helper(cls):
         if cls._helper is None:
-            helper_path = Path(__file__).resolve().parent / "helpers" / "pipeline_utils.py"
+            helper_path = Path(__file__).resolve().parent / "helpers" / "gestorFotogramas.py"
             spec = importlib.util.spec_from_file_location(
                 "src.application.helpers_pipeline_utils",
                 helper_path,
