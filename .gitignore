@@ -11,3 +11,4 @@ __pycache__/
 .dockerignore
 dockerfile
 .agents
+.vscode

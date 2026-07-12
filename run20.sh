@@ -449,6 +449,20 @@ PY
       exit 1
     fi
     ;;
+  resultadosTG)
+    require_jetson
+    ensure_python
+    setup_cupy_env
+    compile_align_ptx_if_missing
+    echo "Procesando videos RGB-D grabados y guardando RGB + overlay..."
+    if [[ -f "tests/video/extractVideoFrames.py" ]]; then
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" tests/video/extractVideoFrames.py "${@:2}"
+    else
+      echo "ERROR: No se encontro tests/video/extractVideoFrames.py"
+      exit 1
+    fi
+    ;;
   metrics)
     require_jetson
     ensure_python
@@ -493,6 +507,6 @@ PY
     fi
     ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|rgb-depth|eval-nyu|metrics|build-engine|test-trt}"
+    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|rgb-depth|eval-nyu|extract-video|metrics|build-engine|test-trt}"
     ;;
 esac
