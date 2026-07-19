@@ -10,6 +10,9 @@ Output:
 
     tests/video/data/RGB/frame_000001.png
     tests/video/data/overlay/frame_000001.png
+    tests/video/data/puerta/frame_000001.png
+    tests/video/data/muro/frame_000001.png
+    tests/video/data/camino_transitable/frame_000001.png
 """
 
 from __future__ import annotations
@@ -141,11 +144,18 @@ def load_metadata(path: Path) -> dict:
     return metadata
 
 
-def create_and_clean_output_dirs(output_dir: Path) -> tuple[Path, Path]:
+def create_and_clean_output_dirs(
+    output_dir: Path,
+) -> tuple[Path, Path, dict[str, Path]]:
     rgb_dir = output_dir / "RGB"
     overlay_dir = output_dir / "overlay"
+    mask_dirs = {
+        "door": output_dir / "puerta",
+        "wall": output_dir / "muro",
+        "ground": output_dir / "camino_transitable",
+    }
 
-    for directory in (rgb_dir, overlay_dir):
+    for directory in (rgb_dir, overlay_dir, *mask_dirs.values()):
         directory.mkdir(parents=True, exist_ok=True)
         for item in directory.iterdir():
             if item.is_symlink() or item.is_file():
@@ -155,7 +165,7 @@ def create_and_clean_output_dirs(output_dir: Path) -> tuple[Path, Path]:
             else:
                 item.unlink()
 
-    return rgb_dir, overlay_dir
+    return rgb_dir, overlay_dir, mask_dirs
 
 
 def list_rgb_frames(input_dir: Path, metadata: dict) -> list[Path]:
@@ -238,29 +248,51 @@ def mask_has_pixels(mask) -> bool:
         return bool(np.any(np.asarray(mask)))
 
 
+def binary_mask(mask, shape_hw: tuple[int, int]) -> np.ndarray:
+    """Convert a CPU/GPU segmentation mask to a uint8 binary PNG image."""
+    if mask is None:
+        return np.zeros(shape_hw, dtype=np.uint8)
+    try:
+        array = cp.asnumpy(mask)
+    except Exception:
+        array = np.asarray(mask)
+    array = np.squeeze(array)
+    if array.ndim != 2:
+        raise ValueError(f"Invalid segmentation mask shape: {array.shape}")
+    array = (array > 0).astype(np.uint8)
+    if array.shape != shape_hw:
+        array = cv2.resize(
+            array,
+            (shape_hw[1], shape_hw[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+    return array * 255
+
+
 def process_frame(
     cache: FrameCache,
     dataset_index: int,
     retry: int,
     intrinsics: dict,
-) -> tuple[Optional[np.ndarray], bool]:
+) -> tuple[Optional[np.ndarray], bool, dict]:
     dataset_frames.load_dataset_frame = cache.load
     ok = segmentacion.preprocesar(
         mode="prueba",
         dataset_index=dataset_index,
     )
     if not ok or cache.rgb_bgr is None:
-        return None, False
+        return None, False, {}
 
     apply_camera_geometry(intrinsics, cache.rgb_bgr.shape[:2])
     overlay = None
     detected = False
+    masks = {}
     attempts = max(0, int(retry)) + 1
 
     for attempt in range(attempts):
         try:
             overlay = segmentacion.segmentar()
-            masks = segmentacion.obtener_mascaras(copy=False) or {}
+            masks = segmentacion.obtener_mascaras(copy=True) or {}
             detected = any(mask_has_pixels(mask) for mask in masks.values())
         except Exception as exc:
             print(
@@ -270,11 +302,12 @@ def process_frame(
             )
             overlay = None
             detected = False
+            masks = {}
 
         if overlay is not None and detected:
             break
 
-    return overlay, detected
+    return overlay, detected, masks
 
 
 def write_image(path: Path, image: np.ndarray, label: str) -> None:
@@ -348,7 +381,7 @@ def process_recording(args: argparse.Namespace) -> int:
     )
     metadata = load_metadata(metadata_path)
     rgb_sources = list_rgb_frames(input_dir, metadata)
-    output_rgb_dir, overlay_dir = create_and_clean_output_dirs(
+    output_rgb_dir, overlay_dir, mask_dirs = create_and_clean_output_dirs(
         args.output.resolve()
     )
 
@@ -361,6 +394,9 @@ def process_recording(args: argparse.Namespace) -> int:
     print("Processing every captured pair.")
     print(f"Saving RGB frames to:     {output_rgb_dir}")
     print(f"Saving overlays to:       {overlay_dir}")
+    print(f"Saving door masks to:     {mask_dirs['door']}")
+    print(f"Saving wall masks to:     {mask_dirs['wall']}")
+    print(f"Saving ground masks to:   {mask_dirs['ground']}")
 
     cache = FrameCache()
     processed = 0
@@ -383,7 +419,7 @@ def process_recording(args: argparse.Namespace) -> int:
             cache.set_frame(rgb_bgr, depth_m)
 
             source_number = source_offset + 1
-            overlay, detected = process_frame(
+            overlay, detected, masks = process_frame(
                 cache,
                 source_number,
                 args.retry,
@@ -404,6 +440,16 @@ def process_recording(args: argparse.Namespace) -> int:
                 overlay,
                 "segmentation overlay",
             )
+            for mask_key, mask_dir in mask_dirs.items():
+                mask_image = binary_mask(
+                    masks.get(mask_key),
+                    rgb_bgr.shape[:2],
+                )
+                write_image(
+                    mask_dir / output_name,
+                    mask_image,
+                    f"{mask_key} mask",
+                )
 
             processed += 1
             print(f"\rProcessed pairs: {processed}", end="", flush=True)
