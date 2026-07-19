@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -141,6 +142,18 @@ def create_output_dirs(output_dir: Path) -> tuple[Path, Path]:
     rgb_dir.mkdir(parents=True, exist_ok=True)
     overlay_dir.mkdir(parents=True, exist_ok=True)
     return rgb_dir, overlay_dir
+
+
+def clean_output_dirs(*directories: Path) -> None:
+    """Delete previous output contents while preserving the directories."""
+    for directory in directories:
+        for item in directory.iterdir():
+            if item.is_symlink() or item.is_file():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
 
 
 def depth_video_frame_to_depth(depth_frame: np.ndarray, rgb_shape: tuple[int, int]) -> np.ndarray:
@@ -292,6 +305,7 @@ def process_videos(args: argparse.Namespace) -> int:
     metadata_path = args.metadata if args.metadata is not None else args.video_dir / "capture_metadata.json"
     intrinsics = load_color_intrinsics(metadata_path)
     rgb_dir, overlay_dir = create_output_dirs(args.output)
+    clean_output_dirs(rgb_dir, overlay_dir)
 
     rgb_capture = open_video(rgb_path)
     depth_capture = open_video(depth_path)
