@@ -1,7 +1,14 @@
 {
   "fps": 30,
-  "depth_video": "visual_colormap",
-  "depth_alpha": 0.03,
+  "frame_count": 170,
+  "rgb_storage": "png_sequence",
+  "rgb_directory": "RGB",
+  "rgb_pattern": "frame_%06d.png",
+  "depth_storage": "uint16_png_sequence",
+  "depth_directory": "depth",
+  "depth_pattern": "frame_%06d.png",
+  "depth_scale": 0.0010000000474974513,
+  "depth_aligned_to": "color",
   "color_intrinsics": {
     "width": 640,
     "height": 480,
@@ -10,22 +17,6 @@
     "ppx": 322.6189880371094,
     "ppy": 244.9138641357422,
     "model": "distortion.inverse_brown_conrady",
-    "coeffs": [
-      0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0
-    ]
-  },
-  "depth_intrinsics": {
-    "width": 640,
-    "height": 480,
-    "fx": 387.2857666015625,
-    "fy": 387.2857666015625,
-    "ppx": 322.98895263671875,
-    "ppy": 241.20809936523438,
-    "model": "distortion.brown_conrady",
     "coeffs": [
       0.0,
       0.0,

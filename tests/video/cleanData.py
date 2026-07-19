@@ -1,8 +1,9 @@
-"""Delete the recorded RGB video, depth video, and capture metadata."""
+"""Delete synchronized RGB-D captures and legacy video files."""
 
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 
 
@@ -13,11 +14,12 @@ RECORDED_FILES = (
     "depth_map.avi",
     "capture_metadata.json",
 )
+RECORDED_DIRECTORIES = ("RGB", "depth")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Delete recorded video data from tests/video/videos."
+        description="Delete captured RGB-D data from tests/video/videos."
     )
     parser.add_argument(
         "--yes",
@@ -39,6 +41,19 @@ def clean_recorded_data(videos_dir: Path) -> int:
         else:
             print(f"Not found: {path}")
 
+    for dirname in RECORDED_DIRECTORIES:
+        path = videos_dir / dirname
+        if path.is_symlink():
+            path.unlink()
+            print(f"Deleted: {path}")
+            deleted += 1
+        elif path.is_dir():
+            shutil.rmtree(path)
+            print(f"Deleted: {path}")
+            deleted += 1
+        else:
+            print(f"Not found: {path}")
+
     return deleted
 
 
@@ -47,7 +62,7 @@ def main() -> int:
     videos_dir = VIDEOS_DIR.resolve()
 
     if not args.yes:
-        filenames = ", ".join(RECORDED_FILES)
+        filenames = ", ".join((*RECORDED_FILES, *RECORDED_DIRECTORIES))
         answer = input(
             f"Delete {filenames} from '{videos_dir}'? [y/N]: "
         )
