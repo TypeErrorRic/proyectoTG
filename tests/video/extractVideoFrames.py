@@ -110,6 +110,13 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="Retries when segmentation does not return an overlay.",
     )
+    parser.add_argument(
+        "--no-preview",
+        action="store_false",
+        dest="preview",
+        help="Do not open the live RGB/segmentation preview window.",
+    )
+    parser.set_defaults(preview=True)
     return parser.parse_args()
 
 
@@ -210,6 +217,43 @@ def write_frame(path: Path, frame: np.ndarray, label: str) -> None:
         raise RuntimeError(f"Could not save {label}: {path}")
 
 
+def show_preview(rgb_frame: np.ndarray, overlay: np.ndarray) -> bool:
+    """Show the selected RGB frame and its segmentation; return False to stop."""
+    if overlay.shape[:2] != rgb_frame.shape[:2]:
+        overlay = cv2.resize(
+            overlay,
+            (rgb_frame.shape[1], rgb_frame.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+    rgb_preview = rgb_frame.copy()
+    overlay_preview = overlay.copy()
+    cv2.putText(
+        rgb_preview,
+        "Selected RGB frame",
+        (15, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (0, 255, 0),
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        overlay_preview,
+        "Segmentation result",
+        (15, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (0, 255, 0),
+        2,
+        cv2.LINE_AA,
+    )
+    preview = np.hstack((rgb_preview, overlay_preview))
+    cv2.imshow("Video processing: RGB | Segmentation (Q or Esc to stop)", preview)
+    key = cv2.waitKey(1) & 0xFF
+    return key not in (ord("q"), ord("Q"), 27)
+
+
 def process_current_frame(
     cache: VideoFrameCache,
     frame_index: int,
@@ -268,6 +312,11 @@ def process_videos(args: argparse.Namespace) -> int:
 
     segmentacion.detener_hilo_secundario()
     segmentacion.inicializar(mode="prueba")
+    if args.preview:
+        cv2.namedWindow(
+            "Video processing: RGB | Segmentation (Q or Esc to stop)",
+            cv2.WINDOW_NORMAL,
+        )
 
     try:
         while True:
@@ -297,10 +346,15 @@ def process_videos(args: argparse.Namespace) -> int:
 
             processed += 1
             print(f"\rProcessed frames: {processed}", end="", flush=True)
+            if args.preview and not show_preview(rgb_frame, overlay):
+                print("\nPreview stopped by user.")
+                break
     finally:
         rgb_capture.release()
         depth_capture.release()
         segmentacion.detener_hilo_secundario()
+        if args.preview:
+            cv2.destroyAllWindows()
 
     print(f"\nDone. Processed {processed} synchronized frame pairs.")
     return processed
