@@ -440,14 +440,22 @@ def process_recording(args: argparse.Namespace) -> int:
                 overlay,
                 "segmentation overlay",
             )
-            for mask_key, mask_dir in mask_dirs.items():
-                mask_image = binary_mask(
+            mask_images = {
+                mask_key: binary_mask(
                     masks.get(mask_key),
                     rgb_bgr.shape[:2],
                 )
+                for mask_key in mask_dirs
+            }
+            mask_images["wall"] = cv2.bitwise_and(
+                mask_images["wall"],
+                cv2.bitwise_not(mask_images["ground"]),
+            )
+
+            for mask_key, mask_dir in mask_dirs.items():
                 write_image(
                     mask_dir / output_name,
-                    mask_image,
+                    mask_images[mask_key],
                     f"{mask_key} mask",
                 )
 
