@@ -40,6 +40,7 @@ except ImportError as exc:
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "videos"
 DEFAULT_RECORDING_FPS = 30
+DEFAULT_SAVED_FPS = 10.0
 FRAME_PATTERN = "frame_%06d.png"
 
 
@@ -59,7 +60,13 @@ def parse_args() -> argparse.Namespace:
         "--fps",
         type=int,
         default=DEFAULT_RECORDING_FPS,
-        help="Camera capture FPS.",
+        help="RealSense camera stream FPS.",
+    )
+    parser.add_argument(
+        "--target-fps",
+        type=float,
+        default=DEFAULT_SAVED_FPS,
+        help="FPS to save after temporal subsampling.",
     )
     parser.add_argument(
         "--frames",
@@ -175,9 +182,13 @@ def write_capture_metadata(
     path: Path,
     pipeline: rs.pipeline,
     args: argparse.Namespace,
+    saved_fps: float,
+    sample_every: int,
 ) -> None:
     metadata = {
-        "fps": args.fps,
+        "fps": saved_fps,
+        "camera_fps": args.fps,
+        "sample_every": sample_every,
         "frame_count": 0,
         "rgb_storage": "png_sequence",
         "rgb_directory": args.rgb_dir,
@@ -264,6 +275,12 @@ def make_depth_preview(
     return cv2.applyColorMap(depth_8bit, cv2.COLORMAP_JET)
 
 
+def compute_sample_every(camera_fps: float, target_fps: float) -> int:
+    if camera_fps <= 0 or target_fps <= 0:
+        raise ValueError("Camera FPS and target FPS must be greater than 0.")
+    return max(1, int(round(camera_fps / target_fps)))
+
+
 def capture_frames(args: argparse.Namespace) -> int:
     output_dir = args.output.resolve()
     rgb_dir, depth_dir = prepare_capture_dirs(
@@ -275,15 +292,27 @@ def capture_frames(args: argparse.Namespace) -> int:
 
     assert_realsense_device_available()
     pipeline, align = configure_pipeline(args.width, args.height, args.fps)
-    write_capture_metadata(metadata_path, pipeline, args)
+    sample_every = compute_sample_every(args.fps, args.target_fps)
+    saved_fps = args.fps / float(sample_every)
+    write_capture_metadata(
+        metadata_path,
+        pipeline,
+        args,
+        saved_fps,
+        sample_every,
+    )
 
     captured = 0
     observed = 0
+    eligible = 0
     started_at = time.monotonic()
 
     print(f"Saving RGB frames to:       {rgb_dir}")
     print(f"Saving raw depth frames to: {depth_dir}")
-    print(f"Capturing at {args.fps} FPS.")
+    print(f"Camera stream FPS:           {args.fps}")
+    print(f"Requested saved FPS:         {args.target_fps:.2f}")
+    print(f"Actual saved FPS:            {saved_fps:.2f}")
+    print(f"Saving every:                {sample_every} camera frame(s)")
     if args.preview:
         print("JET colours are preview-only. Press Q or Esc to stop.")
     else:
@@ -305,6 +334,9 @@ def capture_frames(args: argparse.Namespace) -> int:
 
             observed += 1
             if observed <= args.skip:
+                continue
+            eligible += 1
+            if (eligible - 1) % sample_every != 0:
                 continue
 
             rgb_bgr, depth_raw = extract_frame_pair(rgb_frame, depth_frame)
@@ -355,6 +387,9 @@ def main() -> int:
         return 2
     if args.fps <= 0:
         print("--fps must be greater than 0.", file=sys.stderr)
+        return 2
+    if args.target_fps <= 0:
+        print("--target-fps must be greater than 0.", file=sys.stderr)
         return 2
     if args.depth_alpha <= 0:
         print("--depth-alpha must be greater than 0.", file=sys.stderr)

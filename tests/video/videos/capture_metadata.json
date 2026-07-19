@@ -1,6 +1,8 @@
 {
-  "fps": 30,
-  "frame_count": 170,
+  "fps": 10.0,
+  "camera_fps": 30,
+  "sample_every": 3,
+  "frame_count": 190,
   "rgb_storage": "png_sequence",
   "rgb_directory": "RGB",
   "rgb_pattern": "frame_%06d.png",

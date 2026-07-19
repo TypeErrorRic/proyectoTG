@@ -39,7 +39,6 @@ from application.segmentacion import segmentacion  # noqa: E402
 
 DEFAULT_INPUT_DIR = THIS_DIR / "videos"
 DEFAULT_OUTPUT_DIR = THIS_DIR / "data"
-DEFAULT_TARGET_FPS = 10.0
 PREVIEW_WINDOW = "Frame processing: RGB | Segmentation (Q or Esc to stop)"
 
 
@@ -98,12 +97,6 @@ def parse_args() -> argparse.Namespace:
         help="Maximum selected pairs to process. Use 0 for all.",
     )
     parser.add_argument(
-        "--target-fps",
-        type=float,
-        default=DEFAULT_TARGET_FPS,
-        help="Temporal sampling rate used for segmentation.",
-    )
-    parser.add_argument(
         "--retry",
         type=int,
         default=2,
@@ -146,14 +139,6 @@ def load_metadata(path: Path) -> dict:
         if key not in intrinsics:
             raise ValueError(f"Missing color_intrinsics.{key} in {path}")
     return metadata
-
-
-def compute_sample_every(source_fps: float, target_fps: float) -> int:
-    if target_fps <= 0:
-        raise ValueError("--target-fps must be greater than 0.")
-    if source_fps <= 0:
-        return 1
-    return max(1, int(round(source_fps / target_fps)))
 
 
 def create_and_clean_output_dirs(output_dir: Path) -> tuple[Path, Path]:
@@ -363,10 +348,6 @@ def process_recording(args: argparse.Namespace) -> int:
     )
     metadata = load_metadata(metadata_path)
     rgb_sources = list_rgb_frames(input_dir, metadata)
-    sample_every = compute_sample_every(
-        float(metadata.get("fps", 0)),
-        args.target_fps,
-    )
     output_rgb_dir, overlay_dir = create_and_clean_output_dirs(
         args.output.resolve()
     )
@@ -377,7 +358,7 @@ def process_recording(args: argparse.Namespace) -> int:
         f"{input_dir / metadata.get('depth_directory', 'depth')}"
     )
     print(f"Found synchronized pairs: {len(rgb_sources)}")
-    print(f"Processing every:         {sample_every} frame(s)")
+    print("Processing every captured pair.")
     print(f"Saving RGB frames to:     {output_rgb_dir}")
     print(f"Saving overlays to:       {overlay_dir}")
 
@@ -391,8 +372,6 @@ def process_recording(args: argparse.Namespace) -> int:
 
     try:
         for source_offset, rgb_path in enumerate(rgb_sources):
-            if source_offset % sample_every != 0:
-                continue
             if args.max_frames > 0 and processed >= args.max_frames:
                 break
 
