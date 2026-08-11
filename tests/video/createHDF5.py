@@ -11,9 +11,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import cv2
 import h5py
 import numpy as np
+import cv2
 
 
 VIDEO_DIR = Path(__file__).resolve().parent / "videos"

@@ -19,15 +19,18 @@ Output:
 from __future__ import annotations
 
 import argparse
+import faulthandler
+faulthandler.enable()
+
 import json
 import shutil
 import sys
 from pathlib import Path
 from typing import Optional
 
-import cv2
 import h5py
 import numpy as np
+import cv2
 
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parents[1]
@@ -149,6 +152,7 @@ def extract_capture_hdf5(path: Path, output_dir: Path) -> Path:
             f"HDF5 capture not found: {path}. Run createHDF5.py first."
         )
 
+    print(f"Opening HDF5 capture: {path}", flush=True)
     with h5py.File(path, "r") as source:
         if "rgb" not in source or "depth" not in source:
             raise ValueError(f"HDF5 file must contain rgb and depth datasets: {path}")
@@ -525,7 +529,9 @@ def process_recording(args: argparse.Namespace) -> int:
         if args.h5 is not None
         else input_dir / DEFAULT_HDF5_NAME
     )
+    print("Stage 1/2: extracting RGB and depth from HDF5...", flush=True)
     extracted_metadata_path = extract_capture_hdf5(hdf5_path, input_dir)
+    print("Stage 2/2: loading CUDA segmentation runtime...", flush=True)
     load_processing_runtime()
     metadata_path = (
         args.metadata.resolve() if args.metadata is not None else extracted_metadata_path

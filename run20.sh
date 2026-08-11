@@ -457,7 +457,7 @@ PY
     echo "Procesando videos RGB-D grabados y guardando RGB + overlay..."
     if [[ -f "tests/video/extractVideoFrames.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" tests/video/extractVideoFrames.py "${@:2}"
+      PYTHONFAULTHANDLER=1 "$PYTHON_BIN" tests/video/extractVideoFrames.py "${@:2}"
     else
       echo "ERROR: No se encontro tests/video/extractVideoFrames.py"
       exit 1
