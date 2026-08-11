@@ -1,0 +1,14 @@
+{
+  "output": "videos",
+  "width": 640,
+  "height": 480,
+  "fps": 30,
+  "target_fps": 10.0,
+  "frames": 0,
+  "duration": 0.0,
+  "skip": 0,
+  "rgb_dir": "RGB",
+  "depth_dir": "depth",
+  "depth_alpha": 0.03,
+  "preview": true
+}

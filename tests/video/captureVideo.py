@@ -13,12 +13,11 @@ live preview and is never stored as depth data.
 
 from __future__ import annotations
 
-import argparse
 import json
-import shutil
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 try:
     import cv2
@@ -39,77 +38,49 @@ except ImportError as exc:
 
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "videos"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "capture_config.json"
 DEFAULT_RECORDING_FPS = 30
 DEFAULT_SAVED_FPS = 10.0
 FRAME_PATTERN = "frame_%06d.png"
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Capture synchronized RGB and raw Z16 depth image pairs."
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help="Output folder for the synchronized RGB-D data.",
-    )
-    parser.add_argument("--width", type=int, default=640, help="Frame width.")
-    parser.add_argument("--height", type=int, default=480, help="Frame height.")
-    parser.add_argument(
-        "--fps",
-        type=int,
-        default=DEFAULT_RECORDING_FPS,
-        help="RealSense camera stream FPS.",
-    )
-    parser.add_argument(
-        "--target-fps",
-        type=float,
-        default=DEFAULT_SAVED_FPS,
-        help="FPS to save after temporal subsampling.",
-    )
-    parser.add_argument(
-        "--frames",
-        type=int,
-        default=0,
-        help="Number of pairs to capture. Use 0 to capture until Ctrl+C.",
-    )
-    parser.add_argument(
-        "--duration",
-        type=float,
-        default=0.0,
-        help="Maximum capture duration in seconds. Use 0 for no time limit.",
-    )
-    parser.add_argument(
-        "--skip",
-        type=int,
-        default=0,
-        help="Initial camera frames to discard for exposure warmup.",
-    )
-    parser.add_argument(
-        "--rgb-dir",
-        default="RGB",
-        help="Folder name for RGB PNG images.",
-    )
-    parser.add_argument(
-        "--depth-dir",
-        default="depth",
-        help="Folder name for raw uint16 depth PNG images.",
-    )
-    parser.add_argument(
-        "--depth-alpha",
-        type=float,
-        default=0.03,
-        help="Scale used only for the coloured depth preview.",
-    )
-    parser.add_argument(
-        "--no-preview",
-        action="store_false",
-        dest="preview",
-        help="Capture without showing the live preview window.",
-    )
-    parser.set_defaults(preview=True)
-    return parser.parse_args()
+def load_config(path: Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"Capture configuration file not found: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON in {path} at line {exc.lineno}, column {exc.colno}."
+        ) from exc
+
+    if not isinstance(config, dict):
+        raise ValueError(f"Capture configuration must be a JSON object: {path}")
+
+    defaults = {
+        "output": str(DEFAULT_OUTPUT_DIR),
+        "width": 640,
+        "height": 480,
+        "fps": DEFAULT_RECORDING_FPS,
+        "target_fps": DEFAULT_SAVED_FPS,
+        "frames": 0,
+        "duration": 0.0,
+        "skip": 0,
+        "rgb_dir": "RGB",
+        "depth_dir": "depth",
+        "depth_alpha": 0.03,
+        "preview": True,
+    }
+    unknown = sorted(set(config) - set(defaults))
+    if unknown:
+        raise ValueError(f"Unknown capture setting(s): {', '.join(unknown)}")
+
+    settings = {**defaults, **config}
+    output = Path(settings["output"])
+    if not output.is_absolute():
+        output = (path.parent / output).resolve()
+    settings["output"] = output
+    return SimpleNamespace(**settings)
 
 
 def assert_realsense_device_available() -> None:
@@ -181,7 +152,7 @@ def get_depth_scale(pipeline: rs.pipeline) -> float:
 def write_capture_metadata(
     path: Path,
     pipeline: rs.pipeline,
-    args: argparse.Namespace,
+    args: SimpleNamespace,
     saved_fps: float,
     sample_every: int,
 ) -> None:
@@ -227,9 +198,16 @@ def prepare_capture_dirs(
             legacy_path.unlink()
 
     for directory in (rgb_dir, depth_dir):
-        if directory.exists():
-            shutil.rmtree(directory)
-        directory.mkdir(parents=True)
+        directory.mkdir(parents=True, exist_ok=True)
+        for frame_path in directory.glob("frame_*.png"):
+            try:
+                frame_path.unlink()
+            except PermissionError as exc:
+                raise PermissionError(
+                    f"Could not remove the previous frame {frame_path}. "
+                    "Close any program using that file and check its Windows "
+                    "permissions."
+                ) from exc
 
     return rgb_dir, depth_dir
 
@@ -281,7 +259,7 @@ def compute_sample_every(camera_fps: float, target_fps: float) -> int:
     return max(1, int(round(camera_fps / target_fps)))
 
 
-def capture_frames(args: argparse.Namespace) -> int:
+def capture_frames(args: SimpleNamespace) -> int:
     output_dir = args.output.resolve()
     rgb_dir, depth_dir = prepare_capture_dirs(
         output_dir,
@@ -375,24 +353,40 @@ def capture_frames(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    args = parse_args()
+    try:
+        args = load_config()
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    for name in ("width", "height", "fps", "frames", "skip"):
+        if not isinstance(getattr(args, name), int):
+            print(f"{name} must be an integer.", file=sys.stderr)
+            return 2
+    for name in ("target_fps", "duration", "depth_alpha"):
+        if not isinstance(getattr(args, name), (int, float)):
+            print(f"{name} must be a number.", file=sys.stderr)
+            return 2
+    if not isinstance(args.preview, bool):
+        print("preview must be true or false.", file=sys.stderr)
+        return 2
     if args.frames < 0:
-        print("--frames must be 0 or greater.", file=sys.stderr)
+        print("frames must be 0 or greater.", file=sys.stderr)
         return 2
     if args.duration < 0:
-        print("--duration must be 0 or greater.", file=sys.stderr)
+        print("duration must be 0 or greater.", file=sys.stderr)
         return 2
     if args.skip < 0:
-        print("--skip must be 0 or greater.", file=sys.stderr)
+        print("skip must be 0 or greater.", file=sys.stderr)
         return 2
     if args.fps <= 0:
-        print("--fps must be greater than 0.", file=sys.stderr)
+        print("fps must be greater than 0.", file=sys.stderr)
         return 2
     if args.target_fps <= 0:
-        print("--target-fps must be greater than 0.", file=sys.stderr)
+        print("target_fps must be greater than 0.", file=sys.stderr)
         return 2
     if args.depth_alpha <= 0:
-        print("--depth-alpha must be greater than 0.", file=sys.stderr)
+        print("depth_alpha must be greater than 0.", file=sys.stderr)
         return 2
 
     capture_frames(args)

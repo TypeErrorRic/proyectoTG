@@ -33,7 +33,7 @@ try:
 except ModuleNotFoundError:
     from application.gestorFotogramas import configuracion_dataset
 
-from application.segmentacion import segmentacion
+from application.segment_v2 import segmentacion
 from presentation.theme import GUI_COLORS as C
 
 funciones_gui = FuncionesGUI()
