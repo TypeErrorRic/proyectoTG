@@ -12,3 +12,5 @@ __pycache__/
 dockerfile
 .agents
 .vscode
+/tests/video/videos/RGB/
+/tests/video/videos/depth/

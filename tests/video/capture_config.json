@@ -9,6 +9,10 @@
   "skip": 0,
   "rgb_dir": "RGB",
   "depth_dir": "depth",
+  "rgb_pattern": "frame_%06d.jpg",
+  "depth_pattern": "frame_%06d.png",
   "depth_alpha": 0.03,
+  "rgb_jpeg_quality": 90,
+  "depth_png_compression": 3,
   "preview": true
 }

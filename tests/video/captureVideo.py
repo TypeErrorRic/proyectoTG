@@ -1,14 +1,14 @@
 """Capture synchronized RGB and raw depth images from an Intel RealSense.
 
-New recordings are stored as lossless, one-to-one frame pairs:
+New recordings are stored as synchronized, one-to-one frame pairs:
 
-    tests/video/videos/RGB/frame_000001.png
+    tests/video/videos/RGB/frame_000001.jpg
     tests/video/videos/depth/frame_000001.png
     tests/video/videos/capture_metadata.json
 
-RGB is stored as an 8-bit PNG. Depth is stored exactly as delivered by the
-aligned RealSense Z16 stream (uint16). The JET colour map is used only for the
-live preview and is never stored as depth data.
+RGB is stored as a configurable-quality JPEG. Depth is stored losslessly exactly as
+delivered by the aligned RealSense Z16 stream (uint16 PNG). The JET colour map
+is used only for the live preview and is never stored as depth data.
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "videos"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "capture_config.json"
 DEFAULT_RECORDING_FPS = 30
 DEFAULT_SAVED_FPS = 10.0
-FRAME_PATTERN = "frame_%06d.png"
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
@@ -68,7 +67,11 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> SimpleNamespace:
         "skip": 0,
         "rgb_dir": "RGB",
         "depth_dir": "depth",
+        "rgb_pattern": "frame_%06d.jpg",
+        "depth_pattern": "frame_%06d.png",
         "depth_alpha": 0.03,
+        "rgb_jpeg_quality": 90,
+        "depth_png_compression": 3,
         "preview": True,
     }
     unknown = sorted(set(config) - set(defaults))
@@ -161,12 +164,14 @@ def write_capture_metadata(
         "camera_fps": args.fps,
         "sample_every": sample_every,
         "frame_count": 0,
-        "rgb_storage": "png_sequence",
+        "rgb_storage": "jpeg_sequence",
         "rgb_directory": args.rgb_dir,
-        "rgb_pattern": FRAME_PATTERN,
+        "rgb_pattern": args.rgb_pattern,
+        "rgb_jpeg_quality": args.rgb_jpeg_quality,
         "depth_storage": "uint16_png_sequence",
         "depth_directory": args.depth_dir,
-        "depth_pattern": FRAME_PATTERN,
+        "depth_pattern": args.depth_pattern,
+        "depth_png_compression": args.depth_png_compression,
         "depth_scale": get_depth_scale(pipeline),
         "depth_aligned_to": "color",
         "color_intrinsics": stream_intrinsics_to_dict(
@@ -199,7 +204,7 @@ def prepare_capture_dirs(
 
     for directory in (rgb_dir, depth_dir):
         directory.mkdir(parents=True, exist_ok=True)
-        for frame_path in directory.glob("frame_*.png"):
+        for frame_path in directory.glob("frame_*.*"):
             try:
                 frame_path.unlink()
             except PermissionError as exc:
@@ -233,14 +238,25 @@ def save_frame_pair(
     frame_number: int,
     rgb_bgr: np.ndarray,
     depth_raw: np.ndarray,
+    rgb_pattern: str,
+    depth_pattern: str,
+    rgb_jpeg_quality: int,
+    depth_png_compression: int,
 ) -> None:
-    filename = FRAME_PATTERN % frame_number
-    rgb_path = rgb_dir / filename
-    depth_path = depth_dir / filename
+    rgb_path = rgb_dir / (rgb_pattern % frame_number)
+    depth_path = depth_dir / (depth_pattern % frame_number)
 
-    if not cv2.imwrite(str(rgb_path), rgb_bgr):
+    if not cv2.imwrite(
+        str(rgb_path),
+        rgb_bgr,
+        [cv2.IMWRITE_JPEG_QUALITY, rgb_jpeg_quality],
+    ):
         raise RuntimeError(f"Could not save RGB frame: {rgb_path}")
-    if not cv2.imwrite(str(depth_path), depth_raw):
+    if not cv2.imwrite(
+        str(depth_path),
+        depth_raw,
+        [cv2.IMWRITE_PNG_COMPRESSION, depth_png_compression],
+    ):
         rgb_path.unlink(missing_ok=True)
         raise RuntimeError(f"Could not save raw depth frame: {depth_path}")
 
@@ -325,6 +341,10 @@ def capture_frames(args: SimpleNamespace) -> int:
                 frame_number,
                 rgb_bgr,
                 depth_raw,
+                args.rgb_pattern,
+                args.depth_pattern,
+                args.rgb_jpeg_quality,
+                args.depth_png_compression,
             )
             captured = frame_number
             print(f"\rCaptured synchronized pairs: {captured}", end="", flush=True)
@@ -359,7 +379,15 @@ def main() -> int:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
 
-    for name in ("width", "height", "fps", "frames", "skip"):
+    for name in (
+        "width",
+        "height",
+        "fps",
+        "frames",
+        "skip",
+        "rgb_jpeg_quality",
+        "depth_png_compression",
+    ):
         if not isinstance(getattr(args, name), int):
             print(f"{name} must be an integer.", file=sys.stderr)
             return 2
@@ -367,9 +395,10 @@ def main() -> int:
         if not isinstance(getattr(args, name), (int, float)):
             print(f"{name} must be a number.", file=sys.stderr)
             return 2
-    if not isinstance(args.preview, bool):
-        print("preview must be true or false.", file=sys.stderr)
-        return 2
+    for name in ("preview",):
+        if not isinstance(getattr(args, name), bool):
+            print(f"{name} must be true or false.", file=sys.stderr)
+            return 2
     if args.frames < 0:
         print("frames must be 0 or greater.", file=sys.stderr)
         return 2
@@ -388,8 +417,39 @@ def main() -> int:
     if args.depth_alpha <= 0:
         print("depth_alpha must be greater than 0.", file=sys.stderr)
         return 2
+    if not 0 <= args.rgb_jpeg_quality <= 100:
+        print("rgb_jpeg_quality must be between 0 and 100.", file=sys.stderr)
+        return 2
+    if not 0 <= args.depth_png_compression <= 9:
+        print("depth_png_compression must be between 0 and 9.", file=sys.stderr)
+        return 2
+    try:
+        rgb_example = args.rgb_pattern % 1
+        depth_example = args.depth_pattern % 1
+    except (TypeError, ValueError) as exc:
+        print(f"Invalid frame pattern: {exc}", file=sys.stderr)
+        return 2
+    if Path(rgb_example).suffix.lower() not in (".jpg", ".jpeg"):
+        print("rgb_pattern must produce a .jpg or .jpeg filename.", file=sys.stderr)
+        return 2
+    if Path(depth_example).suffix.lower() != ".png":
+        print("depth_pattern must produce a .png filename.", file=sys.stderr)
+        return 2
 
-    capture_frames(args)
+    captured = capture_frames(args)
+    if captured == 0:
+        print("No frames were captured; HDF5 creation was skipped.")
+        return 0
+
+    print("Creating compressed HDF5 capture...")
+    try:
+        from createHDF5 import create_hdf5
+
+        hdf5_path = create_hdf5(args.output.resolve())
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        print(f"HDF5 creation failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"HDF5 capture ready: {hdf5_path}")
     return 0
 
 
