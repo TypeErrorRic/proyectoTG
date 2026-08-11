@@ -201,39 +201,44 @@ def extract_capture_hdf5(path: Path, output_dir: Path) -> Path:
                     stored_name = stored_name.decode("utf-8")
                 frame_stem = Path(str(stored_name)).stem
 
-            rgb = np.asarray(rgb_dataset[index])
-            depth = np.asarray(depth_dataset[index])
-            if encoded_images:
-                rgb_bgr = cv2.imdecode(rgb, cv2.IMREAD_COLOR)
-                depth = cv2.imdecode(depth, cv2.IMREAD_UNCHANGED)
-                if rgb_bgr is None or depth is None:
-                    raise ValueError(f"Could not decode HDF5 frame {index}.")
-                rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
-            if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint8:
-                raise ValueError(
-                    f"Invalid RGB frame {index}: shape={rgb.shape}, dtype={rgb.dtype}"
-                )
-            if depth.ndim != 2 or depth.dtype != np.uint16:
-                raise ValueError(
-                    f"Invalid depth frame {index}: "
-                    f"shape={depth.shape}, dtype={depth.dtype}"
-                )
-
-            rgb_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
             rgb_path = rgb_dir / f"{frame_stem}{rgb_suffix}"
             depth_path = depth_dir / f"{frame_stem}{depth_suffix}"
-            write_image(
-                rgb_path,
-                rgb_bgr,
-                "extracted RGB frame",
-                [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality],
-            )
-            write_image(
-                depth_path,
-                depth,
-                "extracted depth frame",
-                [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
-            )
+            if encoded_images:
+                rgb_bytes = bytes(rgb_dataset[index])
+                depth_bytes = bytes(depth_dataset[index])
+                if not rgb_bytes.startswith(b"\xff\xd8"):
+                    raise ValueError(f"Invalid JPEG data in HDF5 frame {index}.")
+                if not depth_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                    raise ValueError(f"Invalid PNG data in HDF5 frame {index}.")
+                rgb_path.write_bytes(rgb_bytes)
+                depth_path.write_bytes(depth_bytes)
+            else:
+                rgb = np.asarray(rgb_dataset[index])
+                depth = np.asarray(depth_dataset[index])
+                if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint8:
+                    raise ValueError(
+                        f"Invalid RGB frame {index}: "
+                        f"shape={rgb.shape}, dtype={rgb.dtype}"
+                    )
+                if depth.ndim != 2 or depth.dtype != np.uint16:
+                    raise ValueError(
+                        f"Invalid depth frame {index}: "
+                        f"shape={depth.shape}, dtype={depth.dtype}"
+                    )
+
+                rgb_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                write_image(
+                    rgb_path,
+                    rgb_bgr,
+                    "extracted RGB frame",
+                    [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality],
+                )
+                write_image(
+                    depth_path,
+                    depth,
+                    "extracted depth frame",
+                    [cv2.IMWRITE_PNG_COMPRESSION, png_compression],
+                )
             print(
                 f"\rExtracted HDF5 pairs: {index + 1}/{len(rgb_dataset)}",
                 end="",
