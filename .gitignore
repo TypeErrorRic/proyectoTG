@@ -14,3 +14,4 @@ dockerfile
 .vscode
 /tests/video/videos/RGB/
 /tests/video/videos/depth/
+*.h5
