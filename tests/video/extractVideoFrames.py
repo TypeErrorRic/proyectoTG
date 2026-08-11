@@ -22,6 +22,7 @@ import argparse
 import faulthandler
 faulthandler.enable()
 
+import gc
 import json
 import shutil
 import sys
@@ -143,6 +144,42 @@ def load_processing_runtime() -> None:
     cp = cupy_module
     dataset_frames = frames_module
     segmentacion = segmentation_module
+
+
+def verify_cuda_runtime() -> None:
+    """Initialize CUDA/cuBLAS once and report usable GPU memory."""
+    try:
+        device = cp.cuda.Device(0)
+        device.use()
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+        gc.collect()
+
+        free_bytes, total_bytes = cp.cuda.runtime.memGetInfo()
+        free_mb = free_bytes / (1024 * 1024)
+        total_mb = total_bytes / (1024 * 1024)
+        print(
+            f"CUDA device 0 memory: {free_mb:.0f} MiB free / "
+            f"{total_mb:.0f} MiB total",
+            flush=True,
+        )
+
+        left = cp.ones((2, 3), dtype=cp.float32)
+        right = cp.ones((3, 2), dtype=cp.float32)
+        result = left @ right
+        cp.cuda.runtime.deviceSynchronize()
+        if result.shape != (2, 2):
+            raise RuntimeError("Unexpected cuBLAS test result.")
+        del left, right, result
+        cp.get_default_memory_pool().free_all_blocks()
+        print("CUDA/cuBLAS preflight: OK", flush=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "CUDA/cuBLAS preflight failed before frame processing. "
+            "CUBLAS_STATUS_NOT_INITIALIZED usually means insufficient shared "
+            "memory on Jetson or an incompatible CuPy/CUDA installation. "
+            f"Original error: {exc}"
+        ) from exc
 
 
 def extract_capture_hdf5(path: Path, output_dir: Path) -> Path:
@@ -450,6 +487,11 @@ def process_frame(
                 f"for source frame {dataset_index}: {exc}",
                 file=sys.stderr,
             )
+            error_text = str(exc).upper()
+            if "CUBLAS_STATUS" in error_text or "CUDA_ERROR" in error_text:
+                raise RuntimeError(
+                    f"Fatal CUDA failure on source frame {dataset_index}: {exc}"
+                ) from exc
             overlay = None
             detected = False
             masks = {}
@@ -538,6 +580,7 @@ def process_recording(args: argparse.Namespace) -> int:
     extracted_metadata_path = extract_capture_hdf5(hdf5_path, input_dir)
     print("Stage 2/2: loading CUDA segmentation runtime...", flush=True)
     load_processing_runtime()
+    verify_cuda_runtime()
     metadata_path = (
         args.metadata.resolve() if args.metadata is not None else extracted_metadata_path
     )
