@@ -25,13 +25,12 @@ faulthandler.enable()
 import gc
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
-import h5py
 import numpy as np
-import cv2
 
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parents[1]
@@ -42,6 +41,7 @@ for path in (REPO_ROOT, SRC_DIR):
         sys.path.insert(0, path_str)
 
 cp = None
+cv2 = None
 dataset_frames = None
 segmentacion = None
 
@@ -89,6 +89,11 @@ def parse_args() -> argparse.Namespace:
         help="HDF5 capture path. Defaults to input/capture.h5.",
     )
     parser.add_argument(
+        "--extract-only",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
@@ -129,7 +134,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_processing_runtime() -> None:
-    global cp, dataset_frames, segmentacion
+    global cp, cv2, dataset_frames, segmentacion
     if cp is not None and dataset_frames is not None and segmentacion is not None:
         return
     try:
@@ -139,6 +144,7 @@ def load_processing_runtime() -> None:
         print("Initializing CUDA/cuBLAS before segmentation imports...", flush=True)
         verify_cuda_runtime()
 
+        import cv2 as cv2_module
         from application.gestorFotogramas import dataset_frames as frames_module
         from application.segmentacion import segmentacion as segmentation_module
     except ImportError as exc:
@@ -146,6 +152,7 @@ def load_processing_runtime() -> None:
             "RGB and depth were extracted, but the segmentation dependencies "
             "are unavailable."
         ) from exc
+    cv2 = cv2_module
     dataset_frames = frames_module
     segmentacion = segmentation_module
 
@@ -188,6 +195,9 @@ def verify_cuda_runtime() -> None:
 
 def extract_capture_hdf5(path: Path, output_dir: Path) -> Path:
     """Recreate RGB/depth PNG folders and metadata from an HDF5 capture."""
+    global cv2
+    import h5py
+
     if not path.is_file():
         raise FileNotFoundError(
             f"HDF5 capture not found: {path}. Run createHDF5.py first."
@@ -233,6 +243,10 @@ def extract_capture_hdf5(path: Path, output_dir: Path) -> Path:
 
         filenames = source.get("filenames")
         encoded_images = int(source.attrs.get("format_version", 1)) >= 2
+        if not encoded_images and cv2 is None:
+            import cv2 as cv2_module
+
+            cv2 = cv2_module
         for index in range(len(rgb_dataset)):
             if filenames is None:
                 frame_stem = f"frame_{index + 1:06d}"
@@ -290,6 +304,20 @@ def extract_capture_hdf5(path: Path, output_dir: Path) -> Path:
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print(f"\nRecreated RGB and depth folders from: {path}")
     return metadata_path
+
+
+def run_extraction_worker(hdf5_path: Path, input_dir: Path) -> Path:
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--extract-only",
+        "--input",
+        str(input_dir),
+        "--h5",
+        str(hdf5_path),
+    ]
+    subprocess.run(command, check=True)
+    return input_dir / "capture_metadata.json"
 
 
 def load_metadata(path: Path) -> dict:
@@ -581,7 +609,7 @@ def process_recording(args: argparse.Namespace) -> int:
         else input_dir / DEFAULT_HDF5_NAME
     )
     print("Stage 1/2: extracting RGB and depth from HDF5...", flush=True)
-    extracted_metadata_path = extract_capture_hdf5(hdf5_path, input_dir)
+    extracted_metadata_path = run_extraction_worker(hdf5_path, input_dir)
     print("Stage 2/2: loading CUDA segmentation runtime...", flush=True)
     load_processing_runtime()
     metadata_path = (
@@ -683,6 +711,15 @@ def process_recording(args: argparse.Namespace) -> int:
 
 def main() -> int:
     args = parse_args()
+    if args.extract_only:
+        input_dir = args.input_dir.resolve()
+        hdf5_path = (
+            args.h5.resolve()
+            if args.h5 is not None
+            else input_dir / DEFAULT_HDF5_NAME
+        )
+        extract_capture_hdf5(hdf5_path, input_dir)
+        return 0
     process_recording(args)
     return 0
 
