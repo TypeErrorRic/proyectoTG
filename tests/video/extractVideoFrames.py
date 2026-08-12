@@ -27,6 +27,8 @@ import json
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -49,6 +51,7 @@ segmentacion = None
 DEFAULT_INPUT_DIR = THIS_DIR / "videos"
 DEFAULT_OUTPUT_DIR = THIS_DIR / "data"
 DEFAULT_HDF5_NAME = "capture.h5"
+PROCESSING_METRICS_PATH = THIS_DIR / "processing_metrics.json"
 PREVIEW_WINDOW = "Frame processing: RGB | Segmentation (Q or Esc to stop)"
 
 
@@ -596,6 +599,31 @@ def show_preview(
     return key not in (ord("q"), ord("Q"), 27)
 
 
+def write_processing_metrics(
+    frame_metrics: list[dict],
+    total_seconds: float,
+) -> None:
+    processed_frames = len(frame_metrics)
+    measured_frame_seconds = sum(
+        frame["processing_seconds"] for frame in frame_metrics
+    )
+    report = {
+        "generated_utc": datetime.now(timezone.utc).isoformat(),
+        "processed_frames": processed_frames,
+        "total_processing_seconds": round(total_seconds, 6),
+        "average_processing_seconds_per_frame": (
+            round(measured_frame_seconds / processed_frames, 6)
+            if processed_frames
+            else None
+        ),
+        "frames": frame_metrics,
+    }
+    PROCESSING_METRICS_PATH.write_text(
+        json.dumps(report, indent=2),
+        encoding="utf-8",
+    )
+
+
 def process_recording(args: argparse.Namespace) -> int:
     if args.start_index < 0:
         raise ValueError("--start-index must be 0 or greater.")
@@ -636,17 +664,20 @@ def process_recording(args: argparse.Namespace) -> int:
 
     cache = FrameCache()
     processed = 0
+    frame_metrics = []
     segmentacion.detener_hilo_secundario()
     segmentacion.inicializar(mode="prueba")
 
     if args.preview:
         cv2.namedWindow(PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
 
+    processing_started_at = time.perf_counter()
     try:
         for source_offset, rgb_path in enumerate(rgb_sources):
             if args.max_frames > 0 and processed >= args.max_frames:
                 break
 
+            frame_started_at = time.perf_counter()
             rgb_bgr, depth_m = load_frame_pair(
                 rgb_path,
                 input_dir,
@@ -696,16 +727,28 @@ def process_recording(args: argparse.Namespace) -> int:
                 )
 
             processed += 1
+            frame_seconds = time.perf_counter() - frame_started_at
+            frame_metrics.append(
+                {
+                    "source_frame": source_number,
+                    "output_frame": output_number,
+                    "source_filename": rgb_path.name,
+                    "processing_seconds": round(frame_seconds, 6),
+                }
+            )
             print(f"\rProcessed pairs: {processed}", end="", flush=True)
             if args.preview and not show_preview(rgb_bgr, overlay, detected):
                 print("\nProcessing stopped from preview window.")
                 break
     finally:
+        total_seconds = time.perf_counter() - processing_started_at
         segmentacion.detener_hilo_secundario()
         if args.preview:
             cv2.destroyAllWindows()
+        write_processing_metrics(frame_metrics, total_seconds)
 
     print(f"\nDone. Processed {processed} synchronized RGB-D pairs.")
+    print(f"Processing metrics saved to: {PROCESSING_METRICS_PATH}")
     return processed
 
 
