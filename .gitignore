@@ -15,3 +15,4 @@ dockerfile
 /tests/video/videos/RGB/
 /tests/video/videos/depth/
 *.h5
+/tests/video/data/
