@@ -13,6 +13,7 @@ DEFAULT_INPUT = Path(
 )
 DEFAULT_OUTPUT = THIS_DIR / "videos" / "rgb_video.mp4"
 DEFAULT_METADATA = THIS_DIR / "videos" / "capture_metadata.json"
+FPS_MULTIPLIER = 0.5
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
@@ -100,13 +101,17 @@ def create_video(input_dir: Path, output_path: Path, fps: float,
 
 def main() -> int:
     args = parse_args()
-    fps = args.fps if args.fps is not None else metadata_fps(args.metadata)
+    original_fps = (
+        args.fps if args.fps is not None else metadata_fps(args.metadata)
+    )
+    fps = original_fps * FPS_MULTIPLIER
+    print(
+        f"FPS originales: {original_fps:g} | "
+        f"Multiplicador: {FPS_MULTIPLIER:g} | FPS de salida: {fps:g}"
+    )
     create_video(args.input, args.output.resolve(), fps, args.max_frames)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
