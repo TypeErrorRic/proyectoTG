@@ -143,10 +143,6 @@ def load_processing_runtime() -> None:
     try:
         import cupy as cupy_module
 
-        cp = cupy_module
-        print("Initializing CUDA/cuBLAS before segmentation imports...", flush=True)
-        verify_cuda_runtime()
-
         import cv2 as cv2_module
         from application.gestorFotogramas import dataset_frames as frames_module
         from application.segmentacion import segmentacion as segmentation_module
@@ -155,6 +151,7 @@ def load_processing_runtime() -> None:
             "RGB and depth were extracted, but the segmentation dependencies "
             "are unavailable."
         ) from exc
+    cp = cupy_module
     cv2 = cv2_module
     dataset_frames = frames_module
     segmentacion = segmentation_module
@@ -640,6 +637,8 @@ def process_recording(args: argparse.Namespace) -> int:
     extracted_metadata_path = run_extraction_worker(hdf5_path, input_dir)
     print("Stage 2/2: loading CUDA segmentation runtime...", flush=True)
     load_processing_runtime()
+    print("Verifying CUDA/cuBLAS runtime...", flush=True)
+    verify_cuda_runtime()
     metadata_path = (
         args.metadata.resolve() if args.metadata is not None else extracted_metadata_path
     )
