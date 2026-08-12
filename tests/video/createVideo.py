@@ -8,7 +8,9 @@ import cv2
 
 THIS_DIR = Path(__file__).resolve().parent
 # Modifica esta ruta absoluta si la carpeta RGB cambia de ubicacion.
-DEFAULT_INPUT = Path(r"C:\Users\equin\Desktop\proyectosPersonales\proyectoTG\tests\video\videos\RGB")
+DEFAULT_INPUT = Path(
+    "/home/jetson/Desktop/proyectoTG/tests/video/data/overlay"
+)
 DEFAULT_OUTPUT = THIS_DIR / "videos" / "rgb_video.mp4"
 DEFAULT_METADATA = THIS_DIR / "videos" / "capture_metadata.json"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
