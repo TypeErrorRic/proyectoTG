@@ -1,0 +1,1128 @@
+{
+  "resultados_generales": {
+    "puerta": {
+      "frames_comparados": 42,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.7858,
+      "dice": 0.8801,
+      "precision": 0.9689,
+      "recall": 0.8062,
+      "accuracy": 0.9888
+    },
+    "camino_transitable": {
+      "frames_comparados": 42,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.8412,
+      "dice": 0.9138,
+      "precision": 0.9238,
+      "recall": 0.904,
+      "accuracy": 0.9489
+    },
+    "muro": {
+      "frames_comparados": 42,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.6901,
+      "dice": 0.8166,
+      "precision": 0.7482,
+      "recall": 0.8989,
+      "accuracy": 0.8925
+    }
+  },
+  "resultados_por_frame": [
+    {
+      "frame": "frame_000018.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.7362,
+          "dice": 0.8481,
+          "precision": 0.9655,
+          "recall": 0.7561,
+          "accuracy": 0.9381
+        },
+        "muro": {
+          "iou": 0.8907,
+          "dice": 0.9422,
+          "precision": 0.8961,
+          "recall": 0.9933,
+          "accuracy": 0.9652
+        }
+      }
+    },
+    {
+      "frame": "frame_000029.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8553,
+          "dice": 0.922,
+          "precision": 0.9834,
+          "recall": 0.8678,
+          "accuracy": 0.9542
+        },
+        "muro": {
+          "iou": 0.9185,
+          "dice": 0.9575,
+          "precision": 0.9224,
+          "recall": 0.9954,
+          "accuracy": 0.9683
+        }
+      }
+    },
+    {
+      "frame": "frame_000044.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8654,
+          "dice": 0.9278,
+          "precision": 0.9715,
+          "recall": 0.888,
+          "accuracy": 0.9543
+        },
+        "muro": {
+          "iou": 0.9403,
+          "dice": 0.9692,
+          "precision": 0.943,
+          "recall": 0.9969,
+          "accuracy": 0.972
+        }
+      }
+    },
+    {
+      "frame": "frame_000077.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.9633
+        },
+        "camino_transitable": {
+          "iou": 0.8464,
+          "dice": 0.9168,
+          "precision": 0.9516,
+          "recall": 0.8844,
+          "accuracy": 0.9351
+        },
+        "muro": {
+          "iou": 0.898,
+          "dice": 0.9462,
+          "precision": 0.9248,
+          "recall": 0.9687,
+          "accuracy": 0.974
+        }
+      }
+    },
+    {
+      "frame": "frame_000095.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8246,
+          "dice": 0.9039,
+          "precision": 0.9288,
+          "recall": 0.8803,
+          "accuracy": 0.9101
+        },
+        "muro": {
+          "iou": 0.8848,
+          "dice": 0.9389,
+          "precision": 0.8848,
+          "recall": 1.0,
+          "accuracy": 0.9656
+        }
+      }
+    },
+    {
+      "frame": "frame_000111.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8518,
+          "dice": 0.92,
+          "precision": 0.9613,
+          "recall": 0.882,
+          "accuracy": 0.9596
+        },
+        "muro": {
+          "iou": 0.9426,
+          "dice": 0.9704,
+          "precision": 0.9499,
+          "recall": 0.9919,
+          "accuracy": 0.9685
+        }
+      }
+    },
+    {
+      "frame": "frame_000136.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8421,
+          "dice": 0.9143,
+          "precision": 0.9624,
+          "recall": 0.8708,
+          "accuracy": 0.9484
+        },
+        "muro": {
+          "iou": 0.9394,
+          "dice": 0.9687,
+          "precision": 0.9424,
+          "recall": 0.9965,
+          "accuracy": 0.9692
+        }
+      }
+    },
+    {
+      "frame": "frame_000156.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8824,
+          "dice": 0.9375,
+          "precision": 0.9624,
+          "recall": 0.9139,
+          "accuracy": 0.95
+        },
+        "muro": {
+          "iou": 0.9071,
+          "dice": 0.9513,
+          "precision": 0.9158,
+          "recall": 0.9896,
+          "accuracy": 0.9661
+        }
+      }
+    },
+    {
+      "frame": "frame_000168.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8913,
+          "dice": 0.9425,
+          "precision": 0.9752,
+          "recall": 0.912,
+          "accuracy": 0.955
+        },
+        "muro": {
+          "iou": 0.8035,
+          "dice": 0.8911,
+          "precision": 0.8156,
+          "recall": 0.9819,
+          "accuracy": 0.9541
+        }
+      }
+    },
+    {
+      "frame": "frame_000179.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9226,
+          "dice": 0.9597,
+          "precision": 0.9498,
+          "recall": 0.9699,
+          "accuracy": 0.9772
+        },
+        "muro": {
+          "iou": 0.6462,
+          "dice": 0.7851,
+          "precision": 0.8455,
+          "recall": 0.7327,
+          "accuracy": 0.8897
+        }
+      }
+    },
+    {
+      "frame": "frame_000185.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.829,
+          "dice": 0.9065,
+          "precision": 0.8749,
+          "recall": 0.9405,
+          "accuracy": 0.9534
+        },
+        "muro": {
+          "iou": 0.8815,
+          "dice": 0.937,
+          "precision": 0.9558,
+          "recall": 0.9189,
+          "accuracy": 0.9525
+        }
+      }
+    },
+    {
+      "frame": "frame_000190.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8861,
+          "dice": 0.9396,
+          "precision": 0.9222,
+          "recall": 0.9577,
+          "accuracy": 0.963
+        },
+        "muro": {
+          "iou": 0.8866,
+          "dice": 0.9399,
+          "precision": 0.9735,
+          "recall": 0.9085,
+          "accuracy": 0.9619
+        }
+      }
+    },
+    {
+      "frame": "frame_000212.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9007,
+          "dice": 0.9478,
+          "precision": 0.9401,
+          "recall": 0.9555,
+          "accuracy": 0.9584
+        },
+        "muro": {
+          "iou": 0.8523,
+          "dice": 0.9203,
+          "precision": 0.9305,
+          "recall": 0.9103,
+          "accuracy": 0.9713
+        }
+      }
+    },
+    {
+      "frame": "frame_000232.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8771,
+          "dice": 0.9345,
+          "precision": 0.9646,
+          "recall": 0.9063,
+          "accuracy": 0.9398
+        },
+        "muro": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.9202
+        }
+      }
+    },
+    {
+      "frame": "frame_000261.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8818,
+          "dice": 0.9372,
+          "precision": 0.9803,
+          "recall": 0.8977,
+          "accuracy": 0.9427
+        },
+        "muro": {
+          "iou": 0.7717,
+          "dice": 0.8711,
+          "precision": 0.8049,
+          "recall": 0.9493,
+          "accuracy": 0.9478
+        }
+      }
+    },
+    {
+      "frame": "frame_000274.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8951,
+          "dice": 0.9447,
+          "precision": 0.9845,
+          "recall": 0.9079,
+          "accuracy": 0.957
+        },
+        "muro": {
+          "iou": 0.8494,
+          "dice": 0.9186,
+          "precision": 0.8657,
+          "recall": 0.9782,
+          "accuracy": 0.9504
+        }
+      }
+    },
+    {
+      "frame": "frame_000298.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8811,
+          "dice": 0.9368,
+          "precision": 0.9562,
+          "recall": 0.9182,
+          "accuracy": 0.9586
+        },
+        "muro": {
+          "iou": 0.8531,
+          "dice": 0.9207,
+          "precision": 0.8973,
+          "recall": 0.9454,
+          "accuracy": 0.928
+        }
+      }
+    },
+    {
+      "frame": "frame_000311.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.9868
+        },
+        "camino_transitable": {
+          "iou": 0.9031,
+          "dice": 0.9491,
+          "precision": 0.9565,
+          "recall": 0.9418,
+          "accuracy": 0.9592
+        },
+        "muro": {
+          "iou": 0.7057,
+          "dice": 0.8274,
+          "precision": 0.7993,
+          "recall": 0.8577,
+          "accuracy": 0.9151
+        }
+      }
+    },
+    {
+      "frame": "frame_000334.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9264,
+          "dice": 0.9618,
+          "precision": 0.9838,
+          "recall": 0.9407,
+          "accuracy": 0.9967
+        },
+        "camino_transitable": {
+          "iou": 0.8273,
+          "dice": 0.9055,
+          "precision": 0.9081,
+          "recall": 0.9029,
+          "accuracy": 0.9211
+        },
+        "muro": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.9417
+        }
+      }
+    },
+    {
+      "frame": "frame_000349.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9187,
+          "dice": 0.9576,
+          "precision": 0.986,
+          "recall": 0.9308,
+          "accuracy": 0.9954
+        },
+        "camino_transitable": {
+          "iou": 0.8508,
+          "dice": 0.9194,
+          "precision": 0.9053,
+          "recall": 0.9338,
+          "accuracy": 0.942
+        },
+        "muro": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.864
+        }
+      }
+    },
+    {
+      "frame": "frame_000376.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.8508,
+          "dice": 0.9194,
+          "precision": 0.9972,
+          "recall": 0.8529,
+          "accuracy": 0.992
+        },
+        "camino_transitable": {
+          "iou": 0.8693,
+          "dice": 0.9301,
+          "precision": 0.8984,
+          "recall": 0.9642,
+          "accuracy": 0.9381
+        },
+        "muro": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.9256
+        }
+      }
+    },
+    {
+      "frame": "frame_000401.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9353,
+          "dice": 0.9666,
+          "precision": 0.9757,
+          "recall": 0.9576,
+          "accuracy": 0.9946
+        },
+        "camino_transitable": {
+          "iou": 0.8062,
+          "dice": 0.8927,
+          "precision": 0.8781,
+          "recall": 0.9078,
+          "accuracy": 0.9454
+        },
+        "muro": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.9112
+        }
+      }
+    },
+    {
+      "frame": "frame_000417.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9244,
+          "dice": 0.9607,
+          "precision": 0.9903,
+          "recall": 0.9328,
+          "accuracy": 0.9934
+        },
+        "camino_transitable": {
+          "iou": 0.6113,
+          "dice": 0.7588,
+          "precision": 0.8472,
+          "recall": 0.6871,
+          "accuracy": 0.8822
+        },
+        "muro": {
+          "iou": 0.3536,
+          "dice": 0.5224,
+          "precision": 0.3604,
+          "recall": 0.949,
+          "accuracy": 0.8589
+        }
+      }
+    },
+    {
+      "frame": "frame_000441.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9386,
+          "dice": 0.9683,
+          "precision": 0.9878,
+          "recall": 0.9496,
+          "accuracy": 0.9935
+        },
+        "camino_transitable": {
+          "iou": 0.7936,
+          "dice": 0.8849,
+          "precision": 0.9048,
+          "recall": 0.8659,
+          "accuracy": 0.9632
+        },
+        "muro": {
+          "iou": 0.4627,
+          "dice": 0.6327,
+          "precision": 0.4901,
+          "recall": 0.8922,
+          "accuracy": 0.8625
+        }
+      }
+    },
+    {
+      "frame": "frame_000488.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8819,
+          "dice": 0.9372,
+          "precision": 0.9717,
+          "recall": 0.9051,
+          "accuracy": 0.9624
+        },
+        "muro": {
+          "iou": 0.8763,
+          "dice": 0.9341,
+          "precision": 0.9434,
+          "recall": 0.9249,
+          "accuracy": 0.9551
+        }
+      }
+    },
+    {
+      "frame": "frame_000492.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8094,
+          "dice": 0.8947,
+          "precision": 0.9414,
+          "recall": 0.8524,
+          "accuracy": 0.9517
+        },
+        "muro": {
+          "iou": 0.8862,
+          "dice": 0.9397,
+          "precision": 0.9437,
+          "recall": 0.9357,
+          "accuracy": 0.9527
+        }
+      }
+    },
+    {
+      "frame": "frame_000495.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8298,
+          "dice": 0.907,
+          "precision": 0.9006,
+          "recall": 0.9135,
+          "accuracy": 0.9661
+        },
+        "muro": {
+          "iou": 0.8807,
+          "dice": 0.9365,
+          "precision": 0.9551,
+          "recall": 0.9187,
+          "accuracy": 0.9471
+        }
+      }
+    },
+    {
+      "frame": "frame_000497.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8064,
+          "dice": 0.8928,
+          "precision": 0.8943,
+          "recall": 0.8914,
+          "accuracy": 0.9717
+        },
+        "muro": {
+          "iou": 0.8474,
+          "dice": 0.9174,
+          "precision": 0.9187,
+          "recall": 0.9161,
+          "accuracy": 0.9301
+        }
+      }
+    },
+    {
+      "frame": "frame_000540.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9194,
+          "dice": 0.958,
+          "precision": 0.9478,
+          "recall": 0.9685,
+          "accuracy": 0.9765
+        },
+        "muro": {
+          "iou": 0.8283,
+          "dice": 0.9061,
+          "precision": 0.9111,
+          "recall": 0.9011,
+          "accuracy": 0.9429
+        }
+      }
+    },
+    {
+      "frame": "frame_000549.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9232,
+          "dice": 0.96,
+          "precision": 0.9419,
+          "recall": 0.9789,
+          "accuracy": 0.9761
+        },
+        "muro": {
+          "iou": 0.8524,
+          "dice": 0.9203,
+          "precision": 0.9433,
+          "recall": 0.8984,
+          "accuracy": 0.9417
+        }
+      }
+    },
+    {
+      "frame": "frame_000565.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9417,
+          "dice": 0.97,
+          "precision": 0.9606,
+          "recall": 0.9796,
+          "accuracy": 0.9779
+        },
+        "muro": {
+          "iou": 0.7813,
+          "dice": 0.8772,
+          "precision": 0.8698,
+          "recall": 0.8848,
+          "accuracy": 0.9281
+        }
+      }
+    },
+    {
+      "frame": "frame_000573.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9233,
+          "dice": 0.9601,
+          "precision": 0.9445,
+          "recall": 0.9763,
+          "accuracy": 0.9754
+        },
+        "muro": {
+          "iou": 0.7563,
+          "dice": 0.8613,
+          "precision": 0.821,
+          "recall": 0.9057,
+          "accuracy": 0.9193
+        }
+      }
+    },
+    {
+      "frame": "frame_000595.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8722,
+          "dice": 0.9318,
+          "precision": 0.9675,
+          "recall": 0.8986,
+          "accuracy": 0.9564
+        },
+        "muro": {
+          "iou": 0.9108,
+          "dice": 0.9533,
+          "precision": 0.9584,
+          "recall": 0.9484,
+          "accuracy": 0.9809
+        }
+      }
+    },
+    {
+      "frame": "frame_000627.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9347,
+          "dice": 0.9662,
+          "precision": 0.9926,
+          "recall": 0.9413,
+          "accuracy": 0.9916
+        },
+        "camino_transitable": {
+          "iou": 0.7133,
+          "dice": 0.8327,
+          "precision": 0.9508,
+          "recall": 0.7407,
+          "accuracy": 0.9204
+        },
+        "muro": {
+          "iou": 0.4464,
+          "dice": 0.6172,
+          "precision": 0.456,
+          "recall": 0.955,
+          "accuracy": 0.852
+        }
+      }
+    },
+    {
+      "frame": "frame_000636.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9646,
+          "dice": 0.982,
+          "precision": 0.9781,
+          "recall": 0.986,
+          "accuracy": 0.9958
+        },
+        "camino_transitable": {
+          "iou": 0.7753,
+          "dice": 0.8734,
+          "precision": 0.9529,
+          "recall": 0.8062,
+          "accuracy": 0.9402
+        },
+        "muro": {
+          "iou": 0.4579,
+          "dice": 0.6282,
+          "precision": 0.4673,
+          "recall": 0.9578,
+          "accuracy": 0.8544
+        }
+      }
+    },
+    {
+      "frame": "frame_000660.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.925,
+          "dice": 0.9611,
+          "precision": 0.9938,
+          "recall": 0.9304,
+          "accuracy": 0.9882
+        },
+        "camino_transitable": {
+          "iou": 0.9047,
+          "dice": 0.95,
+          "precision": 0.9545,
+          "recall": 0.9455,
+          "accuracy": 0.9825
+        },
+        "muro": {
+          "iou": 0.5295,
+          "dice": 0.6924,
+          "precision": 0.5535,
+          "recall": 0.9244,
+          "accuracy": 0.778
+        }
+      }
+    },
+    {
+      "frame": "frame_000678.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9675,
+          "dice": 0.9835,
+          "precision": 0.997,
+          "recall": 0.9703,
+          "accuracy": 0.9947
+        },
+        "camino_transitable": {
+          "iou": 0.8702,
+          "dice": 0.9306,
+          "precision": 0.9808,
+          "recall": 0.8853,
+          "accuracy": 0.9699
+        },
+        "muro": {
+          "iou": 0.4449,
+          "dice": 0.6158,
+          "precision": 0.4611,
+          "recall": 0.927,
+          "accuracy": 0.7827
+        }
+      }
+    },
+    {
+      "frame": "frame_000691.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9634,
+          "dice": 0.9814,
+          "precision": 0.9957,
+          "recall": 0.9674,
+          "accuracy": 0.9927
+        },
+        "camino_transitable": {
+          "iou": 0.8436,
+          "dice": 0.9152,
+          "precision": 0.9397,
+          "recall": 0.8919,
+          "accuracy": 0.9691
+        },
+        "muro": {
+          "iou": 0.5424,
+          "dice": 0.7033,
+          "precision": 0.5867,
+          "recall": 0.8778,
+          "accuracy": 0.7334
+        }
+      }
+    },
+    {
+      "frame": "frame_000698.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9672,
+          "dice": 0.9833,
+          "precision": 0.989,
+          "recall": 0.9778,
+          "accuracy": 0.993
+        },
+        "camino_transitable": {
+          "iou": 0.8209,
+          "dice": 0.9016,
+          "precision": 0.9025,
+          "recall": 0.9007,
+          "accuracy": 0.9597
+        },
+        "muro": {
+          "iou": 0.5075,
+          "dice": 0.6733,
+          "precision": 0.5484,
+          "recall": 0.872,
+          "accuracy": 0.6915
+        }
+      }
+    },
+    {
+      "frame": "frame_000714.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9577,
+          "dice": 0.9784,
+          "precision": 0.9901,
+          "recall": 0.967,
+          "accuracy": 0.9917
+        },
+        "camino_transitable": {
+          "iou": 0.8898,
+          "dice": 0.9417,
+          "precision": 0.9512,
+          "recall": 0.9323,
+          "accuracy": 0.9707
+        },
+        "muro": {
+          "iou": 0.5079,
+          "dice": 0.6737,
+          "precision": 0.52,
+          "recall": 0.9563,
+          "accuracy": 0.736
+        }
+      }
+    },
+    {
+      "frame": "frame_000723.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.9744,
+          "dice": 0.987,
+          "precision": 0.9833,
+          "recall": 0.9907,
+          "accuracy": 0.9946
+        },
+        "camino_transitable": {
+          "iou": 0.891,
+          "dice": 0.9424,
+          "precision": 0.94,
+          "recall": 0.9447,
+          "accuracy": 0.9746
+        },
+        "muro": {
+          "iou": 0.5409,
+          "dice": 0.7021,
+          "precision": 0.5574,
+          "recall": 0.948,
+          "accuracy": 0.7208
+        }
+      }
+    },
+    {
+      "frame": "frame_000825.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.6701
+        },
+        "camino_transitable": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.7484
+        },
+        "muro": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 0.3323
+        }
+      }
+    }
+  ]
+}
