@@ -469,6 +469,18 @@ PY
       exit 1
     fi
     ;;
+  comparar-anotaciones)
+    require_jetson
+    ensure_python
+    echo "Extrayendo anotaciones, comparando mascaras y generando el reporte JSON..."
+    if [[ -f "tests/video/scripts/extractAnnotationMasks.py" ]]; then
+      export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
+      "$PYTHON_BIN" tests/video/scripts/extractAnnotationMasks.py "${@:2}"
+    else
+      echo "ERROR: No se encontro tests/video/scripts/extractAnnotationMasks.py"
+      exit 1
+    fi
+    ;;
   metrics)
     require_jetson
     ensure_python
@@ -513,6 +525,6 @@ PY
     fi
     ;;
   *)
-    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|rgb-depth|eval-nyu|extract-video|metrics|build-engine|test-trt}"
+    echo "Uso: $0 {env|deps|check|realsense-test|test|test-2|rgb-depth|eval-nyu|resultadosTG|comparar-anotaciones|metrics|build-engine|test-trt}"
     ;;
 esac
