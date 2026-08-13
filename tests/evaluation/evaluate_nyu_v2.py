@@ -30,7 +30,7 @@ except Exception as exc:
 
 # Ensure repo root and src are in sys.path so "src.*" and "utilities.*" imports work.
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.dirname(THIS_DIR)
+REPO_ROOT = os.path.dirname(os.path.dirname(THIS_DIR))
 SRC_DIR = os.path.join(REPO_ROOT, "src")
 for path in (REPO_ROOT, SRC_DIR):
     if path not in sys.path:

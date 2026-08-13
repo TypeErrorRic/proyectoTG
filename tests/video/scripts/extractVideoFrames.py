@@ -34,7 +34,7 @@ from typing import Optional
 
 import numpy as np
 
-THIS_DIR = Path(__file__).resolve().parent
+THIS_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = THIS_DIR.parents[1]
 SRC_DIR = REPO_ROOT / "src"
 for path in (REPO_ROOT, SRC_DIR):
@@ -51,7 +51,7 @@ segmentacion = None
 DEFAULT_INPUT_DIR = THIS_DIR / "videos"
 DEFAULT_OUTPUT_DIR = THIS_DIR / "data"
 DEFAULT_HDF5_NAME = "capture.h5"
-PROCESSING_METRICS_PATH = THIS_DIR / "processing_metrics.json"
+PROCESSING_METRICS_PATH = THIS_DIR / "results" / "processing_metrics.json"
 PREVIEW_WINDOW = "Frame processing: RGB | Segmentation (Q or Esc to stop)"
 
 
@@ -615,6 +615,7 @@ def write_processing_metrics(
         ),
         "frames": frame_metrics,
     }
+    PROCESSING_METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
     PROCESSING_METRICS_PATH.write_text(
         json.dumps(report, indent=2),
         encoding="utf-8",

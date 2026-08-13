@@ -7,8 +7,8 @@ import shutil
 from pathlib import Path
 
 
-THIS_DIR = Path(__file__).resolve().parent
-VIDEOS_DIR = THIS_DIR / "videos"
+VIDEO_TEST_DIR = Path(__file__).resolve().parent.parent
+VIDEOS_DIR = VIDEO_TEST_DIR / "videos"
 RECORDED_FILES = (
     "rgb.avi",
     "depth_map.avi",

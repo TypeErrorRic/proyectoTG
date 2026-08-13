@@ -16,7 +16,7 @@ import numpy as np
 import cv2
 
 
-VIDEO_DIR = Path(__file__).resolve().parent / "videos"
+VIDEO_DIR = Path(__file__).resolve().parent.parent / "videos"
 METADATA_PATH = VIDEO_DIR / "capture_metadata.json"
 OUTPUT_PATH = VIDEO_DIR / "capture.h5"
 

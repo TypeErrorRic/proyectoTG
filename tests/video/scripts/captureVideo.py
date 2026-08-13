@@ -37,8 +37,9 @@ except ImportError as exc:
     ) from exc
 
 
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "videos"
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "capture_config.json"
+VIDEO_TEST_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT_DIR = VIDEO_TEST_DIR / "videos"
+DEFAULT_CONFIG_PATH = VIDEO_TEST_DIR / "config" / "capture_config.json"
 DEFAULT_RECORDING_FPS = 30
 DEFAULT_SAVED_FPS = 10.0
 

@@ -157,7 +157,13 @@ build_librealsense_with_bindings() {
   echo "Compilando librealsense ${RS_TAG} + bindings Python (${PYTHON_BIN})..."
 
   local PY PREFIX PY_INC PY_SITE PY_LIB
-  PY="$PYTHON_BIN"
+  # CMake/pybind11 necesita una ruta absoluta. Si recibe solo "python3.8",
+  # FindPythonLibsNew la interpreta relativa a librealsense/build.
+  PY="$(command -v "$PYTHON_BIN")"
+  if [[ -z "$PY" || ! -x "$PY" ]]; then
+    echo "ERROR: No se pudo resolver el ejecutable '$PYTHON_BIN'."
+    return 2
+  fi
   PREFIX="$("$PY" - <<'PY'
 import sys; print(sys.prefix)
 PY
@@ -441,11 +447,11 @@ PY
     ensure_python
     setup_cupy_env
     echo "Evaluando NYU V2 con AlgoritmosSegmentacion..."
-    if [[ -f "tests/evaluate_nyu_v2.py" ]]; then
+    if [[ -f "tests/evaluation/evaluate_nyu_v2.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" tests/evaluate_nyu_v2.py "${@:2}"
+      "$PYTHON_BIN" tests/evaluation/evaluate_nyu_v2.py "${@:2}"
     else
-      echo "ERROR: No se encontro tests/evaluate_nyu_v2.py"
+      echo "ERROR: No se encontro tests/evaluation/evaluate_nyu_v2.py"
       exit 1
     fi
     ;;
@@ -455,11 +461,11 @@ PY
     setup_cupy_env
     compile_align_ptx_if_missing
     echo "Procesando videos RGB-D grabados y guardando RGB + overlay..."
-    if [[ -f "tests/video/extractVideoFrames.py" ]]; then
+    if [[ -f "tests/video/scripts/extractVideoFrames.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      PYTHONFAULTHANDLER=1 "$PYTHON_BIN" tests/video/extractVideoFrames.py "${@:2}"
+      PYTHONFAULTHANDLER=1 "$PYTHON_BIN" tests/video/scripts/extractVideoFrames.py "${@:2}"
     else
-      echo "ERROR: No se encontro tests/video/extractVideoFrames.py"
+      echo "ERROR: No se encontro tests/video/scripts/extractVideoFrames.py"
       exit 1
     fi
     ;;
@@ -468,11 +474,11 @@ PY
     ensure_python
     setup_cupy_env
     echo "Evaluando metricas con AlgoritmosSegmentacion (dataset PNG en tests/data)..."
-    if [[ -f "tests/metrics.py" ]]; then
+    if [[ -f "tests/evaluation/metrics.py" ]]; then
       export PYTHONPATH="/usr/lib/python3.8/site-packages:/home/jetson/.local/lib/python3.8/site-packages:${PYTHONPATH:-}"
-      "$PYTHON_BIN" tests/metrics.py "${@:2}"
+      "$PYTHON_BIN" tests/evaluation/metrics.py "${@:2}"
     else
-      echo "ERROR: No se encontro tests/metrics.py"
+      echo "ERROR: No se encontro tests/evaluation/metrics.py"
       exit 1
     fi
     ;;

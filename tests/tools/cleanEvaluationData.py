@@ -10,7 +10,7 @@ from pathlib import Path
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Limpia PNGs en tests/data")
-    default_dir = Path(__file__).resolve().parent / "data"
+    default_dir = Path(__file__).resolve().parent.parent / "data"
     parser.add_argument(
         "--dir",
         default=str(default_dir),

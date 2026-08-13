@@ -14,5 +14,9 @@ dockerfile
 .vscode
 /tests/video/videos/RGB/
 /tests/video/videos/depth/
+/tests/video/videos/assets/puerta/
+/tests/video/videos/assets/suelo/
+/tests/video/videos/assets/muro/
 *.h5
 /tests/video/data/
+/CVAT-LABELS
