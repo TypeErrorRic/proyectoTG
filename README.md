@@ -58,3 +58,30 @@ Current status:
   <br/>
   <img alt="Progress chart 72%" src="https://quickchart.io/chart?c=%7B%0A%20%20type%3A%20%27doughnut%27%2C%0A%20%20data%3A%20%7B%0A%20%20%20%20datasets%3A%20%5B%7B%0A%20%20%20%20%20%20data%3A%20%5B72%2C%2028%5D%2C%0A%20%20%20%20%20%20backgroundColor%3A%20%5B%27%2300b86b%27%2C%20%27%23e5e7eb%27%5D%2C%0A%20%20%20%20%7D%5D%0A%20%20%7D%2C%0A%20%20options%3A%20%7B%0A%20%20%20%20plugins%3A%20%7Blegend%3A%20false%7D%2C%0A%20%20%20%20cutout%3A%20%2770%25%27%0A%20%20%7D%0A%7D" />
 </p>
+
+
+Configuración de NoMachine en Jetson Nano (modo headless)
+
+Para usar NoMachine sin monitor físico y evitar que quede mostrando el logo de NVIDIA:
+
+sudo systemctl disable gdm3 --now
+sudo /etc/NX/nxserver --restart
+
+Verificar estado de NoMachine:
+
+sudo /etc/NX/nxserver --status
+
+La salida esperada puede incluir:
+
+WARNING: Cannot find X servers running on this machine.
+WARNING: A new virtual display will be created on demand.
+
+Esto indica que NoMachine creará un display virtual al conectarse.
+
+--------------------------------------------------
+
+Para volver a usar el escritorio gráfico local con monitor físico:
+
+sudo systemctl enable gdm3
+sudo systemctl start gdm3
+sudo /etc/NX/nxserver --restarts
