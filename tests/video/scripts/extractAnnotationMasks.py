@@ -73,9 +73,18 @@ def _metrics(reference: np.ndarray, prediction: np.ndarray) -> dict[str, Any]:
     return _metrics_from_totals(totals)
 
 
+def _result_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+    """Return only the readable metrics included in the JSON report."""
+    return {
+        key: round(float(metrics[key]), 4)
+        for key in ("iou", "dice", "precision", "recall", "accuracy")
+    }
+
+
 def compare_masks(annotation_dir: Path, video_data_dir: Path) -> dict[str, Any]:
     """Compare CVAT and video masks whose filenames match exactly."""
-    report: dict[str, Any] = {"classes": {}}
+    general_results: dict[str, Any] = {}
+    frame_results: dict[str, dict[str, Any]] = {}
 
     for annotation_folder, video_folder in VIDEO_MASK_FOLDERS.items():
         reference_dir = annotation_dir / annotation_folder
@@ -90,11 +99,15 @@ def compare_masks(annotation_dir: Path, video_data_dir: Path) -> dict[str, Any]:
             for path in prediction_dir.iterdir()
             if path.is_file() and path.suffix.casefold() == ".png"
         }
-        items: list[dict[str, Any]] = []
+        matched = 0
         missing: list[str] = []
         totals = {key: 0 for key in ("tp", "fp", "fn", "tn")}
 
         for reference_path in sorted(reference_dir.glob("*.png")):
+            frame = frame_results.setdefault(
+                reference_path.name,
+                {"frame": reference_path.name, "resultados": {}},
+            )
             prediction_path = prediction_files.get(reference_path.name.casefold())
             if prediction_path is None:
                 missing.append(reference_path.name)
@@ -115,17 +128,25 @@ def compare_masks(annotation_dir: Path, video_data_dir: Path) -> dict[str, Any]:
             item_metrics = _metrics(reference, prediction)
             for key in totals:
                 totals[key] += item_metrics[key]
-            items.append({"filename": reference_path.name, **item_metrics})
+            matched += 1
+            frame["resultados"][annotation_folder] = _result_metrics(item_metrics)
 
-        report["classes"][annotation_folder] = {
-            "video_folder": video_folder,
-            "matched": len(items),
-            "missing_in_video_data": missing,
-            "metrics": _metrics_from_totals(totals),
-            "files": items,
+        general_results[annotation_folder] = {
+            "frames_comparados": matched,
+            "frames_sin_pareja": len(missing),
+            "archivos_sin_pareja": missing,
+            **_result_metrics(_metrics_from_totals(totals)),
         }
 
-    return report
+    # Cada frame muestra siempre las tres clases; null indica que no hubo pareja.
+    for frame in frame_results.values():
+        for class_name in VIDEO_MASK_FOLDERS:
+            frame["resultados"].setdefault(class_name, None)
+
+    return {
+        "resultados_generales": general_results,
+        "resultados_por_frame": [frame_results[name] for name in sorted(frame_results)],
+    }
 
 
 def read_labelmap(archive: zipfile.ZipFile) -> dict[str, tuple[int, int, int]]:
@@ -248,13 +269,11 @@ def main() -> None:
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(f"Comparacion guardada en: {report_path}")
-    for class_name, result in report["classes"].items():
-        metrics = result["metrics"]
+    for class_name, result in report["resultados_generales"].items():
         print(
-            f"  {class_name} -> {result['video_folder']}: "
-            f"{result['matched']} coincidencias, "
-            f"IoU={metrics['iou']:.4f}, Dice={metrics['dice']:.4f}, "
-            f"sin pareja={len(result['missing_in_video_data'])}"
+            f"  {class_name}: {result['frames_comparados']} coincidencias, "
+            f"IoU={result['iou']:.4f}, Dice={result['dice']:.4f}, "
+            f"sin pareja={result['frames_sin_pareja']}"
         )
 
     clean_generated_mask_dirs(args.output.resolve())
