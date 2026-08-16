@@ -1,4 +1,4 @@
-"""Crea un mosaico 4x6 usando los indices de ImagenesArreglar.txt."""
+"""Crea un mosaico 6x4 usando los indices de ImagenesArreglar.txt."""
 from __future__ import annotations
 
 import argparse
@@ -7,14 +7,14 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageOps
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 VIDEO_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_INPUT = VIDEO_DIR / "data" / "overlays"
+DEFAULT_INPUT = VIDEO_DIR / "data" / "overlay"
 DEFAULT_CANDIDATES = PROJECT_DIR / "ImagenesArreglar.txt"
-DEFAULT_OUTPUT = VIDEO_DIR / "results" / "mosaico_4x6.jpg"
+DEFAULT_OUTPUT = VIDEO_DIR / "results" / "mosaico_6x4.jpg"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
 
@@ -94,10 +94,7 @@ def create_mosaic(
     cell_width: int, cell_height: int, quality: int,
 ) -> None:
     canvas = Image.new("RGB", (columns * cell_width, rows * cell_height), "black")
-    draw = ImageDraw.Draw(canvas)
-    font = ImageFont.load_default()
-
-    for position, (index, path) in enumerate(selected):
+    for position, (_, path) in enumerate(selected):
         with Image.open(path) as source:
             tile = ImageOps.fit(
                 source.convert("RGB"), (cell_width, cell_height),
@@ -106,15 +103,6 @@ def create_mosaic(
         x = (position % columns) * cell_width
         y = (position // columns) * cell_height
         canvas.paste(tile, (x, y))
-        label = str(index)
-        box = draw.textbbox((0, 0), label, font=font)
-        label_width = box[2] - box[0]
-        label_height = box[3] - box[1]
-        draw.rectangle(
-            (x + 5, y + 5, x + label_width + 13, y + label_height + 11),
-            fill="black",
-        )
-        draw.text((x + 9, y + 7), label, fill="white", font=font)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     save_options = {"quality": quality, "optimize": True} if output.suffix.lower() in {
@@ -126,7 +114,7 @@ def create_mosaic(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Crea un mosaico de 4 columnas por 6 filas con candidatos de "
+            "Crea un mosaico de 6 columnas por 4 filas con candidatos de "
             "ImagenesArreglar.txt e incluye al menos una imagen venus."
         )
     )
@@ -148,7 +136,7 @@ def main() -> int:
     if not 1 <= args.quality <= 100:
         raise ValueError("--quality debe estar entre 1 y 100.")
 
-    columns, rows = 4, 6
+    columns, rows = 6, 4
     candidates, venus = parse_candidates(args.candidates.resolve())
     available = index_images(args.input.resolve())
     selected = choose_images(
@@ -169,3 +157,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
