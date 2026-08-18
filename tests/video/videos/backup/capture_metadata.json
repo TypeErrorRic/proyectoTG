@@ -2,7 +2,7 @@
   "fps": 10.0,
   "camera_fps": 30,
   "sample_every": 3,
-  "frame_count": 709,
+  "frame_count": 2396,
   "rgb_storage": "jpeg_sequence",
   "rgb_directory": "RGB",
   "rgb_pattern": "frame_%06d.jpg",
