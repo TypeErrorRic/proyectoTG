@@ -20,3 +20,4 @@ dockerfile
 *.h5
 /tests/video/data/
 /CVAT-LABELS
+.vscode/
