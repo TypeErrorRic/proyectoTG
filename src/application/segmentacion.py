@@ -16,9 +16,9 @@ class Segmentacion:
     def _obtener_impl(self):
         if self._impl is not None:
             return self._impl
-        helper_path = Path(__file__).resolve().parent / "helpers" / "segmentacion.py"
+        helper_path = Path(__file__).resolve().parent / "implementations" / "segmentacion.py"
         spec = importlib.util.spec_from_file_location(
-            "src.application.helpers_segment",
+            "src.application.implementations_segment",
             helper_path,
         )
         if spec is None or spec.loader is None:

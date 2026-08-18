@@ -15,7 +15,7 @@ class PuertaDeep:
 
     def _obtener_helper(self):
         if self._helper is None:
-            from src.infrastructure.inference.helpers import validacionProfundidad as deep_helpers
+            from application.implementations import validacionProfundidad as deep_helpers
 
             self._helper = deep_helpers
             self.debug_door_deep = deep_helpers.DEBUG_DOOR_DEEP

@@ -10,7 +10,7 @@ from application.camara import camara
 from application.caminoTransitable import CaminoTransitable
 from application.gestorFotogramas import dataset_frames, mascaras
 from application.muro import Muro
-from infrastructure.inference.puerta import Puerta
+from application.puerta import Puerta
 
 # Runtime libraries
 import json

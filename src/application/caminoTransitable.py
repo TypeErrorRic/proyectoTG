@@ -23,9 +23,9 @@ class CaminoTransitable(DetectorClase):
 
     def _obtener_helper(self):
         if self._helper is None:
-            helper_path = Path(__file__).resolve().parent / "helpers" / "caminoTransitable.py"
+            helper_path = Path(__file__).resolve().parent / "implementations" / "caminoTransitable.py"
             spec = importlib.util.spec_from_file_location(
-                "src.application.helpers_ground_detection",
+                "src.application.implementations_ground_detection",
                 helper_path,
             )
             if spec is None or spec.loader is None:

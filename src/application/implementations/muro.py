@@ -15,7 +15,7 @@ import numpy as np
 
 _GROUND_HELPER_PATH = Path(__file__).resolve().parent / "caminoTransitable.py"
 _GROUND_HELPER_SPEC = importlib.util.spec_from_file_location(
-    "src.application.helpers_ground_detection_for_wall",
+    "src.application.implementations_ground_detection_for_wall",
     _GROUND_HELPER_PATH,
 )
 if _GROUND_HELPER_SPEC is None or _GROUND_HELPER_SPEC.loader is None:

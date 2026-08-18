@@ -20,7 +20,7 @@ class PuertaHSV:
 
     def _obtener_helper(self):
         if self._helper is None:
-            from infrastructure.inference.helpers import refinamientoHSV as hsv_helpers
+            from application.implementations import refinamientoHSV as hsv_helpers
 
             self._helper = hsv_helpers
             self.hue_tol = hsv_helpers._HUE_TOL

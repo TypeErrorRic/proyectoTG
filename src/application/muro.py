@@ -20,9 +20,9 @@ class Muro(DetectorClase):
 
     def _obtener_helper(self):
         if self._helper is None:
-            helper_path = Path(__file__).resolve().parent / "helpers" / "muro.py"
+            helper_path = Path(__file__).resolve().parent / "implementations" / "muro.py"
             spec = importlib.util.spec_from_file_location(
-                "src.application.helpers_wall_plane_detection",
+                "src.application.implementations_wall_plane_detection",
                 helper_path,
             )
             if spec is None or spec.loader is None:
