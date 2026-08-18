@@ -52,8 +52,14 @@ def _lazy_init(engine_path: Optional[str] = None) -> bool:
         engine_path = _runtime.get("engine_path")
 
     if engine_path is None:
-        models_dir = Path(__file__).resolve().parents[1]
-        engine_path = str(models_dir / "doors" / "bisenetv2.engine")
+        src_dir = Path(__file__).resolve().parents[2]
+        engine_path = str(
+            src_dir
+            / "infrastructure"
+            / "inference"
+            / "doors"
+            / "bisenetv2.engine"
+        )
 
     if not os.path.exists(engine_path):
         print(f"[doorDetection] Engine file not found: {engine_path}")
