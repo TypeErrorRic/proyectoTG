@@ -1,0 +1,35 @@
+{
+  "name": "outdoor_mosaic_4x6",
+  "columns": 4,
+  "rows": 6,
+  "image_count": 24,
+  "images": [
+    239,
+    42,
+    296,
+    428,
+    223,
+    651,
+    74,
+    565,
+    102,
+    267,
+    439,
+    414,
+    36,
+    67,
+    424,
+    8,
+    398,
+    131,
+    169,
+    117,
+    161,
+    338,
+    321,
+    541
+  ],
+  "source": "ImagenesArreglarExterior.txt",
+  "venus_images": [
+  ]
+}
