@@ -13,11 +13,13 @@ from PIL import Image, ImageOps
 VIDEO_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT = VIDEO_DIR / "data" / "overlay"
 DEFAULT_SELECTION = VIDEO_DIR / "config" / "outdoor_mosaic_selection.json"
-DEFAULT_OUTPUT = VIDEO_DIR / "results" / "outdoor_mosaic_4x6.jpg"
+DEFAULT_OUTPUT = VIDEO_DIR / "results" / "outdoor_mosaic_6x4.jpg"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+MOSAIC_COLUMNS = 6
+MOSAIC_ROWS = 4
 
 
-def load_selection(path: Path) -> tuple[list[int], int, int]:
+def load_selection(path: Path) -> list[int]:
     if not path.is_file():
         raise FileNotFoundError(f"No existe el archivo de seleccion: {path}")
     try:
@@ -30,21 +32,17 @@ def load_selection(path: Path) -> tuple[list[int], int, int]:
         raise ValueError("La configuracion del mosaico debe ser un objeto JSON.")
 
     images = config.get("images")
-    columns = config.get("columns")
-    rows = config.get("rows")
     if not isinstance(images, list) or not images:
         raise ValueError("El campo 'images' debe ser una lista no vacia.")
     if not all(isinstance(index, int) and index >= 0 for index in images):
         raise ValueError("Todos los valores de 'images' deben ser enteros positivos.")
     if len(images) != len(set(images)):
         raise ValueError("El campo 'images' contiene indices repetidos.")
-    if not isinstance(columns, int) or columns <= 0:
-        raise ValueError("El campo 'columns' debe ser un entero positivo.")
-    if not isinstance(rows, int) or rows <= 0:
-        raise ValueError("El campo 'rows' debe ser un entero positivo.")
-    if columns * rows != len(images):
+    required_images = MOSAIC_COLUMNS * MOSAIC_ROWS
+    if len(images) != required_images:
         raise ValueError(
-            f"La cuadricula {columns}x{rows} requiere {columns * rows} imagenes, "
+            f"La cuadricula {MOSAIC_COLUMNS}x{MOSAIC_ROWS} requiere "
+            f"{required_images} imagenes, "
             f"pero el JSON contiene {len(images)}."
         )
     declared_count = config.get("image_count")
@@ -52,7 +50,7 @@ def load_selection(path: Path) -> tuple[list[int], int, int]:
         raise ValueError(
             f"image_count indica {declared_count}, pero hay {len(images)} indices."
         )
-    return images, columns, rows
+    return images
 
 
 def image_index(path: Path) -> Optional[int]:
@@ -115,7 +113,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--selection", type=Path, default=DEFAULT_SELECTION,
-                        help="JSON que contiene images, columns y rows.")
+                        help="JSON que contiene los 24 indices en 'images'.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--cell-width", type=int, default=320)
     parser.add_argument("--cell-height", type=int, default=240)
@@ -130,7 +128,8 @@ def main() -> int:
     if not 1 <= args.quality <= 100:
         raise ValueError("--quality debe estar entre 1 y 100.")
 
-    indices, columns, rows = load_selection(args.selection.resolve())
+    indices = load_selection(args.selection.resolve())
+    columns, rows = MOSAIC_COLUMNS, MOSAIC_ROWS
     available = index_images(args.input.resolve())
     selected = select_images(available, indices)
     create_mosaic(
@@ -146,4 +145,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
