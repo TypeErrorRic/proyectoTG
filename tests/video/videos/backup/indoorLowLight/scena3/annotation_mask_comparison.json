@@ -1,0 +1,140 @@
+{
+  "resultados_generales": {
+    "puerta": {
+      "frames_comparados": 4,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.0,
+      "dice": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "accuracy": 1.0
+    },
+    "camino_transitable": {
+      "frames_comparados": 4,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.8449,
+      "dice": 0.916,
+      "precision": 0.955,
+      "recall": 0.88,
+      "accuracy": 0.9714
+    },
+    "muro": {
+      "frames_comparados": 4,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.8475,
+      "dice": 0.9174,
+      "precision": 0.9679,
+      "recall": 0.8719,
+      "accuracy": 0.9159
+    }
+  },
+  "resultados_por_frame": [
+    {
+      "frame": "frame_000098.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.9244,
+          "dice": 0.9607,
+          "precision": 0.9386,
+          "recall": 0.9839,
+          "accuracy": 0.9857
+        },
+        "muro": {
+          "iou": 0.8566,
+          "dice": 0.9227,
+          "precision": 0.9918,
+          "recall": 0.8627,
+          "accuracy": 0.9224
+        }
+      }
+    },
+    {
+      "frame": "frame_000108.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.7631,
+          "dice": 0.8656,
+          "precision": 0.9687,
+          "recall": 0.7823,
+          "accuracy": 0.9571
+        },
+        "muro": {
+          "iou": 0.8436,
+          "dice": 0.9151,
+          "precision": 0.9548,
+          "recall": 0.8787,
+          "accuracy": 0.9127
+        }
+      }
+    },
+    {
+      "frame": "frame_000110.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8595,
+          "dice": 0.9245,
+          "precision": 0.9471,
+          "recall": 0.9029,
+          "accuracy": 0.9739
+        },
+        "muro": {
+          "iou": 0.8559,
+          "dice": 0.9224,
+          "precision": 0.9721,
+          "recall": 0.8775,
+          "accuracy": 0.9209
+        }
+      }
+    },
+    {
+      "frame": "frame_000111.png",
+      "resultados": {
+        "puerta": {
+          "iou": 0.0,
+          "dice": 0.0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "accuracy": 1.0
+        },
+        "camino_transitable": {
+          "iou": 0.8291,
+          "dice": 0.9065,
+          "precision": 0.9706,
+          "recall": 0.8504,
+          "accuracy": 0.9689
+        },
+        "muro": {
+          "iou": 0.8342,
+          "dice": 0.9096,
+          "precision": 0.9543,
+          "recall": 0.8689,
+          "accuracy": 0.9075
+        }
+      }
+    }
+  ]
+}
