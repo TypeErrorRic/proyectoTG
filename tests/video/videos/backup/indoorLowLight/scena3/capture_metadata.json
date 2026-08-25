@@ -1,0 +1,32 @@
+{
+  "fps": 10.0,
+  "camera_fps": 30,
+  "sample_every": 3,
+  "frame_count": 176,
+  "rgb_storage": "jpeg_sequence",
+  "rgb_directory": "RGB",
+  "rgb_pattern": "frame_%06d.jpg",
+  "rgb_jpeg_quality": 90,
+  "depth_storage": "uint16_png_sequence",
+  "depth_directory": "depth",
+  "depth_pattern": "frame_%06d.png",
+  "depth_png_compression": 3,
+  "depth_scale": 0.0010000000474974513,
+  "depth_aligned_to": "color",
+  "color_intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 605.3040161132812,
+    "fy": 605.2108764648438,
+    "ppx": 322.6189880371094,
+    "ppy": 244.9138641357422,
+    "model": "distortion.inverse_brown_conrady",
+    "coeffs": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

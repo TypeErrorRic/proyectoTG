@@ -21,3 +21,6 @@ dockerfile
 /tests/video/data/
 /CVAT-LABELS
 .vscode/
+/tests/video/videos/backup/indoorLowLight/scena1/RGB/
+/tests/video/videos/backup/indoorLowLight/scena2/RGB/
+/tests/video/videos/backup/indoorLowLight/scena3/RGB/
