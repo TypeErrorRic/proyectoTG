@@ -1,0 +1,56 @@
+% Requiere en el preámbulo: \usepackage{longtable}
+\vspace{0.25 cm}
+
+{%
+\footnotesize
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+
+\begin{longtable}{p{0.34\textwidth} c p{0.34\textwidth} c}
+
+\caption{Parámetros empleados por los algoritmos de segmentación.}
+\label{tab:parametros-segmentacion} \\
+
+\hline
+\textbf{Parámetro} & \textbf{Valor} &
+\textbf{Parámetro} & \textbf{Valor} \\
+\hline
+\endfirsthead
+
+\multicolumn{4}{c}%
+{\tablename\ \thetable\ -- continuación} \\
+\hline
+\textbf{Parámetro} & \textbf{Valor} &
+\textbf{Parámetro} & \textbf{Valor} \\
+\hline
+\endhead
+
+\hline
+\endfoot
+
+C.T.: Submuestreo                          & $2$    & M: Submuestreo                         & $2$ \\
+C.T.: Umbral de distancia al plano         & $0.03\,\mathrm{m}$  & M: Umbral de distancia al plano        & $0.03\,\mathrm{m}$ \\
+C.T.: Iteraciones máx.                     & $300$ iter.           & M: Iteraciones máx.                    & $300$ iter. \\
+C.T.: Mín. inliers                         & $400\,\mathrm{pts}$  & M: Mín. inliers                        & $400\,\mathrm{pts}$ \\
+C.T.: Ángulo máximo                        & $60^{\circ}$         & M: Ángulo máximo                       & $20^{\circ}$ \\
+C.T.: Subconjunto para puntuar             & $2048\,\mathrm{pts}$ & M: Subconjunto para puntuar            & $2048\,\mathrm{pts}$ \\
+C.T.: Ratio corte temprano                 & $0.9$  & M: Ratio corte temprano                & $0.9$ \\
+C.T.: Tamaño de lote                       & $512$ modelos & M: Tamaño de lote                      & $512$ modelos \\
+C.T.: Percentil bajo de altura             & $25\,\%$     & M: Tolerancia refino                   & $1.6$ \\
+C.T.: Fracción inferior ROI                & $0.34$ & M: Max up dot                          & $0.35$ \\
+C.T.: Refinar full-res                     & Sí     & M: Perp. suelo                         & $20^{\circ}$ \\
+C.T.: Mejorar máscara suelo                & Sí     & M: Orto paredes                        & $20^{\circ}$ \\
+C.T.: Tolerancia refino                    & $1.6$  & M: Paralelo paredes                    & $10^{\circ}$ \\
+P: Filtro HSV puerta                       & Sí     & M: Dist. paredes                       & $0.6\,\mathrm{m}$ \\
+P: Rango color                             & $18$   & M: Mejorar máscara pared               & Sí \\
+P: Color min                               & $50$   & P: Luz min                             & $20$ \\
+P: Reflejo color                           & $35$   & P: Reflejo luz                         & $210$ \\
+P: Bajar reflejo                           & $200$  & P: Inclinación máx.                    & $15^{\circ}$ \\
+P: Min puntos en plano                     & $0.4$  &                                        &       \\
+
+\hline
+\multicolumn{4}{l}{\footnotesize C.T.: camino transitable; P: puerta; M: muro.} \\
+\multicolumn{4}{l}{\footnotesize Fuente: elaboración propia.} \\
+
+\end{longtable}
+}
