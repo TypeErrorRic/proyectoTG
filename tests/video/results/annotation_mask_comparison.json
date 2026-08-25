@@ -14,26 +14,26 @@
       "frames_comparados": 4,
       "frames_sin_pareja": 0,
       "archivos_sin_pareja": [],
-      "iou": 0.8449,
-      "dice": 0.916,
-      "precision": 0.955,
-      "recall": 0.88,
-      "accuracy": 0.9714
+      "iou": 0.844,
+      "dice": 0.9154,
+      "precision": 0.9057,
+      "recall": 0.9253,
+      "accuracy": 0.9669
     },
     "muro": {
       "frames_comparados": 4,
       "frames_sin_pareja": 0,
       "archivos_sin_pareja": [],
-      "iou": 0.8475,
-      "dice": 0.9174,
-      "precision": 0.9679,
-      "recall": 0.8719,
-      "accuracy": 0.9159
+      "iou": 0.8664,
+      "dice": 0.9284,
+      "precision": 0.972,
+      "recall": 0.8886,
+      "accuracy": 0.9137
     }
   },
   "resultados_por_frame": [
     {
-      "frame": "frame_000098.png",
+      "frame": "frame_000032.png",
       "resultados": {
         "puerta": {
           "iou": 0.0,
@@ -43,23 +43,23 @@
           "accuracy": 1.0
         },
         "camino_transitable": {
-          "iou": 0.9244,
-          "dice": 0.9607,
-          "precision": 0.9386,
-          "recall": 0.9839,
-          "accuracy": 0.9857
+          "iou": 0.8378,
+          "dice": 0.9117,
+          "precision": 0.8535,
+          "recall": 0.9785,
+          "accuracy": 0.9633
         },
         "muro": {
-          "iou": 0.8566,
-          "dice": 0.9227,
-          "precision": 0.9918,
-          "recall": 0.8627,
-          "accuracy": 0.9224
+          "iou": 0.8851,
+          "dice": 0.939,
+          "precision": 0.993,
+          "recall": 0.8906,
+          "accuracy": 0.9271
         }
       }
     },
     {
-      "frame": "frame_000108.png",
+      "frame": "frame_000044.png",
       "resultados": {
         "puerta": {
           "iou": 0.0,
@@ -69,23 +69,23 @@
           "accuracy": 1.0
         },
         "camino_transitable": {
-          "iou": 0.7631,
-          "dice": 0.8656,
-          "precision": 0.9687,
-          "recall": 0.7823,
-          "accuracy": 0.9571
-        },
-        "muro": {
-          "iou": 0.8436,
+          "iou": 0.8434,
           "dice": 0.9151,
-          "precision": 0.9548,
-          "recall": 0.8787,
-          "accuracy": 0.9127
+          "precision": 0.933,
+          "recall": 0.8978,
+          "accuracy": 0.9676
+        },
+        "muro": {
+          "iou": 0.8643,
+          "dice": 0.9272,
+          "precision": 0.9644,
+          "recall": 0.8928,
+          "accuracy": 0.9118
         }
       }
     },
     {
-      "frame": "frame_000110.png",
+      "frame": "frame_000046.png",
       "resultados": {
         "puerta": {
           "iou": 0.0,
@@ -95,23 +95,23 @@
           "accuracy": 1.0
         },
         "camino_transitable": {
-          "iou": 0.8595,
-          "dice": 0.9245,
-          "precision": 0.9471,
-          "recall": 0.9029,
-          "accuracy": 0.9739
+          "iou": 0.8431,
+          "dice": 0.9149,
+          "precision": 0.9234,
+          "recall": 0.9065,
+          "accuracy": 0.9675
         },
         "muro": {
-          "iou": 0.8559,
-          "dice": 0.9224,
-          "precision": 0.9721,
-          "recall": 0.8775,
-          "accuracy": 0.9209
+          "iou": 0.8599,
+          "dice": 0.9247,
+          "precision": 0.9635,
+          "recall": 0.8888,
+          "accuracy": 0.9089
         }
       }
     },
     {
-      "frame": "frame_000111.png",
+      "frame": "frame_000049.png",
       "resultados": {
         "puerta": {
           "iou": 0.0,
@@ -121,18 +121,18 @@
           "accuracy": 1.0
         },
         "camino_transitable": {
-          "iou": 0.8291,
-          "dice": 0.9065,
-          "precision": 0.9706,
-          "recall": 0.8504,
-          "accuracy": 0.9689
+          "iou": 0.8523,
+          "dice": 0.9203,
+          "precision": 0.922,
+          "recall": 0.9185,
+          "accuracy": 0.9693
         },
         "muro": {
-          "iou": 0.8342,
-          "dice": 0.9096,
-          "precision": 0.9543,
-          "recall": 0.8689,
-          "accuracy": 0.9075
+          "iou": 0.8568,
+          "dice": 0.9229,
+          "precision": 0.9674,
+          "recall": 0.8824,
+          "accuracy": 0.9072
         }
       }
     }
