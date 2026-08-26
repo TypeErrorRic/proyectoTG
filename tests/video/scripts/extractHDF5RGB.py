@@ -19,7 +19,7 @@ import numpy as np
 
 
 VIDEO_DIR = Path(
-    r"C:\Users\equin\Desktop\proyectosPersonales\proyectoTG\tests\video\videos\backup\indoorLowLight\scena1"
+    r"C:\Users\equin\Desktop\proyectosPersonales\proyectoTG\tests\video\videos"
 )
 DEFAULT_HDF5_PATH = VIDEO_DIR / "capture.h5"
 DEFAULT_RGB_OUTPUT_DIR = VIDEO_DIR / "RGB"

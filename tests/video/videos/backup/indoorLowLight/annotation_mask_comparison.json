@@ -1,0 +1,133 @@
+{
+  "escenas_procesadas": 3,
+  "resultados_generales": {
+    "puerta": {
+      "frames_comparados": 12,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.0,
+      "dice": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "accuracy": 1.0
+    },
+    "camino_transitable": {
+      "frames_comparados": 12,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.7731,
+      "dice": 0.8682,
+      "precision": 0.8492,
+      "recall": 0.8966,
+      "accuracy": 0.97
+    },
+    "muro": {
+      "frames_comparados": 12,
+      "frames_sin_pareja": 0,
+      "archivos_sin_pareja": [],
+      "iou": 0.8563,
+      "dice": 0.9225,
+      "precision": 0.9726,
+      "recall": 0.8774,
+      "accuracy": 0.9115
+    }
+  },
+  "resultados_por_escena": {
+    "scena1": {
+      "puerta": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.0,
+        "dice": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "accuracy": 1.0
+      },
+      "camino_transitable": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.6304,
+        "dice": 0.7733,
+        "precision": 0.6869,
+        "recall": 0.8845,
+        "accuracy": 0.9718
+      },
+      "muro": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.855,
+        "dice": 0.9218,
+        "precision": 0.978,
+        "recall": 0.8718,
+        "accuracy": 0.9048
+      }
+    },
+    "scena2": {
+      "puerta": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.0,
+        "dice": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "accuracy": 1.0
+      },
+      "camino_transitable": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.844,
+        "dice": 0.9154,
+        "precision": 0.9057,
+        "recall": 0.9253,
+        "accuracy": 0.9669
+      },
+      "muro": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.8664,
+        "dice": 0.9284,
+        "precision": 0.972,
+        "recall": 0.8886,
+        "accuracy": 0.9137
+      }
+    },
+    "scena3": {
+      "puerta": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.0,
+        "dice": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "accuracy": 1.0
+      },
+      "camino_transitable": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.8449,
+        "dice": 0.916,
+        "precision": 0.955,
+        "recall": 0.88,
+        "accuracy": 0.9714
+      },
+      "muro": {
+        "frames_comparados": 4,
+        "frames_sin_pareja": 0,
+        "archivos_sin_pareja": [],
+        "iou": 0.8475,
+        "dice": 0.9174,
+        "precision": 0.9679,
+        "recall": 0.8719,
+        "accuracy": 0.9159
+      }
+    }
+  }
+}
