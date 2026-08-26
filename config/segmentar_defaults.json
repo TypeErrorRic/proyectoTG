@@ -35,7 +35,7 @@
     "wall_ortho_deg": 20.0,
     "wall_parallel_deg": 10.0,
     "wall_parallel_distance_m": 0.6,
-    "wall_mask_refine": false
+    "wall_mask_refine": true
   },
   "doorParams": {
     "door_hsv_enabled": true,
