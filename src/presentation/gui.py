@@ -16,7 +16,7 @@ import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
 
 # @note Make top-level packages such as application/ and infrastructure/
-# importable when the GUI is loaded as src.presentation.GUI.
+# importable when the GUI is loaded as src.presentation.gui.
 SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
@@ -24,7 +24,7 @@ if SRC_DIR not in sys.path:
 from presentation.funcionesGUI import FuncionesGUI
 from application.gestorFotogramas import configuracion_dataset
 
-from application.segment_v2 import segmentacion
+from application.segmentacion import segmentacion
 from presentation.theme import GUI_COLORS as C
 
 funciones_gui = FuncionesGUI()
