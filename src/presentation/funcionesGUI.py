@@ -59,10 +59,7 @@ class FuncionesGUI:
 
     def _obtener_helper(self):
         if self._helper is None:
-            try:
-                from presentation.components import funcionesGUI as gui_helpers
-            except ModuleNotFoundError:
-                from presentation.components import funcionesGUI as gui_helpers  # type: ignore
+            from presentation.components import funcionesGUI as gui_helpers
 
             self._helper = gui_helpers
             self.segmentacion = getattr(gui_helpers, "segmentacion", None)
@@ -118,6 +115,14 @@ class FuncionesGUI:
 
     def parse_config_params(self, values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return self._obtener_helper().parse_config_params(values)
+
+    def invalid_config_param_keys(self, values: Dict[str, Any]) -> List[str]:
+        return self._obtener_helper().invalid_config_param_keys(values)
+
+    def parse_config_params_with_errors(
+        self, values: Dict[str, Any]
+    ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+        return self._obtener_helper().parse_config_params_with_errors(values)
 
     def validar_parametros(self, valores: Dict[str, Any]) -> bool:
         return self.parse_config_params(valores) is not None

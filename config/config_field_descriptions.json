@@ -7,7 +7,7 @@
   "max_angle_deg": "Tolerancia angular maxima entre el plano detectado y la orientacion esperada del suelo. Aumentarla acepta suelos inclinados o camara mal nivelada; disminuirla reduce falsos positivos.",
   "seed": "Semilla usada por RANSAC para repetir resultados entre ejecuciones. Cambiarla puede producir pequenas variaciones en planos cuando hay muchos candidatos similares.",
   "score_subset": "Cantidad de puntos usados para puntuar cada plano candidato. Aumentarlo mejora la evaluacion del candidato; disminuirlo acelera la seleccion del plano.",
-  "orientation": "Tipo de plano esperado por el detector. Para suelo debe mantenerse como ground, porque activa validaciones orientadas al camino transitable.",
+  "orientation": "Tipo de plano esperado por el detector. Para el suelo debe mantenerse la opción correspondiente al suelo, porque activa validaciones orientadas al camino transitable.",
   "early_stop_ratio": "Proporcion de puntos validos requerida para detener RANSAC antes del limite de iteraciones. Valores altos exigen un plano muy dominante; valores bajos terminan antes pero pueden aceptar resultados menos precisos.",
   "batch_size": "Cantidad de hipotesis de plano evaluadas por lote. Aumentarlo puede aprovechar mejor GPU y acelerar lotes grandes; disminuirlo reduce memoria y picos de carga.",
   "low_height_pct": "Percentil de altura usado para priorizar puntos bajos como candidatos de suelo. Aumentarlo incluye mas zonas de la escena; disminuirlo se concentra en el piso mas cercano o bajo.",

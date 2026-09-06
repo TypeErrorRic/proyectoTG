@@ -9,20 +9,14 @@ from PIL import Image, ImageDraw, ImageGrab
 # Optional import to fetch current configuration parameters at capture time.
 try:
     from application.segmentacion import segmentacion
-except ModuleNotFoundError:
-    try:
-        from application.segmentacion import segmentacion  # type: ignore
-    except ModuleNotFoundError:  # pragma: no cover - fallback when segment is unavailable
-        segmentacion = None  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional dependency unavailable
+    segmentacion = None  # type: ignore
 
 # Optional import to toggle mask overlays from the GUI.
 try:
     from application.gestorFotogramas import mascaras as helpers_mod
-except ModuleNotFoundError:
-    try:
-        from application.gestorFotogramas import mascaras as helpers_mod  # type: ignore
-    except ModuleNotFoundError:  # pragma: no cover - fallback when helpers is unavailable
-        helpers_mod = None  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional dependency unavailable
+    helpers_mod = None  # type: ignore
 
 # Default parameter fallback used when runtime parameters are unavailable.
 DEFAULT_CONFIG_FALLBACK: Dict[str, str] = {
@@ -216,30 +210,30 @@ def param_summary_fields() -> List[Tuple[str, str]]:
     Keys and labels to show in the execution summary panel.
     """
     return [
-        ("subsample_stride", "Submuestreo (stride px)"),
+        ("subsample_stride", "Submuestreo (salto en píxeles)"),
         ("dist_thresh", "Umbral distancia al plano (m)"),
         ("max_iters", "Iteraciones max. (RANSAC)"),
-        ("min_inliers", "Min. inliers (pts)"),
-        ("max_angle_deg", "Angulo max. (grados)"),
-        ("max_up_dot", "Max up dot (0-1)"),
-        ("score_subset", "Subconjunto para puntuar (pts)"),
-        ("early_stop_ratio", "Ratio corte temprano (0-1)"),
-        ("batch_size", "Tamano de lote (modelos)"),
+        ("min_inliers", "Mín. puntos compatibles"),
+        ("max_angle_deg", "Ángulo máx. (grados)"),
+        ("max_up_dot", "Máx. producto vertical (0-1)"),
+        ("score_subset", "Subconjunto para puntuar (puntos)"),
+        ("early_stop_ratio", "Proporción de corte temprano (0-1)"),
+        ("batch_size", "Tamaño de lote (modelos)"),
         ("low_height_pct", "Percentil bajo de altura (%)"),
-        ("roi_bottom_fraction", "Fraccion inferior ROI (0-1)"),
-        ("refine_full_res", "Refinar full-res"),
-        ("refine_dist_mult", "Tolerancia refino (dist_mult)"),
-        ("ground_mask_refine", "Mejorar mascara suelo (0/1)"),
-        ("wall_subsample_stride", "Submuestreo (stride px)"),
+        ("roi_bottom_fraction", "Fracción inferior ROI (0-1)"),
+        ("refine_full_res", "Refinar a resolución completa"),
+        ("refine_dist_mult", "Multiplicador de distancia de refino"),
+        ("ground_mask_refine", "Mejorar máscara suelo (0/1)"),
+        ("wall_subsample_stride", "Submuestreo (salto en píxeles)"),
         ("wall_dist_thresh", "Umbral distancia al plano (m)"),
         ("wall_max_iters", "Iteraciones max. (RANSAC)"),
-        ("wall_min_inliers", "Min. inliers (pts)"),
-        ("wall_max_angle_deg", "Angulo max. (grados)"),
-        ("wall_score_subset", "Subconjunto para puntuar (pts)"),
-        ("wall_early_stop_ratio", "Ratio corte temprano (0-1)"),
-        ("wall_batch_size", "Tamano de lote (modelos)"),
-        ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)"),
-        ("wall_mask_refine", "Mejorar mascara pared (0/1)"),
+        ("wall_min_inliers", "Mín. puntos compatibles"),
+        ("wall_max_angle_deg", "Ángulo máx. (grados)"),
+        ("wall_score_subset", "Subconjunto para puntuar (puntos)"),
+        ("wall_early_stop_ratio", "Proporción de corte temprano (0-1)"),
+        ("wall_batch_size", "Tamaño de lote (modelos)"),
+        ("wall_refine_dist_mult", "Multiplicador de distancia de refino"),
+        ("wall_mask_refine", "Mejorar máscara pared (0/1)"),
         ("ground_perp_deg", "Perp. suelo (grados)"),
         ("wall_ortho_deg", "Orto paredes (grados)"),
         ("wall_parallel_deg", "Paralelo paredes (grados)"),
@@ -252,7 +246,7 @@ def param_summary_fields() -> List[Tuple[str, str]]:
         ("door_glare_v_min", "Reflejo luz (0-255)"),
         ("door_glare_v_clip", "Bajar reflejo (0-255)"),
         ("door_ground_parallel_deg", "Inclinacion max. (grados)"),
-        ("door_plane_inlier_ratio", "Min puntos en plano (0-1)"),
+        ("door_plane_inlier_ratio", "Proporción mín. de puntos en plano (0-1)"),
     ]
 
 
@@ -269,9 +263,11 @@ def validate_numeric_entry(proposed: str) -> bool:
         return False
 
 
-def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def parse_config_params_with_errors(
+    values: Dict[str, Any],
+) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """
-    Convert UI strings into typed parameters; returns None on error.
+    Convert UI strings and return the parsed values plus any invalid keys.
     """
     specs = {
         "subsample_stride": (int, 0.0),
@@ -385,7 +381,7 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     if errors:
         print(f"[GUI] Parametros invalidos: {', '.join(errors)}")
-        return None
+        return None, errors
 
     # Normalize boolean fields and practical limits
     for key in ("refine_full_res", "wall_mask_refine", "ground_mask_refine", "door_hsv_enabled"):
@@ -415,6 +411,18 @@ def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     ):
         if key in parsed:
             parsed[key] = max(0, min(255, int(parsed[key])))
+    return parsed, []
+
+
+def invalid_config_param_keys(values: Dict[str, Any]) -> List[str]:
+    """Return the keys whose values cannot be parsed or are out of range."""
+    _parsed, errors = parse_config_params_with_errors(values)
+    return errors
+
+
+def parse_config_params(values: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Convert UI strings into typed parameters; return ``None`` on error."""
+    parsed, _errors = parse_config_params_with_errors(values)
     return parsed
 
 

@@ -21,19 +21,10 @@ SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-try:
-    # Preferred import when running as a package/module.
-    from presentation.funcionesGUI import FuncionesGUI
-except ModuleNotFoundError:
-    # Fallback for direct script execution from the src directory.
-    from presentation.funcionesGUI import FuncionesGUI
+from presentation.funcionesGUI import FuncionesGUI
+from application.gestorFotogramas import configuracion_dataset
 
-try:
-    from application.gestorFotogramas import configuracion_dataset
-except ModuleNotFoundError:
-    from application.gestorFotogramas import configuracion_dataset
-
-from application.segmentacion import segmentacion
+from application.segment_v2 import segmentacion
 from presentation.theme import GUI_COLORS as C
 
 funciones_gui = FuncionesGUI()
@@ -53,6 +44,7 @@ DOOR_HSV_RELATED_KEYS = (
     "door_glare_v_min",
     "door_glare_v_clip",
 )
+INVALID_FIELD_BG = "#FADADD"
 
 
 class SegmentacionApp:
@@ -93,6 +85,7 @@ class SegmentacionApp:
         self.config_vars: Dict[str, tk.StringVar] = {}
         self.config_defaults: Dict[str, str] = {}
         self._config_field_widgets: Dict[str, Tuple[tk.Widget, tk.Widget]] = {}
+        self._config_field_default_bgs: Dict[str, str] = {}
         self._config_description_popup: Optional[tk.Toplevel] = None
         self._door_hsv_related_keys = set(DOOR_HSV_RELATED_KEYS)
         self._config_apply_btn: Optional[tk.Button] = None
@@ -311,7 +304,7 @@ class SegmentacionApp:
         self.btn_config = tk.Button(
             top_wrapper,
             image=config_icon,
-            text="" if config_icon else "Config",
+            text="" if config_icon else "Configuración",
             bg=C.BTN_NEUTRAL_BG,
             fg=C.TEXT_LIGHT,
             bd=0,
@@ -514,7 +507,7 @@ class SegmentacionApp:
         mode_content.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=(4, 6))
 
         self.mode_label_text = tk.StringVar(
-            value="Modo de ejecución: Cámara RGB-D" if self.mode == "camera" else "Modo de ejecución: Dataset de pruebas"
+            value="Modo de ejecución: Cámara RGB-D" if self.mode == "camera" else "Modo de ejecución: Conjunto de pruebas"
         )
         mode_label = tk.Label(
             mode_content,
@@ -645,7 +638,7 @@ class SegmentacionApp:
         if not self.gallery_paths:
             self.gallery_photo_ref = None
             self.gallery_display.configure(
-                text="No hay capturas en uploads.",
+                text="No hay capturas en la carpeta de cargas.",
                 image="",
                 bg=C.PANEL_NEUTRAL_BG,
             )
@@ -1415,34 +1408,34 @@ class SegmentacionApp:
             (
                 "Camino transitable",
                 [
-                    ("subsample_stride", "Submuestreo (stride px)", "2"),
+                    ("subsample_stride", "Submuestreo (salto en píxeles)", "2"),
                     ("dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
                     ("max_iters", "Iteraciones máx. (RANSAC)", "900"),
-                    ("min_inliers", "Mín. inliers (pts)", "400"),
+                    ("min_inliers", "Mín. puntos compatibles", "400"),
                     ("max_angle_deg", "Ángulo máximo (grados)", "60.0"),
-                    ("score_subset", "Subconjunto para puntuar (pts)", "4096"),
-                    ("early_stop_ratio", "Ratio corte temprano (0-1)", "0.92"),
+                    ("score_subset", "Subconjunto para puntuar (puntos)", "4096"),
+                    ("early_stop_ratio", "Proporción de corte temprano (0-1)", "0.92"),
                     ("batch_size", "Tamaño de lote (modelos)", "256"),
                     ("low_height_pct", "Percentil bajo de altura (%)", "25.0"),
                     ("roi_bottom_fraction", "Fracción inferior ROI (0-1)", "0.34"),
-                    ("refine_full_res", "Refinar full-res", "1"),
+                    ("refine_full_res", "Refinar a resolución completa", "1"),
                     ("ground_mask_refine", "Mejorar máscara suelo", "0"),
-                    ("refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
+                    ("refine_dist_mult", "Multiplicador de distancia de refino", "1.6"),
                 ],
             ),
             (
                 "Muros",
                 [
-                    ("wall_subsample_stride", "Submuestreo (stride px)", "2"),
+                    ("wall_subsample_stride", "Submuestreo (salto en píxeles)", "2"),
                     ("wall_dist_thresh", "Umbral de distancia al plano (m)", "0.03"),
                     ("wall_max_iters", "Iteraciones máx. (RANSAC)", "300"),
-                    ("wall_min_inliers", "Mín. inliers (pts)", "400"),
+                    ("wall_min_inliers", "Mín. puntos compatibles", "400"),
                     ("wall_max_angle_deg", "Ángulo máximo (grados)", "20.0"),
-                    ("wall_score_subset", "Subconjunto para puntuar (pts)", "4096"),
-                    ("wall_early_stop_ratio", "Ratio corte temprano (0-1)", "0.90"),
+                    ("wall_score_subset", "Subconjunto para puntuar (puntos)", "4096"),
+                    ("wall_early_stop_ratio", "Proporción de corte temprano (0-1)", "0.90"),
                     ("wall_batch_size", "Tamaño de lote (modelos)", "1024"),
-                    ("wall_refine_dist_mult", "Tolerancia refino (dist_mult)", "1.6"),
-                    ("max_up_dot", "Max up dot (0-1)", "0.35"),
+                    ("wall_refine_dist_mult", "Multiplicador de distancia de refino", "1.6"),
+                    ("max_up_dot", "Máx. producto vertical (0-1)", "0.35"),
                     ("ground_perp_deg", "Perp. suelo (grados)", "20.0"),
                     ("wall_ortho_deg", "Orto paredes (grados)", "20.0"),
                     ("wall_parallel_deg", "Paralelo paredes (grados)", "10.0"),
@@ -1461,7 +1454,7 @@ class SegmentacionApp:
                     ("door_glare_v_min", "Reflejo luz (0-255)", "210"),
                     ("door_glare_v_clip", "Bajar reflejo (0-255)", "200"),
                     ("door_ground_parallel_deg", "Inclinación máx. (grados)", "15.0"),
-                    ("door_plane_inlier_ratio", "Min puntos en plano (0-1)", "0.40"),
+                    ("door_plane_inlier_ratio", "Proporción mín. de puntos en plano (0-1)", "0.40"),
                 ],
             ),
         ]
@@ -1549,6 +1542,7 @@ class SegmentacionApp:
             return label_box
 
         self._config_field_widgets = {}
+        self._config_field_default_bgs = {}
         for title_text, fields in sections:
             section = tk.LabelFrame(
                 form_fields,
@@ -1594,6 +1588,7 @@ class SegmentacionApp:
                     if key == "door_hsv_enabled":
                         var.trace_add("write", lambda *_args: _update_door_hsv_form_visibility())
                     self._config_field_widgets[key] = (lbl, btn)
+                    self._config_field_default_bgs[key] = str(btn.cget("bg"))
                 else:
                     entry = tk.Entry(
                         section,
@@ -1604,6 +1599,7 @@ class SegmentacionApp:
                     )
                     entry.grid(row=row, column=col_offset + 1, sticky="ew", padx=(0, 2), pady=2)
                     self._config_field_widgets[key] = (lbl, entry)
+                    self._config_field_default_bgs[key] = str(entry.cget("bg"))
 
         # Ensure the entries reflect the latest defaults pulled from the runtime.
         for key, value in self.config_defaults.items():
@@ -1820,9 +1816,17 @@ class SegmentacionApp:
         \brief Apply configuration values to the segmentation thread.
         """
         raw_values = {key: var.get() for key, var in self.config_vars.items()}
-        parsed = funciones_gui.parse_config_params(raw_values)
+        parsed, validation_errors = funciones_gui.parse_config_params_with_errors(raw_values)
+        invalid_keys = set(validation_errors)
+        for key, (_label, field) in self._config_field_widgets.items():
+            field.configure(
+                bg=INVALID_FIELD_BG if key in invalid_keys else self._config_field_default_bgs.get(key, C.LIGHT_BG)
+            )
         if parsed is None:
-            self._set_apply_status("No aplicado", bg=C.DANGER_BG, active_bg=C.DANGER_HOVER_BG)
+            self._set_apply_status("Parámetros incorrectos", bg=C.DANGER_BG, active_bg=C.DANGER_HOVER_BG)
+            first_invalid = next((key for key in self.config_vars if key in invalid_keys), None)
+            if first_invalid is not None:
+                self._config_field_widgets[first_invalid][1].focus_set()
             return
 
         self._apply_runtime_params(parsed)
@@ -1909,7 +1913,7 @@ class SegmentacionApp:
         else:
             self.btn_mode_test.configure(relief=tk.SUNKEN, bg=C.SUCCESS_BG, activebackground=C.SUCCESS_HOVER_BG)
             self.btn_mode_cam.configure(relief=tk.RAISED, bg=C.DANGER_BG, activebackground=C.DANGER_HOVER_BG)
-            self.mode_label_text.set("Modo de ejecución: Dataset de pruebas")
+            self.mode_label_text.set("Modo de ejecución: Conjunto de pruebas")
 
         self._update_stream_controls_state()
         self._update_sample_panel_state()
@@ -2273,10 +2277,12 @@ class SegmentacionApp:
             dataset_filename = None if not metrics else metrics.get("dataset_filename")
             class_metrics = metrics.get("class_metrics") if metrics else {}
             overlay_lines.append(
-                f"Frame total: {frame_ms:.1f} ms" if frame_ms is not None else "Frame total: -- ms"
+                f"Tiempo total del fotograma: {frame_ms:.1f} ms"
+                if frame_ms is not None
+                else "Tiempo total del fotograma: -- ms"
             )
             if dataset_filename:
-                overlay_lines.append(f"Frame: {dataset_filename}")
+                overlay_lines.append(f"Fotograma: {dataset_filename}")
 
             def _fmt(v):
                 return f"{v:.2f}" if v is not None else "--"
