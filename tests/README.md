@@ -36,6 +36,7 @@ Ejecuta los scripts desde la raíz del repositorio:
 ```bash
 python3 tests/video/scripts/captureVideo.py
 python3 tests/video/scripts/createHDF5.py
+python3 tests/video/scripts/extractHDF5Pair.py 25
 python3 tests/video/scripts/extractVideoFrames.py
 python3 tests/video/scripts/createVideo.py --input /ruta/absoluta/a/imagenes
 python3 tests/video/scripts/extractAnnotationMasks.py
@@ -43,6 +44,7 @@ python3 tests/video/scripts/extractAnnotationMasks.py
 
 - `captureVideo.py`: captura pares RGB y profundidad RealSense.
 - `createHDF5.py`: empaqueta la captura sincronizada en HDF5.
+- `extractHDF5Pair.py`: extrae un par RGB/depth por posición (desde 1) a `src/infrastructure/datasets/{images,depths}`. Usa `--h5` para otro archivo y `--name test_01348.png` para elegir el nombre de la muestra.
 - `extractVideoFrames.py`: reconstruye y segmenta los fotogramas.
 - `createVideo.py`: crea un MP4 a partir de imágenes.
 - `extractAnnotationMasks.py`: separa el ZIP de CVAT en puerta, suelo y muro.

@@ -1,6 +1,6 @@
 {
   "groundParams": {
-    "dist_thresh": 0.04,
+    "dist_thresh": 0.03,
     "max_iters": 300,
     "min_inliers": 400,
     "subsample_stride": 2,
@@ -22,7 +22,7 @@
   },
   "wallParams": {
     "wall_subsample_stride": 2,
-    "wall_dist_thresh": 0.05,
+    "wall_dist_thresh": 0.03,
     "wall_max_iters": 300,
     "wall_min_inliers": 400,
     "wall_max_angle_deg": 20.0,
@@ -38,7 +38,7 @@
     "wall_mask_refine": true
   },
   "doorParams": {
-    "door_hsv_enabled": false,
+    "door_hsv_enabled": true,
     "door_hue_tol": 18,
     "door_min_s": 50,
     "door_min_v": 20,
@@ -46,7 +46,7 @@
     "door_glare_v_min": 210,
     "door_glare_v_clip": 200,
     "door_ground_parallel_deg": 15.0,
-    "door_plane_inlier_ratio": 0.2
+    "door_plane_inlier_ratio": 0.4
   },
   "wallParamsOverrides": {
     "max_angle_deg": 20.0,
