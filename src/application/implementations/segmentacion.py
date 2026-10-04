@@ -8,7 +8,7 @@ and shares its result with the main thread through a small queue.
 # Project libraries
 from application.camara import camara
 from application.caminoTransitable import CaminoTransitable
-from application.gestorFotogramas import dataset_frames, mascaras
+from application.gestorFotogramas import configuracion_dataset, dataset_frames, mascaras
 from application.muro import Muro
 from application.puerta import Puerta
 
@@ -142,6 +142,8 @@ def _actualizar_parametros_impl(nuevos_params: Dict[str, Any]) -> Dict[str, Any]
         door_params = dict(_runtime.door_params)
         for key, value in nuevos_params.items():
             if value is None:
+                continue
+            if key == "color_intrinsics":
                 continue
             if key in _runtime.door_param_keys or key.startswith("door_"):
                 door_params[key] = value
@@ -773,9 +775,13 @@ def _preprocesar_impl(
     Returns True on success and False if the current frame is invalid.
     """
     if mode == "prueba":
-        _runtime["dataset_filename"] = _resolve_dataset_filename(dataset_index)
         # Offline mode: load RGB and depth from disk.
         imagenRGB, mapaProfundidad = dataset_frames.load_dataset_frame(index=dataset_index)
+        _runtime["dataset_filename"] = (
+            _resolve_dataset_filename(dataset_index)
+            if dataset_index is not None
+            else getattr(dataset_frames, "ultimo_nombre", None)
+        )
         if imagenRGB is None or mapaProfundidad is None:
             _runtime["imagenRGB"] = None
             _runtime["mapaProfundidad"] = None
@@ -796,9 +802,28 @@ def _preprocesar_impl(
                 mapaProfundidad, (W, H), interpolation=cv2.INTER_NEAREST
             )
 
-        # In dataset mode we always use "normalized" rays that are independent
-        # of real intrinsics and consistent with a simple Z-up camera model.
-        rays_np = camara.compute_normalized_rays(H, W)
+        filename = _runtime.get("dataset_filename")
+        files = _dataset_files()
+        frame_index = files.index(filename) if filename in files else None
+        frame_params = {}
+        if frame_index is not None:
+            _, _, frame_params = configuracion_dataset.load_dataset_image_params_by_index(frame_index)
+        intrinsics = frame_params.get("color_intrinsics")
+        if isinstance(intrinsics, dict):
+            scale_x = W / float(intrinsics["width"])
+            scale_y = H / float(intrinsics["height"])
+            fx = float(intrinsics["fx"]) * scale_x
+            fy = float(intrinsics["fy"]) * scale_y
+            ppx = float(intrinsics["ppx"]) * scale_x
+            ppy = float(intrinsics["ppy"]) * scale_y
+            u = np.arange(W, dtype=np.float32)
+            v = np.arange(H, dtype=np.float32)
+            uu, vv = np.meshgrid(u, v)
+            x = (uu - ppx) / fx
+            y = (vv - ppy) / fy
+            rays_np = np.stack((x, y, np.ones_like(x)), axis=-1).astype(np.float32)
+        else:
+            rays_np = camara.compute_normalized_rays(H, W)
         _runtime["rays_cp"] = cp.asarray(rays_np)
 
     else:

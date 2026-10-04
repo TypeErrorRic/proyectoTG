@@ -1,4 +1,12 @@
 {
+  "color_intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 605.3040161132812,
+    "fy": 605.2108764648438,
+    "ppx": 322.6189880371094,
+    "ppy": 244.9138641357422
+  },
   "groundParams": {
     "dist_thresh": 0.03,
     "max_iters": 300,

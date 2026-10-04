@@ -104,7 +104,9 @@ class DatasetFrames(PipelineHelperMixin):
         self.indice_actual = 0
 
     def load_dataset_frame(self, *args: Any, **kwargs: Any) -> Any:
-        return self.helper().load_dataset_frame(*args, **kwargs)
+        frame = self.helper().load_dataset_frame(*args, **kwargs)
+        self.ultimo_nombre = self.helper()._DATASET_LAST_FILENAME
+        return frame
 
     def cargar_frame(self, indice: int) -> Any:
         self.indice_actual = int(indice)

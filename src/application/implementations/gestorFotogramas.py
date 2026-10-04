@@ -612,6 +612,7 @@ def apply_mask_to_rgb(
 
 _DATASET_IMAGE_FILES = None
 _DATASET_INDEX = 0
+_DATASET_LAST_FILENAME = None
 
 
 def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
@@ -621,7 +622,7 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
     Assumes depth in PNG uint16 (mm) and converts to meters (float32).
     If 'index' is provided, loads that specific item (0-based, wraps modulo dataset size).
     """
-    global _DATASET_IMAGE_FILES, _DATASET_INDEX
+    global _DATASET_IMAGE_FILES, _DATASET_INDEX, _DATASET_LAST_FILENAME
     try:
         base_dir = os.path.join(_SRC_ROOT, "infrastructure", "datasets")
         images_dir = os.path.join(base_dir, "images")
@@ -687,6 +688,7 @@ def load_dataset_frame(index: Optional[int] = None) -> Tuple[Optional[np.ndarray
             # Already float32, assume in meters
             mapa_profundidad = depth_raw.astype(np.float32)
 
+        _DATASET_LAST_FILENAME = filename
         return imagen_rgb, mapa_profundidad
     except Exception as exc:
         print(f"[helpers] Error cargando datos desde src/infrastructure/datasets: {exc}")
