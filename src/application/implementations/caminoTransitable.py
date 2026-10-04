@@ -31,7 +31,8 @@ def ransac_plane_gpu(points,
                      point_chunk=None,
                      score_subset=None,
                      orientation: str = 'any',
-                     early_stop_ratio: float = 0.92):
+                     early_stop_ratio: float = 0.92,
+                     debug_early_stop: bool = False):
     """
     GPU-optimized RANSAC for a horizontal plane (floor/ceiling).
 
@@ -119,6 +120,8 @@ def ransac_plane_gpu(points,
         effective_batch_size = max(1, math.ceil(remaining / 4))
     start_time = time.perf_counter()
     processed_batches = 0
+    best_sample_count = -1
+    stopped_early = False
     while remaining > 0:
         K = int(min(effective_batch_size, remaining))
         remaining -= K
@@ -170,6 +173,7 @@ def ransac_plane_gpu(points,
         # 5) Mejor del lote
         batch_best_idx = int(cp.argmax(counts).get())
         batch_best_count = int(counts[batch_best_idx].get())
+        best_sample_count = max(best_sample_count, batch_best_count)
 
         if batch_best_count > best_count and batch_best_count >= min_inliers:
             best_count = batch_best_count
@@ -179,7 +183,16 @@ def ransac_plane_gpu(points,
         processed_batches += 1
         # Early-stop por calidad del modelo (en la submuestra)
         if score_subset and batch_best_count >= int(early_stop_ratio * int(score_subset)):
+            stopped_early = remaining > 0
             break
+
+    if debug_early_stop:
+        print(
+            f"[RANSAC corte] proporcion={early_stop_ratio:.2f} | "
+            f"mejor={best_sample_count}/{score_subset} | "
+            f"modelos={int(max_iters) - remaining}/{int(max_iters)} | "
+            f"lotes={processed_batches} | corte_temprano={stopped_early}"
+        )
 
     if best_count < 0:
         return None

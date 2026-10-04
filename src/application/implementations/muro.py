@@ -396,6 +396,7 @@ def get_wall_planes(
             orientation="vertical",
             early_stop_ratio=early_stop_ratio,
             batch_size=batch_size,
+            debug_early_stop=timing_on,
         )
         if res is None:
             break
