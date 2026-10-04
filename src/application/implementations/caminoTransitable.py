@@ -112,10 +112,15 @@ def ransac_plane_gpu(points,
     score_chunk = min(int(P_samp.shape[0]), 4096 if small_gpu else 8192)
 
     remaining = int(max_iters)
+    # El corte se comprueba al final de cada lote. Si un lote abarca todas las
+    # iteraciones, la proporción de corte no puede detener la búsqueda antes.
+    effective_batch_size = int(batch_size)
+    if remaining > 1 and effective_batch_size >= remaining:
+        effective_batch_size = max(1, math.ceil(remaining / 4))
     start_time = time.perf_counter()
     processed_batches = 0
     while remaining > 0:
-        K = int(min(batch_size, remaining))
+        K = int(min(effective_batch_size, remaining))
         remaining -= K
 
         # 1) Sample indices (with replacement; degenerate filtered by norm)
