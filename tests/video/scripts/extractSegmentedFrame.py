@@ -1,8 +1,9 @@
-"""Extrae un fotograma segmentado al dataset de prueba de ``src``.
+"""Extrae las tres mascaras de un fotograma a las etiquetas del dataset.
 
-Lee el RGB y las mascaras de camino transitable y puerta generadas por
+Lee las imagenes de camino transitable, puerta y muro generadas por
 ``extractVideoFrames.py``. Los tres archivos se guardan como PNG con un nombre
-comun (por defecto, ``test_XXXXX.png``).
+comun (por defecto, ``test_XXXXX.png``) dentro de sus respectivas subcarpetas
+en ``src/infrastructure/datasets/labels``.
 """
 
 from __future__ import annotations
@@ -19,15 +20,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_INPUT = PROJECT_ROOT / "tests" / "video" / "data"
 DEFAULT_DATASET = PROJECT_ROOT / "src" / "infrastructure" / "datasets"
 SOURCE_DIRECTORIES = {
-    "rgb": "RGB",
-    "floor": "camino_transitable",
-    "door": "puerta",
+    "camino_transitable": "camino_transitable",
+    "puerta": "puerta",
+    "muro": "muro",
 }
 DESTINATION_DIRECTORIES = {
-    "rgb": Path("images"),
-    "floor": Path("labels") / "floorGroundTruth",
-    # Se conserva el nombre existente del directorio del proyecto.
-    "door": Path("labels") / "doorGrounTruth",
+    "camino_transitable": Path("labels") / "floorGroundTruth",
+    "puerta": Path("labels") / "doorGrounTruth",
+    "muro": Path("labels") / "wallGroundTruth",
 }
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 
@@ -48,9 +48,8 @@ def find_frame(directory: Path, frame_number: int) -> Path:
     return matches[0]
 
 
-def read_image(path: Path, kind: str) -> np.ndarray:
-    flag = cv2.IMREAD_COLOR if kind == "rgb" else cv2.IMREAD_GRAYSCALE
-    image = cv2.imread(str(path), flag)
+def read_image(path: Path) -> np.ndarray:
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if image is None:
         raise ValueError(f"No se pudo leer la imagen: {path}")
     return image
@@ -63,7 +62,7 @@ def extract_segmented_frame(
     name: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    """Copia un RGB y sus dos mascaras al dataset de ``src``."""
+    """Copia las mascaras de camino, puerta y muro a ``labels``."""
     if frame_number < 1:
         raise ValueError("El numero de fotograma debe ser mayor o igual a 1.")
 
@@ -75,14 +74,14 @@ def extract_segmented_frame(
         kind: find_frame(input_dir / directory, frame_number)
         for kind, directory in SOURCE_DIRECTORIES.items()
     }
-    images = {kind: read_image(path, kind) for kind, path in sources.items()}
+    images = {kind: read_image(path) for kind, path in sources.items()}
 
-    rgb_shape = images["rgb"].shape[:2]
-    for kind in ("floor", "door"):
-        if images[kind].shape != rgb_shape:
+    reference_shape = images["camino_transitable"].shape[:2]
+    for kind in ("puerta", "muro"):
+        if images[kind].shape[:2] != reference_shape:
             raise ValueError(
                 f"Las dimensiones de {sources[kind]} ({images[kind].shape}) "
-                f"no coinciden con RGB ({rgb_shape})."
+                f"no coinciden con camino_transitable ({reference_shape})."
             )
 
     destinations = {
